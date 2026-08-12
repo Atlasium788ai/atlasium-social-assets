@@ -6,6 +6,9 @@ interface Env {
   UPLOADS: R2Bucket;
   UPLOAD_KEY: string;
   BUFFER_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_TEXT_MODEL?: string;
+  OPENAI_IMAGE_MODEL?: string;
   ANTHROPIC_API_KEY?: string;
   CLAUDE_MODEL?: string;
   IMAGES: {
@@ -16,6 +19,12 @@ interface Env {
     };
   };
 }
+
+type AgentPlan = {
+  campaign: string;
+  timing: "auto" | "now" | "queue" | "schedule";
+  posts: Array<{ concept: string; caption: string; imagePrompt: string }>;
+};
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -92,6 +101,105 @@ async function createBufferPost(env: Env, input: { channelId: string; text: stri
   const result = data.createPost as { __typename?: string; message?: string; post?: { id: string } };
   if (result?.__typename !== "PostActionSuccess") throw new Error(result?.message || "Buffer rejected the post.");
   return result.post;
+}
+
+function responseText(data: { output?: Array<{ content?: Array<{ type?: string; text?: string; refusal?: string }> }> }) {
+  for (const item of data.output || []) for (const content of item.content || []) {
+    if (content.type === "refusal") throw new Error(content.refusal || "OpenAI declined this request.");
+    if (content.type === "output_text" && content.text) return content.text;
+  }
+  throw new Error("OpenAI returned no campaign plan.");
+}
+
+async function createPlan(env: Env, prompt: string, channelNames: string[], timingOverride: string): Promise<AgentPlan> {
+  if (!env.OPENAI_API_KEY) throw new Error("OpenAI connection required.");
+  const schema = {
+    type: "object", additionalProperties: false, required: ["campaign", "timing", "posts"],
+    properties: {
+      campaign: { type: "string" },
+      timing: { type: "string", enum: ["auto", "now", "queue", "schedule"] },
+      posts: { type: "array", minItems: 1, maxItems: 8, items: { type: "object", additionalProperties: false, required: ["concept", "caption", "imagePrompt"], properties: {
+        concept: { type: "string" }, caption: { type: "string" }, imagePrompt: { type: "string" },
+      } } },
+    },
+  };
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: env.OPENAI_TEXT_MODEL || "gpt-5.6-luna",
+      input: [
+        { role: "system", content: "You are Atlasium's autonomous social campaign planner. Turn the request into 1-8 distinct posts. Preserve facts and intent; never invent offers, prices, dates, proof, or links. Write polished captions suitable for the named channels. Each image prompt must describe a premium, dark, modern Atlasium-style square social image, visually distinct, with no logos and minimal or no rendered text. Infer timing from the request: now only when explicitly immediate; queue when explicitly requested; schedule for stated date windows; otherwise auto. Return only the schema." },
+        { role: "user", content: `Today is ${new Date().toISOString()}. Channels: ${channelNames.join(", ")}. UI timing preference: ${timingOverride}. Request: ${prompt}` },
+      ],
+      text: { format: { type: "json_schema", name: "atlasium_campaign", strict: true, schema } },
+    }),
+  });
+  const data = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string; refusal?: string }> }>; error?: { message?: string } };
+  if (!response.ok) throw new Error(data.error?.message || "OpenAI campaign planning failed.");
+  const plan = JSON.parse(responseText(data)) as AgentPlan;
+  if (["now", "queue", "schedule"].includes(timingOverride)) plan.timing = timingOverride as AgentPlan["timing"];
+  return plan;
+}
+
+async function generateAndHostImage(request: Request, env: Env, prompt: string) {
+  const response = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: JSON.stringify({ model: env.OPENAI_IMAGE_MODEL || "gpt-image-2", prompt, size: "1024x1024", quality: "medium", output_format: "png" }),
+  });
+  const data = await response.json() as { data?: Array<{ b64_json?: string }>; error?: { message?: string } };
+  if (!response.ok || !data.data?.[0]?.b64_json) throw new Error(data.error?.message || "OpenAI image generation failed.");
+  const binary = Uint8Array.from(atob(data.data[0].b64_json), (character) => character.charCodeAt(0));
+  const key = `${new Date().toISOString().slice(0, 10)}/ai-${crypto.randomUUID()}.png`;
+  await env.UPLOADS.put(key, binary, { httpMetadata: { contentType: "image/png", cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: "atlasium-ai-generated.png" } });
+  return `${new URL(request.url).origin}/i/${key}`;
+}
+
+function scheduleTimes(count: number) {
+  const result: string[] = [];
+  const cursor = new Date();
+  cursor.setUTCMinutes(0, 0, 0);
+  cursor.setUTCHours(cursor.getUTCHours() + 2);
+  while (result.length < count) {
+    cursor.setUTCDate(cursor.getUTCDate() + (result.length ? 1 : 0));
+    const day = cursor.getUTCDay();
+    if (day === 0) cursor.setUTCDate(cursor.getUTCDate() + 1);
+    if (day === 6) cursor.setUTCDate(cursor.getUTCDate() + 2);
+    cursor.setUTCHours(result.length % 2 ? 19 : 15, (result.length * 11) % 47, 0, 0);
+    if (cursor.getTime() < Date.now() + 60 * 60 * 1000) cursor.setUTCDate(cursor.getUTCDate() + 1);
+    result.push(cursor.toISOString());
+  }
+  return result;
+}
+
+async function runAgent(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
+  if (!env.BUFFER_API_KEY) return json({ error: "Buffer is not connected yet." }, 503);
+  if (!env.OPENAI_API_KEY) return json({ error: "OpenAI connection required." }, 503);
+  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string };
+  const prompt = String(body.prompt || "").trim();
+  if (!prompt || prompt.length > 4000) return json({ error: "Enter a clear prompt under 4,000 characters." }, 400);
+  const available = await getChannels(env);
+  const requestedIds = Array.isArray(body.channels) ? body.channels : [];
+  const chosen = requestedIds.length ? available.filter((channel) => requestedIds.includes(String(channel.id))) : available;
+  if (!chosen.length || (requestedIds.length && chosen.length !== requestedIds.length)) return json({ error: "Choose at least one valid Buffer channel." }, 400);
+  const timing = ["auto", "now", "queue", "schedule"].includes(String(body.timing)) ? String(body.timing) : "auto";
+  const plan = await createPlan(env, prompt, chosen.map((channel) => `${channel.service}: ${channel.displayName || channel.name}`), timing);
+  const imageUrls = await Promise.all(plan.posts.map((post) => generateAndHostImage(request, env, post.imagePrompt)));
+  const scheduled = scheduleTimes(plan.posts.length);
+  const results: Array<Record<string, unknown>> = [];
+  for (let postIndex = 0; postIndex < plan.posts.length; postIndex++) {
+    const post = plan.posts[postIndex];
+    for (let channelIndex = 0; channelIndex < chosen.length; channelIndex++) {
+      const channel = chosen[channelIndex];
+      const mode = plan.timing === "now" ? "shareNow" : plan.timing === "queue" ? "addToQueue" : "customScheduled";
+      const dueAt = mode === "customScheduled" ? new Date(Date.parse(scheduled[postIndex]) + channelIndex * 7 * 60 * 1000).toISOString() : undefined;
+      const created = await createBufferPost(env, { channelId: String(channel.id), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true });
+      results.push({ concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channel: channel.displayName || channel.name, service: channel.service, postId: created?.id, status: mode === "shareNow" ? "Publishing now" : mode === "addToQueue" ? "Added to queue" : "Scheduled", dueAt });
+    }
+  }
+  return json({ message: `${plan.posts.length} post${plan.posts.length === 1 ? "" : "s"} created and sent to ${chosen.length} channel${chosen.length === 1 ? "" : "s"}.`, campaign: plan.campaign, postsCreated: plan.posts.length, channels: chosen.length, results }, 201);
 }
 
 async function upload(request: Request, env: Env) {
@@ -190,6 +298,12 @@ const worker = {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       try { return await publish(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Publishing failed." }, 502); }
+    }
+
+    if (url.pathname === "/api/agent") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await runAgent(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Campaign creation failed." }, 502); }
     }
 
     if (url.pathname.startsWith("/i/") && (request.method === "GET" || request.method === "HEAD")) {

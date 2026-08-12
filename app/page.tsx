@@ -1,136 +1,77 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-type Channel = { id: string; name: string; displayName?: string; service: string; avatar?: string };
-type Mode = "shareNow" | "addToQueue" | "customScheduled";
+type Channel = { id: string; name: string; displayName?: string; service: string };
+type Result = { concept: string; caption: string; imageUrl: string; channel: string; service: string; status: string; dueAt?: string };
 
 export default function Home() {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [key, setKey] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState("");
-  const [caption, setCaption] = useState("");
-  const [notes, setNotes] = useState("");
-  const [refine, setRefine] = useState(false);
-  const [mode, setMode] = useState<Mode>("addToQueue");
-  const [dueAt, setDueAt] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [timing, setTiming] = useState("auto");
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [platform, setPlatform] = useState("all");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const [configured, setConfigured] = useState(false);
+  const [results, setResults] = useState<Result[]>([]);
 
   useEffect(() => {
     const hashKey = new URLSearchParams(location.hash.slice(1)).get("key");
-    if (hashKey) {
-      localStorage.setItem("atlasium-upload-key", hashKey);
-      history.replaceState(null, "", location.pathname);
-    }
+    if (hashKey) { localStorage.setItem("atlasium-upload-key", hashKey); history.replaceState(null, "", location.pathname); }
+    // The private key only exists in browser storage, so hydration initializes it here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setKey(hashKey || localStorage.getItem("atlasium-upload-key") || "");
   }, []);
 
   useEffect(() => {
     if (!key) return;
-    fetch("/api/channels", { headers: { "X-Upload-Key": key } })
-      .then(async (response) => {
-        const data = await response.json() as { channels?: Channel[]; configured?: boolean; error?: string };
-        setConfigured(Boolean(data.configured));
-        if (!response.ok) throw new Error(data.error || "Could not load Buffer channels.");
-        setChannels(data.channels || []);
-      })
-      .catch((error: Error) => setStatus({ kind: "error", text: error.message }));
+    fetch("/api/channels", { headers: { "X-Upload-Key": key } }).then(async (response) => {
+      const data = await response.json() as { channels?: Channel[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Could not load Buffer channels.");
+      const loaded = data.channels || [];
+      setChannels(loaded); setSelected(loaded.map((channel) => channel.id));
+    }).catch((error: Error) => setStatus({ kind: "error", text: error.message }));
   }, [key]);
 
-  const platforms = useMemo(() => [...new Set(channels.map((channel) => channel.service))], [channels]);
-  const shownChannels = platform === "all" ? channels : channels.filter((channel) => channel.service === platform);
-
-  function choose(event: ChangeEvent<HTMLInputElement>) {
-    const next = event.target.files?.[0];
-    setStatus(null);
-    if (!next) return;
-    if (!next.type.startsWith("image/") || next.size > 20 * 1024 * 1024) {
-      setStatus({ kind: "error", text: "Choose an image under 20 MB." });
-      return;
-    }
-    if (preview) URL.revokeObjectURL(preview);
-    setFile(next);
-    setPreview(URL.createObjectURL(next));
-  }
-
-  function toggleChannel(id: string) {
-    setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-  }
-
-  async function publish() {
-    if (!file || !caption.trim() || !selected.length || busy) return;
-    setBusy(true);
-    setStatus(null);
+  async function createAndPublish() {
+    if (!prompt.trim() || !selected.length || busy) return;
+    setBusy(true); setStatus(null); setResults([]);
     try {
-      const form = new FormData();
-      form.append("image", file);
-      form.append("caption", caption.trim());
-      form.append("notes", notes.trim());
-      form.append("channels", JSON.stringify(selected));
-      form.append("refine", String(refine));
-      form.append("mode", mode);
-      if (mode === "customScheduled") form.append("dueAt", new Date(dueAt).toISOString());
-      const response = await fetch("/api/publish", { method: "POST", headers: { "X-Upload-Key": key }, body: form });
-      const data = await response.json() as { message?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || "Publishing failed.");
-      setStatus({ kind: "ok", text: data.message || "Sent to Buffer successfully." });
-    } catch (error) {
-      setStatus({ kind: "error", text: error instanceof Error ? error.message : "Publishing failed." });
-    } finally { setBusy(false); }
+      const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json", "X-Upload-Key": key }, body: JSON.stringify({ prompt: prompt.trim(), channels: selected, timing }) });
+      const data = await response.json() as { message?: string; error?: string; results?: Result[] };
+      if (!response.ok) throw new Error(data.error || "Campaign creation failed.");
+      setResults(data.results || []); setStatus({ kind: "ok", text: data.message || "Campaign sent to Buffer." });
+    } catch (error) { setStatus({ kind: "error", text: error instanceof Error ? error.message : "Campaign creation failed." }); }
+    finally { setBusy(false); }
   }
 
-  const ready = Boolean(key && configured && file && caption.trim() && selected.length && (mode !== "customScheduled" || dueAt));
+  function toggle(id: string) { setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
-  return (
-    <main>
-      <header className="brand"><span className="brand-mark">A</span><span>ATLASIUM</span><span className="bridge">PUBLISH BRIDGE</span></header>
-      <section className="card composer">
-        <div className="intro"><p className="eyebrow">ONE-SCREEN PUBLISHING</p><h1>Create once.<br />Publish everywhere.</h1></div>
+  return <main>
+    <header className="brand"><span className="brand-mark">A</span><span>ATLASIUM</span><span className="bridge">SOCIAL AGENT</span></header>
+    <section className="card agent-card">
+      <p className="eyebrow">ONE PROMPT → PUBLISHED</p>
+      <h1>What should<br />we create?</h1>
+      <p className="lede">Describe the campaign. Atlasium writes the posts, creates and hosts the images, chooses sensible times, and sends everything to Buffer.</p>
+      <textarea className="prompt-box" rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Create 4 social posts about our new Atlasium offer and schedule them this week." aria-label="Campaign prompt" />
 
-        <div className="section-grid">
-          <section className="field-section media-section">
-            <span className="step">01</span><label>Image</label>
-            <input ref={inputRef} className="visually-hidden" type="file" accept="image/*" onChange={choose} />
-            <button className={`mini-picker ${preview ? "has-image" : ""}`} type="button" onClick={() => inputRef.current?.click()}>
-              {preview ? <img src={preview} alt="Selected post" /> : <span><b>＋</b>Choose from Photos</span>}
-            </button>
-          </section>
+      <details className="options">
+        <summary>Options <span>{selected.length || 0} channels · {timing === "auto" ? "automatic timing" : timing}</span></summary>
+        <div className="option-block"><span className="option-label">Channels</span><div className="channels compact">
+          {channels.map((channel) => <button type="button" key={channel.id} className={selected.includes(channel.id) ? "selected" : ""} onClick={() => toggle(channel.id)}><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}</small></span><i>{selected.includes(channel.id) ? "✓" : ""}</i></button>)}
+          {!channels.length && <p className="empty">Your Buffer channels load automatically from your private link.</p>}
+        </div></div>
+        <div className="option-block"><span className="option-label">Timing</span><div className="timing">{[["auto","From prompt / Auto"],["now","Post now"],["queue","Buffer queue"],["schedule","Auto-schedule"]].map(([value,label]) => <button type="button" key={value} className={timing === value ? "active" : ""} onClick={() => setTiming(value)}>{label}</button>)}</div></div>
+      </details>
 
-          <section className="field-section">
-            <span className="step">02</span><label htmlFor="caption">Post</label>
-            <textarea id="caption" rows={5} value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Paste your finished post…" />
-            <label className="sub-label" htmlFor="notes">Optional notes</label>
-            <textarea id="notes" rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Tone, constraints, hashtags…" />
-            <label className="switch-row"><span><b>Refine with Claude</b><small>Adapt only where each platform needs it</small></span><input type="checkbox" checked={refine} onChange={(event) => setRefine(event.target.checked)} /><i /></label>
-          </section>
+      {status && <p className={`message ${status.kind}`} role="status">{status.kind === "ok" ? "✓ " : "! "}{status.text}</p>}
+      <button className="primary agent-button" disabled={!key || !prompt.trim() || !selected.length || busy} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : <>Create &amp; Publish <span>→</span></>}</button>
+      {!key && <p className="access-warning">Open your private Atlasium link to enable publishing.</p>}
+    </section>
 
-          <section className="field-section">
-            <span className="step">03</span><label>Destinations</label>
-            {platforms.length > 1 && <div className="chips"><button className={platform === "all" ? "active" : ""} onClick={() => setPlatform("all")}>All</button>{platforms.map((item) => <button key={item} className={platform === item ? "active" : ""} onClick={() => setPlatform(item)}>{item}</button>)}</div>}
-            <div className="channels">
-              {shownChannels.map((channel) => <button type="button" key={channel.id} className={selected.includes(channel.id) ? "selected" : ""} onClick={() => toggleChannel(channel.id)}><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}</small></span><i>{selected.includes(channel.id) ? "✓" : ""}</i></button>)}
-              {!configured && <p className="empty">Buffer connection required to load your channels.</p>}
-            </div>
-          </section>
+    {results.length > 0 && <section className="results"><div className="results-head"><p className="eyebrow">CAMPAIGN COMPLETE</p><h2>What was created</h2></div>{results.map((result, index) => <article className="result" key={`${result.channel}-${index}`}>{/* eslint-disable-next-line @next/next/no-img-element */}<img src={result.imageUrl} alt="Generated social media creative" /><div><span className="result-status">{result.status}</span><h3>{result.concept}</h3><p>{result.caption}</p><small>{result.service} · {result.channel}{result.dueAt ? ` · ${new Date(result.dueAt).toLocaleString()}` : ""}</small></div></article>)}</section>}
 
-          <section className="field-section">
-            <span className="step">04</span><label>Timing</label>
-            <div className="timing">{([['shareNow','Post now'],['addToQueue','Add to queue'],['customScheduled','Schedule']] as [Mode,string][]).map(([value,label]) => <button type="button" key={value} className={mode === value ? "active" : ""} onClick={() => setMode(value)}>{label}</button>)}</div>
-            {mode === "customScheduled" && <input className="date-input" type="datetime-local" value={dueAt} min={new Date().toISOString().slice(0,16)} onChange={(event) => setDueAt(event.target.value)} />}
-          </section>
-        </div>
-
-        {status && <p className={`message ${status.kind}`} role="status">{status.kind === "ok" ? "✓ " : "! "}{status.text}</p>}
-        <button className="primary publish-button" type="button" disabled={!ready || busy} onClick={publish}>{busy ? <><span className="spinner" /> Sending…</> : "Send to Buffer"}<span aria-hidden="true">→</span></button>
-        {!key && <p className="access-warning">Open your private Atlasium link to enable publishing.</p>}
-      </section>
-      <footer>Your credentials stay encrypted on the server.</footer>
-    </main>
-  );
+    <details className="manual-link"><summary>Need the manual uploader?</summary><p>The original upload and permanent-public-URL API remains active as a secondary fallback.</p></details>
+    <footer>OpenAI and Buffer credentials stay encrypted on the server.</footer>
+  </main>;
 }

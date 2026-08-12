@@ -7,7 +7,7 @@ async function loadWorker() {
   return (await import(workerUrl.href)).default;
 }
 
-test("renders the Atlasium uploader", async () => {
+test("renders the Atlasium social agent", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/", { headers: { accept: "text/html" } }),
@@ -20,11 +20,20 @@ test("renders the Atlasium uploader", async () => {
   );
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<title>Atlasium Image Upload<\/title>/i);
-  assert.match(html, /Upload\. Copy\. Post\./);
-  assert.match(html, /Choose from Photos/);
-  assert.match(html, /Send to Buffer/);
+  assert.match(html, /<title>Atlasium Social Agent<\/title>/i);
+  assert.match(html, /What should/);
+  assert.match(html, /Create &amp; Publish/);
   assert.doesNotMatch(html, /codex-preview/);
+});
+
+test("rejects an agent run without the private key", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Create one post" }) }),
+    { UPLOAD_KEY: "test-key" },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  assert.equal(response.status, 401);
 });
 
 test("rejects an upload without the private key", async () => {
