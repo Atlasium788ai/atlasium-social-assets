@@ -28,8 +28,7 @@ export default function Home() {
     fetch("/api/channels", { headers: { "X-Upload-Key": key } }).then(async (response) => {
       const data = await response.json() as { channels?: Channel[]; error?: string };
       if (!response.ok) throw new Error(data.error || "Could not load Buffer channels.");
-      const loaded = data.channels || [];
-      setChannels(loaded); setSelected(loaded.map((channel) => channel.id));
+      setChannels(data.channels || []);
     }).catch((error: Error) => setStatus({ kind: "error", text: error.message }));
   }, [key]);
 
@@ -37,7 +36,7 @@ export default function Home() {
     if (!prompt.trim() || !selected.length || busy) return;
     setBusy(true); setStatus(null); setResults([]);
     try {
-      const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json", "X-Upload-Key": key }, body: JSON.stringify({ prompt: prompt.trim(), channels: selected, timing }) });
+      const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json", "X-Upload-Key": key }, body: JSON.stringify({ prompt: prompt.trim(), channels: selected, timing, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
       const data = await response.json() as { message?: string; error?: string; results?: Result[] };
       if (!response.ok) throw new Error(data.error || "Campaign creation failed.");
       setResults(data.results || []); setStatus({ kind: "ok", text: data.message || "Campaign sent to Buffer." });
@@ -56,16 +55,16 @@ export default function Home() {
       <textarea className="prompt-box" rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Create 4 social posts about our new Atlasium offer and schedule them this week." aria-label="Campaign prompt" />
 
       <details className="options">
-        <summary>Options <span>{selected.length || 0} channels · {timing === "auto" ? "automatic timing" : timing}</span></summary>
+        <summary>Options <span>{selected.length ? `${selected.length} chosen` : "auto channels"} · {timing === "auto" ? "automatic timing" : timing}</span></summary>
         <div className="option-block"><span className="option-label">Channels</span><div className="channels compact">
           {channels.map((channel) => <button type="button" key={channel.id} className={selected.includes(channel.id) ? "selected" : ""} onClick={() => toggle(channel.id)}><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}</small></span><i>{selected.includes(channel.id) ? "✓" : ""}</i></button>)}
-          {!channels.length && <p className="empty">Your Buffer channels load automatically from your private link.</p>}
+          {!channels.length ? <p className="empty">Your Buffer channels load automatically from your private link.</p> : <p className="empty">Leave all unselected and the prompt will choose. Select channels to override.</p>}
         </div></div>
         <div className="option-block"><span className="option-label">Timing</span><div className="timing">{[["auto","From prompt / Auto"],["now","Post now"],["queue","Buffer queue"],["schedule","Auto-schedule"]].map(([value,label]) => <button type="button" key={value} className={timing === value ? "active" : ""} onClick={() => setTiming(value)}>{label}</button>)}</div></div>
       </details>
 
       {status && <p className={`message ${status.kind}`} role="status">{status.kind === "ok" ? "✓ " : "! "}{status.text}</p>}
-      <button className="primary agent-button" disabled={!key || !prompt.trim() || !selected.length || busy} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : <>Create &amp; Publish <span>→</span></>}</button>
+      <button className="primary agent-button" disabled={!key || !prompt.trim() || !channels.length || busy} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : <>Create &amp; Publish <span>→</span></>}</button>
       {!key && <p className="access-warning">Open your private Atlasium link to enable publishing.</p>}
     </section>
 

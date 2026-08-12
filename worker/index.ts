@@ -26,6 +26,9 @@ type AgentPlan = {
   posts: Array<{ concept: string; caption: string; imagePrompt: string }>;
 };
 
+type TimingMode = "auto" | "now" | "queue" | "schedule";
+type TimingPlan = { mode: TimingMode; label: string; start: string | null; end: string | null; weekdaysOnly: boolean; postsPerWeek: number | null; launchDay: number | null };
+
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
   passThroughOnException(): void;
@@ -66,6 +69,113 @@ async function getChannels(env: Env) {
     return (data.channels as Array<Record<string, unknown>> || []).map((channel) => ({ ...channel, organizationName: organization.name }));
   }));
   return lists.flat();
+}
+
+const dayNames: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+
+function localParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "long", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return { year: Number(value("year")), month: Number(value("month")), day: Number(value("day")), weekday: dayNames[value("weekday").toLowerCase()], hour: Number(value("hour")), minute: Number(value("minute")) };
+}
+
+function validTimeZone(timeZone: string) {
+  try { new Intl.DateTimeFormat("en", { timeZone }).format(); return timeZone; } catch { return "America/Toronto"; }
+}
+
+function wallToUtc(year: number, month: number, day: number, hour: number, minute: number, timeZone: string) {
+  const target = Date.UTC(year, month - 1, day, hour, minute);
+  let guess = target;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const actual = localParts(new Date(guess), timeZone);
+    const shown = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute);
+    guess += target - shown;
+  }
+  return new Date(guess);
+}
+
+function dateKey(date: Date, timeZone: string) {
+  const part = localParts(date, timeZone);
+  return `${part.year}-${String(part.month).padStart(2, "0")}-${String(part.day).padStart(2, "0")}`;
+}
+
+function addLocalDays(key: string, days: number) {
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function localWeekday(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+function parseTiming(prompt: string, requested: string, timeZone: string, now = new Date()): TimingPlan {
+  const text = prompt.toLowerCase();
+  const today = dateKey(now, timeZone);
+  const todayDay = localWeekday(today);
+  let mode: TimingMode = requested === "now" || requested === "queue" || requested === "schedule" ? requested : "auto";
+  if (requested === "auto") {
+    if (/\b(post|publish|share)\s+(it\s+)?now\b|\bimmediately\b/.test(text)) mode = "now";
+    else if (/\b(buffer\s+)?queue\b/.test(text)) mode = "queue";
+    else mode = "schedule";
+  }
+  const frequency = text.match(/\b(\d+)\s+posts?\s+per\s+week\b/);
+  const postsPerWeek = frequency ? Math.max(1, Math.min(14, Number(frequency[1]))) : null;
+  const launch = text.match(/\blaunch(?:es|ing)?(?:\s+on)?\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
+  const launchDay = launch ? dayNames[launch[1]] : null;
+  let start = addLocalDays(today, 1);
+  let end: string | null = null;
+  let label = "Automatically spaced at sensible social posting times";
+  if (/\bnext week\b/.test(text)) {
+    const untilMonday = ((8 - todayDay) % 7) || 7; start = addLocalDays(today, untilMonday); end = addLocalDays(start, 6); label = "Next week";
+  } else if (/\bthis week\b/.test(text)) {
+    start = today; end = addLocalDays(today, (7 - todayDay) % 7); label = "This week";
+  } else {
+    const days = text.match(/\bover\s+the\s+next\s+(\d+)\s+days?\b|\bnext\s+(\d+)\s+days?\b/);
+    if (days) { const count = Math.max(1, Math.min(90, Number(days[1] || days[2]))); start = today; end = addLocalDays(today, count - 1); label = `Over the next ${count} days`; }
+  }
+  if (launchDay !== null) {
+    const distance = ((launchDay - todayDay + 7) % 7) || 7; start = addLocalDays(today, distance); end = start; label = `Launch ${launch?.[1]}`;
+  }
+  return { mode, label, start: mode === "schedule" ? start : null, end: mode === "schedule" ? end : null, weekdaysOnly: /\bevery weekday\b|\bweekdays?\b/.test(text), postsPerWeek, launchDay };
+}
+
+function buildSchedule(prompt: string, count: number, requested: string, timeZone: string, now = new Date()) {
+  const zone = validTimeZone(timeZone);
+  const timing = parseTiming(prompt, requested, zone, now);
+  if (timing.mode !== "schedule") return { timing, times: Array(count).fill(null) as Array<string | null> };
+  const candidates: string[] = [];
+  let cursor = timing.start!;
+  const hardEnd = timing.end || addLocalDays(cursor, timing.postsPerWeek ? Math.max(6, Math.ceil(count / timing.postsPerWeek) * 7 - 1) : Math.max(14, count * 3));
+  while (cursor <= hardEnd && candidates.length < 120) {
+    const weekday = localWeekday(cursor);
+    if (!(timing.weekdaysOnly && (weekday === 0 || weekday === 6))) candidates.push(cursor);
+    cursor = addLocalDays(cursor, 1);
+  }
+  if (!candidates.length) candidates.push(timing.start!);
+  const times: string[] = [];
+  const hours = [10, 13, 16, 19];
+  for (let index = 0; index < count; index++) {
+    const position = count === 1 ? 0 : Math.round(index * (candidates.length - 1) / (count - 1));
+    let key = candidates[position] || candidates[candidates.length - 1];
+    if (timing.postsPerWeek) key = addLocalDays(timing.start!, Math.floor(index / timing.postsPerWeek) * 7 + (index % timing.postsPerWeek) * Math.max(1, Math.floor(5 / timing.postsPerWeek)));
+    if (timing.weekdaysOnly) while ([0, 6].includes(localWeekday(key))) key = addLocalDays(key, 1);
+    const [year, month, day] = key.split("-").map(Number);
+    let scheduled = wallToUtc(year, month, day, hours[index % hours.length], (index * 13) % 47, zone);
+    if (scheduled.getTime() < now.getTime() + 60 * 60 * 1000) scheduled = wallToUtc(year, month, day, Math.min(21, localParts(now, zone).hour + 2), (index * 13) % 47, zone);
+    times.push(scheduled.toISOString());
+  }
+  return { timing, times };
+}
+
+function selectChannels(prompt: string, channels: Array<Record<string, unknown>>, requestedIds: string[]) {
+  if (requestedIds.length) return channels.filter((channel) => requestedIds.includes(String(channel.id)));
+  const text = prompt.toLowerCase();
+  const services = ["instagram", "facebook", "linkedin", "tiktok", "twitter", "x"];
+  const named = services.filter((service) => new RegExp(`\\b${service}\\b`, "i").test(text));
+  if (!named.length || /\ball (channels|platforms|accounts)\b|\beverywhere\b/.test(text)) return channels;
+  return channels.filter((channel) => named.some((service) => service === "x" ? String(channel.service).toLowerCase() === "twitter" : String(channel.service).toLowerCase().includes(service)));
 }
 
 async function refinePost(env: Env, caption: string, notes: string, service: string) {
@@ -156,50 +266,44 @@ async function generateAndHostImage(request: Request, env: Env, prompt: string) 
   return `${new URL(request.url).origin}/i/${key}`;
 }
 
-function scheduleTimes(count: number) {
-  const result: string[] = [];
-  const cursor = new Date();
-  cursor.setUTCMinutes(0, 0, 0);
-  cursor.setUTCHours(cursor.getUTCHours() + 2);
-  while (result.length < count) {
-    cursor.setUTCDate(cursor.getUTCDate() + (result.length ? 1 : 0));
-    const day = cursor.getUTCDay();
-    if (day === 0) cursor.setUTCDate(cursor.getUTCDate() + 1);
-    if (day === 6) cursor.setUTCDate(cursor.getUTCDate() + 2);
-    cursor.setUTCHours(result.length % 2 ? 19 : 15, (result.length * 11) % 47, 0, 0);
-    if (cursor.getTime() < Date.now() + 60 * 60 * 1000) cursor.setUTCDate(cursor.getUTCDate() + 1);
-    result.push(cursor.toISOString());
-  }
-  return result;
-}
-
 async function runAgent(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
   if (!env.BUFFER_API_KEY) return json({ error: "Buffer is not connected yet." }, 503);
   if (!env.OPENAI_API_KEY) return json({ error: "OpenAI connection required." }, 503);
-  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string };
+  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string; timeZone?: string };
   const prompt = String(body.prompt || "").trim();
   if (!prompt || prompt.length > 4000) return json({ error: "Enter a clear prompt under 4,000 characters." }, 400);
   const available = await getChannels(env);
   const requestedIds = Array.isArray(body.channels) ? body.channels : [];
-  const chosen = requestedIds.length ? available.filter((channel) => requestedIds.includes(String(channel.id))) : available;
+  const chosen = selectChannels(prompt, available, requestedIds);
   if (!chosen.length || (requestedIds.length && chosen.length !== requestedIds.length)) return json({ error: "Choose at least one valid Buffer channel." }, 400);
   const timing = ["auto", "now", "queue", "schedule"].includes(String(body.timing)) ? String(body.timing) : "auto";
   const plan = await createPlan(env, prompt, chosen.map((channel) => `${channel.service}: ${channel.displayName || channel.name}`), timing);
   const imageUrls = await Promise.all(plan.posts.map((post) => generateAndHostImage(request, env, post.imagePrompt)));
-  const scheduled = scheduleTimes(plan.posts.length);
+  const schedule = buildSchedule(prompt, plan.posts.length, timing, String(body.timeZone || "America/Toronto"));
   const results: Array<Record<string, unknown>> = [];
   for (let postIndex = 0; postIndex < plan.posts.length; postIndex++) {
     const post = plan.posts[postIndex];
     for (let channelIndex = 0; channelIndex < chosen.length; channelIndex++) {
       const channel = chosen[channelIndex];
-      const mode = plan.timing === "now" ? "shareNow" : plan.timing === "queue" ? "addToQueue" : "customScheduled";
-      const dueAt = mode === "customScheduled" ? new Date(Date.parse(scheduled[postIndex]) + channelIndex * 7 * 60 * 1000).toISOString() : undefined;
+      const mode = schedule.timing.mode === "now" ? "shareNow" : schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
+      const dueAt = mode === "customScheduled" ? new Date(Date.parse(schedule.times[postIndex]!) + channelIndex * 7 * 60 * 1000).toISOString() : undefined;
       const created = await createBufferPost(env, { channelId: String(channel.id), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true });
       results.push({ concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channel: channel.displayName || channel.name, service: channel.service, postId: created?.id, status: mode === "shareNow" ? "Publishing now" : mode === "addToQueue" ? "Added to queue" : "Scheduled", dueAt });
     }
   }
-  return json({ message: `${plan.posts.length} post${plan.posts.length === 1 ? "" : "s"} created and sent to ${chosen.length} channel${chosen.length === 1 ? "" : "s"}.`, campaign: plan.campaign, postsCreated: plan.posts.length, channels: chosen.length, results }, 201);
+  return json({ message: `${plan.posts.length} post${plan.posts.length === 1 ? "" : "s"} created and sent to ${chosen.length} channel${chosen.length === 1 ? "" : "s"}.`, campaign: plan.campaign, postsCreated: plan.posts.length, channels: chosen.length, schedule: schedule.timing, results }, 201);
+}
+
+async function previewSchedule(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
+  const body = await request.json() as { prompt?: string; count?: number; timing?: string; timeZone?: string; channels?: Array<Record<string, unknown>>; selected?: string[] };
+  const prompt = String(body.prompt || "");
+  const count = Math.max(1, Math.min(50, Number(body.count) || 1));
+  const zone = validTimeZone(String(body.timeZone || "America/Toronto"));
+  const schedule = buildSchedule(prompt, count, String(body.timing || "auto"), zone);
+  const channels = Array.isArray(body.channels) ? body.channels : [];
+  return json({ ...schedule, timeZone: zone, channels: selectChannels(prompt, channels, Array.isArray(body.selected) ? body.selected : []) });
 }
 
 async function upload(request: Request, env: Env) {
@@ -238,13 +342,14 @@ async function publish(request: Request, env: Env) {
   const caption = String(form.get("caption") || "").trim();
   const notes = String(form.get("notes") || "").trim();
   const refine = form.get("refine") === "true";
-  const mode = String(form.get("mode") || "addToQueue");
-  const dueAt = String(form.get("dueAt") || "") || undefined;
+  let mode = String(form.get("mode") || "addToQueue");
+  let dueAt = String(form.get("dueAt") || "") || undefined;
   let channelIds: string[] = [];
   try { channelIds = JSON.parse(String(form.get("channels") || "[]")); } catch { return json({ error: "Invalid channel selection." }, 400); }
   if (!(image instanceof File) || !caption || !channelIds.length) return json({ error: "Add an image, post text, and at least one channel." }, 400);
   if (!allowedTypes.has(image.type.toLowerCase()) || image.size > 20 * 1024 * 1024) return json({ error: "Use a supported image under 20 MB." }, 415);
-  if (!["shareNow", "addToQueue", "customScheduled"].includes(mode)) return json({ error: "Invalid publishing time." }, 400);
+  if (!["shareNow", "addToQueue", "customScheduled", "smartSchedule"].includes(mode)) return json({ error: "Invalid publishing time." }, 400);
+  if (mode === "smartSchedule") { mode = "customScheduled"; dueAt = buildSchedule(caption, 1, "auto", String(form.get("timeZone") || "America/Toronto")).times[0] || undefined; }
   if (mode === "customScheduled" && (!dueAt || Number.isNaN(Date.parse(dueAt)) || Date.parse(dueAt) <= Date.now())) return json({ error: "Choose a future schedule time." }, 400);
 
   const available = await getChannels(env);
@@ -304,6 +409,12 @@ const worker = {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       try { return await runAgent(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Campaign creation failed." }, 502); }
+    }
+
+    if (url.pathname === "/api/preview-schedule") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await previewSchedule(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not build schedule." }, 400); }
     }
 
     if (url.pathname.startsWith("/i/") && (request.method === "GET" || request.method === "HEAD")) {
