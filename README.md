@@ -35,19 +35,19 @@ git push
 ./image-urls.sh
 ```
 
-The script prints a direct public URL for every image. Give those URLs to Claude/Buffer only **after the push has finished**.
+The script prints a direct public URL for every committed image. Give those URLs to Claude/Buffer only **after the push has finished**. Each URL is pinned to the publishing commit, so its contents cannot change later.
 
 Example:
 
 ```text
-https://raw.githubusercontent.com/OWNER/REPOSITORY/main/images/product-launch.png
+https://raw.githubusercontent.com/OWNER/REPOSITORY/COMMIT/images/product-launch.png
 ```
 
 ## Rules that keep URLs reliable
 
 - Use lowercase descriptive filenames with letters, numbers, hyphens, or underscores, such as `launch-square-2026-08.png`.
 - Supported files: `.png`, `.jpg`, `.jpeg`, `.gif`, and `.webp`.
-- Treat a published filename as permanent: do not rename, move, or delete it.
-- To replace an image without changing old posts, add a new versioned filename instead, such as `launch-square-v2.png`.
+- Published URLs are pinned to a Git commit and remain immutable even if a file is later changed on `main`.
+- Prefer versioned replacement filenames, such as `launch-square-v2.png`, so the library remains easy to understand.
 - Keep the repository public. A private repository's raw URLs are not publicly accessible.
 - These URLs are stable path-based URLs, not an archival guarantee. Deleting the repository or changing its owner/name breaks them.

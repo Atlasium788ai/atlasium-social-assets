@@ -23,12 +23,39 @@ if [ ! -d images ]; then
   exit 1
 fi
 
-find images -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.gif' -o -iname '*.webp' \) -print | LC_ALL=C sort | while IFS= read -r file; do
+commit=$(git rev-parse HEAD 2>/dev/null || true)
+if [ -z "$commit" ]; then
+  echo "Error: create a commit before generating public URLs." >&2
+  exit 1
+fi
+
+image_list=$(mktemp "${TMPDIR:-/tmp}/image-urls.XXXXXX")
+trap 'rm -f "$image_list"' EXIT HUP INT TERM
+
+find images -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.gif' -o -iname '*.webp' \) -print | LC_ALL=C sort > "$image_list"
+
+if [ ! -s "$image_list" ]; then
+  echo "No images found in images/."
+  exit 0
+fi
+
+status=0
+while IFS= read -r file; do
   case "$file" in
     *[!A-Za-z0-9_./-]*)
-      echo "SKIPPED (rename to remove spaces/special characters): $file" >&2
+      echo "Error: rename to remove spaces or special characters: $file" >&2
+      status=1
       continue
       ;;
   esac
-  printf 'https://raw.githubusercontent.com/%s/main/%s\n' "$repository" "$file"
-done
+
+  if ! git cat-file -e "$commit:$file" 2>/dev/null; then
+    echo "Error: not committed yet: $file" >&2
+    status=1
+    continue
+  fi
+
+  printf 'https://raw.githubusercontent.com/%s/%s/%s\n' "$repository" "$commit" "$file"
+done < "$image_list"
+
+exit "$status"
