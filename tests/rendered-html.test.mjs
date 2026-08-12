@@ -22,7 +22,8 @@ test("renders the Atlasium uploader", async () => {
   const html = await response.text();
   assert.match(html, /<title>Atlasium Image Upload<\/title>/i);
   assert.match(html, /Upload\. Copy\. Post\./);
-  assert.match(html, /Choose a photo/);
+  assert.match(html, /Choose from Photos/);
+  assert.match(html, /Send to Buffer/);
   assert.doesNotMatch(html, /codex-preview/);
 });
 

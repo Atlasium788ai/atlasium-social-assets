@@ -1,39 +1,57 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
-const MAX_BYTES = 20 * 1024 * 1024;
+type Channel = { id: string; name: string; displayName?: string; service: string; avatar?: string };
+type Mode = "shareNow" | "addToQueue" | "customScheduled";
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [key, setKey] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
-  const [url, setUrl] = useState("");
-  const [message, setMessage] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [uploadKey, setUploadKey] = useState("");
+  const [caption, setCaption] = useState("");
+  const [notes, setNotes] = useState("");
+  const [refine, setRefine] = useState(false);
+  const [mode, setMode] = useState<Mode>("addToQueue");
+  const [dueAt, setDueAt] = useState("");
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [platform, setPlatform] = useState("all");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [configured, setConfigured] = useState(false);
 
   useEffect(() => {
-    const hashKey = new URLSearchParams(window.location.hash.slice(1)).get("key");
+    const hashKey = new URLSearchParams(location.hash.slice(1)).get("key");
     if (hashKey) {
-      window.localStorage.setItem("atlasium-upload-key", hashKey);
-      window.history.replaceState(null, "", window.location.pathname);
+      localStorage.setItem("atlasium-upload-key", hashKey);
+      history.replaceState(null, "", location.pathname);
     }
-    setUploadKey(hashKey || window.localStorage.getItem("atlasium-upload-key") || "");
+    setKey(hashKey || localStorage.getItem("atlasium-upload-key") || "");
   }, []);
 
-  function choose(next: File | undefined) {
-    setUrl("");
-    setCopied(false);
-    setMessage("");
+  useEffect(() => {
+    if (!key) return;
+    fetch("/api/channels", { headers: { "X-Upload-Key": key } })
+      .then(async (response) => {
+        const data = await response.json() as { channels?: Channel[]; configured?: boolean; error?: string };
+        setConfigured(Boolean(data.configured));
+        if (!response.ok) throw new Error(data.error || "Could not load Buffer channels.");
+        setChannels(data.channels || []);
+      })
+      .catch((error: Error) => setStatus({ kind: "error", text: error.message }));
+  }, [key]);
+
+  const platforms = useMemo(() => [...new Set(channels.map((channel) => channel.service))], [channels]);
+  const shownChannels = platform === "all" ? channels : channels.filter((channel) => channel.service === platform);
+
+  function choose(event: ChangeEvent<HTMLInputElement>) {
+    const next = event.target.files?.[0];
+    setStatus(null);
     if (!next) return;
-    if (!next.type.startsWith("image/")) {
-      setMessage("Please choose an image from your photo library.");
-      return;
-    }
-    if (next.size > MAX_BYTES) {
-      setMessage("That image is over the 20 MB upload limit.");
+    if (!next.type.startsWith("image/") || next.size > 20 * 1024 * 1024) {
+      setStatus({ kind: "error", text: "Choose an image under 20 MB." });
       return;
     }
     if (preview) URL.revokeObjectURL(preview);
@@ -41,109 +59,78 @@ export default function Home() {
     setPreview(URL.createObjectURL(next));
   }
 
-  async function upload() {
-    if (!file || uploading) return;
-    setUploading(true);
-    setMessage("");
-    setCopied(false);
+  function toggleChannel(id: string) {
+    setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
 
+  async function publish() {
+    if (!file || !caption.trim() || !selected.length || busy) return;
+    setBusy(true);
+    setStatus(null);
     try {
       const form = new FormData();
       form.append("image", file);
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        headers: { "X-Upload-Key": uploadKey },
-        body: form,
-      });
-      const result = (await response.json()) as { url?: string; error?: string };
-      if (!response.ok || !result.url) throw new Error(result.error || "Upload failed.");
-      setUrl(result.url);
+      form.append("caption", caption.trim());
+      form.append("notes", notes.trim());
+      form.append("channels", JSON.stringify(selected));
+      form.append("refine", String(refine));
+      form.append("mode", mode);
+      if (mode === "customScheduled") form.append("dueAt", new Date(dueAt).toISOString());
+      const response = await fetch("/api/publish", { method: "POST", headers: { "X-Upload-Key": key }, body: form });
+      const data = await response.json() as { message?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || "Publishing failed.");
+      setStatus({ kind: "ok", text: data.message || "Sent to Buffer successfully." });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Upload failed. Please try again.");
-    } finally {
-      setUploading(false);
-    }
+      setStatus({ kind: "error", text: error instanceof Error ? error.message : "Publishing failed." });
+    } finally { setBusy(false); }
   }
 
-  async function copyUrl() {
-    if (!url) return;
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-  }
-
-  function onInput(event: ChangeEvent<HTMLInputElement>) {
-    choose(event.target.files?.[0]);
-  }
-
-  function onDrop(event: DragEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    choose(event.dataTransfer.files?.[0]);
-  }
+  const ready = Boolean(key && configured && file && caption.trim() && selected.length && (mode !== "customScheduled" || dueAt));
 
   return (
     <main>
-      <header className="brand" aria-label="Atlasium">
-        <span className="brand-mark" aria-hidden="true">A</span>
-        <span>ATLASIUM</span>
-      </header>
+      <header className="brand"><span className="brand-mark">A</span><span>ATLASIUM</span><span className="bridge">PUBLISH BRIDGE</span></header>
+      <section className="card composer">
+        <div className="intro"><p className="eyebrow">ONE-SCREEN PUBLISHING</p><h1>Create once.<br />Publish everywhere.</h1></div>
 
-      <section className="card">
-        <div className="intro">
-          <p className="eyebrow">SOCIAL ASSET LIBRARY</p>
-          <h1>Upload. Copy. Post.</h1>
-          <p className="subtitle">Turn a photo into a permanent public link in seconds.</p>
+        <div className="section-grid">
+          <section className="field-section media-section">
+            <span className="step">01</span><label>Image</label>
+            <input ref={inputRef} className="visually-hidden" type="file" accept="image/*" onChange={choose} />
+            <button className={`mini-picker ${preview ? "has-image" : ""}`} type="button" onClick={() => inputRef.current?.click()}>
+              {preview ? <img src={preview} alt="Selected post" /> : <span><b>＋</b>Choose from Photos</span>}
+            </button>
+          </section>
+
+          <section className="field-section">
+            <span className="step">02</span><label htmlFor="caption">Post</label>
+            <textarea id="caption" rows={5} value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Paste your finished post…" />
+            <label className="sub-label" htmlFor="notes">Optional notes</label>
+            <textarea id="notes" rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Tone, constraints, hashtags…" />
+            <label className="switch-row"><span><b>Refine with Claude</b><small>Adapt only where each platform needs it</small></span><input type="checkbox" checked={refine} onChange={(event) => setRefine(event.target.checked)} /><i /></label>
+          </section>
+
+          <section className="field-section">
+            <span className="step">03</span><label>Destinations</label>
+            {platforms.length > 1 && <div className="chips"><button className={platform === "all" ? "active" : ""} onClick={() => setPlatform("all")}>All</button>{platforms.map((item) => <button key={item} className={platform === item ? "active" : ""} onClick={() => setPlatform(item)}>{item}</button>)}</div>}
+            <div className="channels">
+              {shownChannels.map((channel) => <button type="button" key={channel.id} className={selected.includes(channel.id) ? "selected" : ""} onClick={() => toggleChannel(channel.id)}><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}</small></span><i>{selected.includes(channel.id) ? "✓" : ""}</i></button>)}
+              {!configured && <p className="empty">Buffer connection required to load your channels.</p>}
+            </div>
+          </section>
+
+          <section className="field-section">
+            <span className="step">04</span><label>Timing</label>
+            <div className="timing">{([['shareNow','Post now'],['addToQueue','Add to queue'],['customScheduled','Schedule']] as [Mode,string][]).map(([value,label]) => <button type="button" key={value} className={mode === value ? "active" : ""} onClick={() => setMode(value)}>{label}</button>)}</div>
+            {mode === "customScheduled" && <input className="date-input" type="datetime-local" value={dueAt} min={new Date().toISOString().slice(0,16)} onChange={(event) => setDueAt(event.target.value)} />}
+          </section>
         </div>
 
-        <input ref={inputRef} className="visually-hidden" type="file" accept="image/*" onChange={onInput} />
-
-        <button
-          className={`picker ${preview ? "has-preview" : ""}`}
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={onDrop}
-        >
-          {preview ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={preview} alt="Selected upload preview" />
-          ) : (
-            <span className="picker-empty">
-              <span className="plus" aria-hidden="true">+</span>
-              <strong>Choose a photo</strong>
-              <small>JPG, PNG, WebP, GIF or HEIC · up to 20 MB</small>
-            </span>
-          )}
-        </button>
-
-        {file && !url && (
-          <div className="file-row">
-            <span>{file.name}</span>
-            <button type="button" onClick={() => inputRef.current?.click()}>Change</button>
-          </div>
-        )}
-
-        {message && <p className="message error" role="alert">{message}</p>}
-
-        {!url ? (
-          <button className="primary" type="button" disabled={!file || !uploadKey || uploading} onClick={upload}>
-            {uploading ? <><span className="spinner" /> Uploading…</> : "Upload image"}
-          </button>
-        ) : (
-          <div className="result" aria-live="polite">
-            <div className="success"><span aria-hidden="true">✓</span> Upload complete</div>
-            <label htmlFor="public-url">Permanent public URL</label>
-            <input id="public-url" value={url} readOnly onFocus={(event) => event.currentTarget.select()} />
-            <button className="primary" type="button" onClick={copyUrl}>{copied ? "Copied!" : "Copy URL"}</button>
-            <button className="secondary" type="button" onClick={() => { setFile(null); setPreview(""); setUrl(""); setCopied(false); }}>
-              Upload another
-            </button>
-          </div>
-        )}
+        {status && <p className={`message ${status.kind}`} role="status">{status.kind === "ok" ? "✓ " : "! "}{status.text}</p>}
+        <button className="primary publish-button" type="button" disabled={!ready || busy} onClick={publish}>{busy ? <><span className="spinner" /> Sending…</> : "Send to Buffer"}<span aria-hidden="true">→</span></button>
+        {!key && <p className="access-warning">Open your private Atlasium link to enable publishing.</p>}
       </section>
-
-      {!uploadKey && <p className="access-warning" role="alert">Open your private Atlasium uploader link to enable uploads.</p>}
-
-      <footer>Public links are permanent and ready for Claude or Buffer.</footer>
+      <footer>Your credentials stay encrypted on the server.</footer>
     </main>
   );
 }
