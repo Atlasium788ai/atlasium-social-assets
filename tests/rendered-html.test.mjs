@@ -117,5 +117,7 @@ test("publishes sample content through the complete Buffer scheduling mutation p
     assert.equal(response.status, 201);
     assert.equal(mutations.length, 2);
     assert.ok(mutations.every((input) => input.mode === "customScheduled" && Date.parse(input.dueAt) > Date.now() && input.assets[0].image.url.startsWith("http://localhost/i/")));
+    assert.deepEqual(mutations[0].metadata.instagram, { type: "post", shouldShareToFeed: true, isAiGenerated: false });
+    assert.equal(mutations[1].metadata, undefined);
   } finally { globalThis.fetch = originalFetch; }
 });

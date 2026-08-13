@@ -195,7 +195,7 @@ async function refinePost(env: Env, caption: string, notes: string, service: str
   return data.content?.find((block) => block.type === "text")?.text?.trim() || caption;
 }
 
-async function createBufferPost(env: Env, input: { channelId: string; text: string; imageUrl: string; mode: string; dueAt?: string; aiAssisted: boolean }) {
+async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; imageUrl: string; mode: string; dueAt?: string; aiAssisted: boolean }) {
   const data = await bufferRequest(env, `mutation CreatePost($input: CreatePostInput!) { createPost(input: $input) { __typename ... on PostActionSuccess { post { id dueAt status channelId } } ... on MutationError { message } } }`, {
     input: {
       text: input.text,
@@ -204,6 +204,7 @@ async function createBufferPost(env: Env, input: { channelId: string; text: stri
       mode: input.mode,
       ...(input.dueAt ? { dueAt: input.dueAt } : {}),
       assets: [{ image: { url: input.imageUrl } }],
+      ...(input.service.toLowerCase() === "instagram" ? { metadata: { instagram: { type: "post", shouldShareToFeed: true, isAiGenerated: input.aiAssisted } } } : {}),
       aiAssisted: input.aiAssisted,
       source: "atlasium-publish-bridge",
     },
@@ -288,7 +289,7 @@ async function runAgent(request: Request, env: Env) {
       const channel = chosen[channelIndex];
       const mode = schedule.timing.mode === "now" ? "shareNow" : schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
       const dueAt = mode === "customScheduled" ? new Date(Date.parse(schedule.times[postIndex]!) + channelIndex * 7 * 60 * 1000).toISOString() : undefined;
-      const created = await createBufferPost(env, { channelId: String(channel.id), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true });
+      const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true });
       results.push({ concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channel: channel.displayName || channel.name, service: channel.service, postId: created?.id, status: mode === "shareNow" ? "Publishing now" : mode === "addToQueue" ? "Added to queue" : "Scheduled", dueAt });
     }
   }
@@ -364,7 +365,7 @@ async function publish(request: Request, env: Env) {
   const results = [];
   for (const channel of chosen) {
     const text = refine ? await refinePost(env, caption, notes, String(channel.service)) : caption;
-    const post = await createBufferPost(env, { channelId: String(channel.id), text, imageUrl, mode, dueAt, aiAssisted: refine });
+    const post = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text, imageUrl, mode, dueAt, aiAssisted: refine });
     results.push({ channel: channel.displayName || channel.name, service: channel.service, postId: post?.id });
   }
   const action = mode === "shareNow" ? "published" : mode === "customScheduled" ? "scheduled" : "added to the queue";
