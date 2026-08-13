@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -24,6 +25,15 @@ test("renders the Atlasium social agent", async () => {
   assert.match(html, /What should/);
   assert.match(html, /Create &amp; Publish/);
   assert.doesNotMatch(html, /codex-preview/);
+});
+
+test("client allows automatic channel routing and never silently ignores a publish click", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /!selected\.length\s*\|\|\s*busy/);
+  assert.match(source, /channels:\s*selected/);
+  assert.match(source, /if \(!prompt\.trim\(\)\) \{ setStatus/);
+  assert.match(source, /if \(!channels\.length\) \{ setStatus/);
+  assert.match(source, /disabled=\{busy\}/);
 });
 
 test("rejects an agent run without the private key", async () => {

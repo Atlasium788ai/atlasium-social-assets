@@ -33,7 +33,10 @@ export default function Home() {
   }, [key]);
 
   async function createAndPublish() {
-    if (!prompt.trim() || !selected.length || busy) return;
+    if (busy) return;
+    if (!key) { setStatus({ kind: "error", text: "Open your private Atlasium link to enable publishing." }); return; }
+    if (!prompt.trim()) { setStatus({ kind: "error", text: "Enter a campaign prompt first." }); return; }
+    if (!channels.length) { setStatus({ kind: "error", text: "Buffer channels are still loading. Try again in a moment." }); return; }
     setBusy(true); setStatus(null); setResults([]);
     try {
       const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json", "X-Upload-Key": key }, body: JSON.stringify({ prompt: prompt.trim(), channels: selected, timing, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
@@ -64,7 +67,7 @@ export default function Home() {
       </details>
 
       {status && <p className={`message ${status.kind}`} role="status">{status.kind === "ok" ? "✓ " : "! "}{status.text}</p>}
-      <button className="primary agent-button" disabled={!key || !prompt.trim() || !channels.length || busy} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : <>Create &amp; Publish <span>→</span></>}</button>
+      <button className="primary agent-button" disabled={busy} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : <>Create &amp; Publish <span>→</span></>}</button>
       {!key && <p className="access-warning">Open your private Atlasium link to enable publishing.</p>}
     </section>
 
