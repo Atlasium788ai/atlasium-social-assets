@@ -81,18 +81,45 @@ test("parses common prompt timing phrases and creates unique timezone-aware slot
   assert.ok(Date.parse(weekly.times[3]) - Date.parse(weekly.times[0]) >= 6 * 24 * 60 * 60 * 1000);
 });
 
-test("selects explicitly named platforms and defaults to every channel", async () => {
+test("selects distinct LinkedIn destinations and intelligently distributes an 8-day Atlasium campaign", async () => {
   const worker = await loadWorker();
   const channels = [
-    { id: "ig", service: "instagram", displayName: "Atlasium" },
-    { id: "li1", service: "linkedin", displayName: "Blair" },
-    { id: "li2", service: "linkedin", displayName: "Atlasium" },
-    { id: "fb", service: "facebook", displayName: "Atlasium" },
+    { id: "ig", service: "instagram", displayName: "atlasium788ai" },
+    { id: "li1", service: "linkedin", displayName: "Blair Ryan Barton" },
+    { id: "li2", service: "linkedin", displayName: "Atlasium 7/88 AI" },
+    { id: "fb", service: "facebook", displayName: "Atlasium 7/88 AI Facebook" },
+    { id: "tt", service: "tiktok", displayName: "atlasium.788.ai" },
   ];
   const named = await preview(worker, "Create posts for Instagram and LinkedIn", 2, { channels });
-  assert.deepEqual(named.channels.map((channel) => channel.id), ["ig", "li1", "li2"]);
-  const automatic = await preview(worker, "Create a launch campaign", 2, { channels });
-  assert.equal(automatic.channels.length, 4);
+  assert.deepEqual(named.channels.map((channel) => channel.id), ["ig", "li2"]);
+  const personal = await preview(worker, "Share my founder perspective on LinkedIn", 1, { channels });
+  assert.deepEqual(personal.channels.map((channel) => channel.id), ["li1"]);
+  const samplePosts = Array.from({ length: 8 }, (_, index) => ({ concept: `Atlasium campaign concept ${index + 1}`, caption: `Distinct Atlasium business message ${index + 1}`, imagePrompt: `Visual ${index + 1}` }));
+  const campaign = await preview(worker, "Create an 8-day Atlasium business campaign", 8, { channels, samplePosts });
+  assert.deepEqual(campaign.assignments.map((item) => item.channel), ["Atlasium 7/88 AI", "atlasium788ai", "Atlasium 7/88 AI Facebook", "Atlasium 7/88 AI", "atlasium788ai", "Atlasium 7/88 AI Facebook", "Atlasium 7/88 AI", "atlasium788ai"]);
+  assert.deepEqual(new Set(campaign.assignments.map((item) => item.service)), new Set(["linkedin", "instagram", "facebook"]));
+  assert.ok(campaign.assignments.every((item) => item.channel !== "Blair Ryan Barton"));
+  assert.equal(campaign.assignments.filter((item) => item.service === "linkedin").length, 3);
+});
+
+test("agent suppresses effectively identical same-time Buffer submissions", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  const mutations = [];
+  globalThis.fetch = async (url, init) => {
+    const request = JSON.parse(init.body);
+    if (String(url).includes("api.buffer.com") && request.query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org", name: "Atlasium" }] } } });
+    if (String(url).includes("api.buffer.com") && request.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "li", name: "Atlasium", displayName: "Atlasium 7/88 AI", service: "linkedin" }, { id: "ig", name: "Atlasium", displayName: "atlasium788ai", service: "instagram" }] } });
+    if (String(url).includes("api.openai.com/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Duplicate guard", timing: "now", posts: [{ concept: "One", caption: "Same message!", imagePrompt: "One" }, { concept: "Two", caption: "same message", imagePrompt: "Two" }] }) }] }] });
+    if (String(url).includes("api.openai.com/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    mutations.push(request.variables.input);
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `post-${mutations.length}` } } } });
+  };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create two posts and publish now", channels: [], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 201);
+    assert.equal(mutations.length, 1);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("publishes sample content through the complete Buffer scheduling mutation path", async () => {

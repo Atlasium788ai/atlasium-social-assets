@@ -172,10 +172,52 @@ function buildSchedule(prompt: string, count: number, requested: string, timeZon
 function selectChannels(prompt: string, channels: Array<Record<string, unknown>>, requestedIds: string[]) {
   if (requestedIds.length) return channels.filter((channel) => requestedIds.includes(String(channel.id)));
   const text = prompt.toLowerCase();
-  const services = ["instagram", "facebook", "linkedin", "tiktok", "twitter", "x"];
+  const services = ["instagram", "facebook", "linkedin", "twitter", "x"];
   const named = services.filter((service) => new RegExp(`\\b${service}\\b`, "i").test(text));
-  if (!named.length || /\ball (channels|platforms|accounts)\b|\beverywhere\b/.test(text)) return channels;
-  return channels.filter((channel) => named.some((service) => service === "x" ? String(channel.service).toLowerCase() === "twitter" : String(channel.service).toLowerCase().includes(service)));
+  const personal = /\b(i|me|my|mine|founder|personal|behind the scenes|lesson i|what i learned|my journey|my perspective)\b/.test(text);
+  const linkedin = channels.filter((channel) => String(channel.service).toLowerCase() === "linkedin");
+  const personalLinkedIn = linkedin.find((channel) => /blair|personal/i.test(`${channel.displayName || ""} ${channel.name || ""}`));
+  const companyLinkedIn = linkedin.find((channel) => channel !== personalLinkedIn) || linkedin[0];
+  const selected: Array<Record<string, unknown>> = [];
+  const add = (channel: Record<string, unknown> | undefined) => { if (channel && !selected.includes(channel)) selected.push(channel); };
+  const allowedServices = named.length ? named : ["linkedin", "instagram", "facebook"];
+  for (const service of allowedServices) {
+    if (service === "linkedin") add(personal ? personalLinkedIn || companyLinkedIn : companyLinkedIn);
+    else add(channels.find((channel) => String(channel.service).toLowerCase() === (service === "x" ? "twitter" : service)));
+  }
+  return selected;
+}
+
+function routePosts(prompt: string, posts: AgentPlan["posts"], channels: Array<Record<string, unknown>>, manual: boolean) {
+  if (!channels.length) return [];
+  const personal = /\b(i|me|my|mine|founder|personal|lesson i|what i learned|my journey|my perspective)\b/i.test(prompt);
+  const ranked = [...channels].sort((a, b) => {
+    const score = (channel: Record<string, unknown>) => {
+      const service = String(channel.service).toLowerCase();
+      const name = `${channel.displayName || ""} ${channel.name || ""}`;
+      if (service === "linkedin" && /blair|personal/i.test(name)) return personal ? 0 : 20;
+      if (service === "linkedin") return 0;
+      if (service === "instagram") return 1;
+      if (service === "facebook") return 2;
+      return 10;
+    };
+    return score(a) - score(b);
+  });
+  const usable = manual ? ranked : ranked.filter((channel) => String(channel.service).toLowerCase() !== "tiktok");
+  return posts.map((post, index) => {
+    const content = `${post.concept} ${post.caption}`.toLowerCase();
+    let channel = usable[index % usable.length];
+    if (!manual && posts.length < usable.length) {
+      if (/visual|design|brand|image|look|creative/.test(content)) channel = usable.find((item) => String(item.service).toLowerCase() === "instagram") || channel;
+      else if (/community|customer|conversation|local|audience/.test(content)) channel = usable.find((item) => String(item.service).toLowerCase() === "facebook") || channel;
+      else if (/business|company|offer|strategy|work|professional/.test(content)) channel = usable.find((item) => String(item.service).toLowerCase() === "linkedin") || channel;
+    }
+    return { post, channel };
+  });
+}
+
+function normalizedContent(text: string) {
+  return text.toLowerCase().replace(/https?:\/\/\S+/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 async function refinePost(env: Env, caption: string, notes: string, service: string) {
@@ -282,29 +324,36 @@ async function runAgent(request: Request, env: Env) {
   const plan = await createPlan(env, prompt, chosen.map((channel) => `${channel.service}: ${channel.displayName || channel.name}`), timing);
   const imageUrls = await Promise.all(plan.posts.map((post) => generateAndHostImage(request, env, post.imagePrompt)));
   const schedule = buildSchedule(prompt, plan.posts.length, timing, String(body.timeZone || "America/Toronto"));
+  const assignments = routePosts(prompt, plan.posts, chosen, requestedIds.length > 0);
   const results: Array<Record<string, unknown>> = [];
-  for (let postIndex = 0; postIndex < plan.posts.length; postIndex++) {
-    const post = plan.posts[postIndex];
-    for (let channelIndex = 0; channelIndex < chosen.length; channelIndex++) {
-      const channel = chosen[channelIndex];
-      const mode = schedule.timing.mode === "now" ? "shareNow" : schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
-      const dueAt = mode === "customScheduled" ? new Date(Date.parse(schedule.times[postIndex]!) + channelIndex * 7 * 60 * 1000).toISOString() : undefined;
-      const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true });
-      results.push({ concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channel: channel.displayName || channel.name, service: channel.service, postId: created?.id, status: mode === "shareNow" ? "Publishing now" : mode === "addToQueue" ? "Added to queue" : "Scheduled", dueAt });
-    }
+  const submitted = new Set<string>();
+  for (let postIndex = 0; postIndex < assignments.length; postIndex++) {
+    const { post, channel } = assignments[postIndex];
+    const mode = schedule.timing.mode === "now" ? "shareNow" : schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
+    const dueAt = mode === "customScheduled" ? schedule.times[postIndex]! : undefined;
+    const fingerprint = `${normalizedContent(post.caption)}|${dueAt ? dueAt.slice(0, 16) : mode}`;
+    if (submitted.has(fingerprint)) continue;
+    submitted.add(fingerprint);
+    const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true });
+    results.push({ concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channel: channel.displayName || channel.name, service: channel.service, postId: created?.id, status: mode === "shareNow" ? "Publishing now" : mode === "addToQueue" ? "Added to queue" : "Scheduled", dueAt });
   }
-  return json({ message: `${plan.posts.length} post${plan.posts.length === 1 ? "" : "s"} created and sent to ${chosen.length} channel${chosen.length === 1 ? "" : "s"}.`, campaign: plan.campaign, postsCreated: plan.posts.length, channels: chosen.length, schedule: schedule.timing, results }, 201);
+  const usedChannels = new Set(results.map((result) => String(result.channel)));
+  return json({ message: `${results.length} post${results.length === 1 ? "" : "s"} created and sent across ${usedChannels.size} channel${usedChannels.size === 1 ? "" : "s"}.`, campaign: plan.campaign, postsCreated: results.length, channels: usedChannels.size, schedule: schedule.timing, results }, 201);
 }
 
 async function previewSchedule(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
-  const body = await request.json() as { prompt?: string; count?: number; timing?: string; timeZone?: string; channels?: Array<Record<string, unknown>>; selected?: string[] };
+  const body = await request.json() as { prompt?: string; count?: number; timing?: string; timeZone?: string; channels?: Array<Record<string, unknown>>; selected?: string[]; samplePosts?: AgentPlan["posts"] };
   const prompt = String(body.prompt || "");
   const count = Math.max(1, Math.min(50, Number(body.count) || 1));
   const zone = validTimeZone(String(body.timeZone || "America/Toronto"));
   const schedule = buildSchedule(prompt, count, String(body.timing || "auto"), zone);
   const channels = Array.isArray(body.channels) ? body.channels : [];
-  return json({ ...schedule, timeZone: zone, channels: selectChannels(prompt, channels, Array.isArray(body.selected) ? body.selected : []) });
+  const selectedIds = Array.isArray(body.selected) ? body.selected : [];
+  const chosen = selectChannels(prompt, channels, selectedIds);
+  const samplePosts = Array.isArray(body.samplePosts) ? body.samplePosts.slice(0, count) : [];
+  const assignments = routePosts(prompt, samplePosts, chosen, selectedIds.length > 0).map(({ post, channel }, index) => ({ concept: post.concept, caption: post.caption, channel: channel.displayName || channel.name, service: channel.service, dueAt: schedule.times[index] }));
+  return json({ ...schedule, timeZone: zone, channels: chosen, assignments });
 }
 
 async function upload(request: Request, env: Env) {
