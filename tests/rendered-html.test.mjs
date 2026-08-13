@@ -129,7 +129,7 @@ test("publishes sample content through the complete Buffer scheduling mutation p
   globalThis.fetch = async (_url, init) => {
     const request = JSON.parse(init.body);
     if (request.query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org", name: "Atlasium" }] } } });
-    if (request.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", name: "Atlasium", displayName: "Atlasium", service: "instagram" }, { id: "li", name: "Atlasium", displayName: "Atlasium", service: "linkedin" }] } });
+    if (request.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", name: "Atlasium", displayName: "Atlasium", service: "instagram" }, { id: "li", name: "Atlasium", displayName: "Atlasium", service: "linkedin" }, { id: "fb", name: "Atlasium", displayName: "Atlasium", service: "facebook" }, { id: "tt", name: "Atlasium", displayName: "Atlasium", service: "tiktok" }] } });
     mutations.push(request.variables.input);
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `post-${mutations.length}`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: request.variables.input.channelId } } } });
   };
@@ -137,14 +137,36 @@ test("publishes sample content through the complete Buffer scheduling mutation p
     const form = new FormData();
     form.set("image", new File([new Uint8Array([137, 80, 78, 71])], "sample.png", { type: "image/png" }));
     form.set("caption", "Sample Atlasium launch post");
-    form.set("channels", JSON.stringify(["ig", "li"]));
+    form.set("channels", JSON.stringify(["ig", "li", "fb"]));
     form.set("mode", "smartSchedule");
     form.set("timeZone", "America/Toronto");
     const response = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: form }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
-    assert.equal(mutations.length, 2);
+    assert.equal(mutations.length, 3);
     assert.ok(mutations.every((input) => input.mode === "customScheduled" && Date.parse(input.dueAt) > Date.now() && input.assets[0].image.url.startsWith("http://localhost/i/")));
     assert.deepEqual(mutations[0].metadata.instagram, { type: "post", shouldShareToFeed: true, isAiGenerated: false });
     assert.equal(mutations[1].metadata, undefined);
+    assert.deepEqual(mutations[2].metadata.facebook, { type: "post" });
+
+    for (const type of ["story", "reel"]) {
+      const typed = new FormData();
+      typed.set("image", new File([new Uint8Array([137, 80, 78, 71])], `${type}.png`, { type: "image/png" }));
+      typed.set("caption", "Atlasium update");
+      typed.set("notes", `Create a Facebook ${type}`);
+      typed.set("channels", JSON.stringify(["fb"]));
+      typed.set("mode", "addToQueue");
+      const typedResponse = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: typed }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+      assert.equal(typedResponse.status, 201);
+      assert.deepEqual(mutations.at(-1).metadata.facebook, { type });
+    }
+
+    const tiktok = new FormData();
+    tiktok.set("image", new File([new Uint8Array([137, 80, 78, 71])], "tiktok.png", { type: "image/png" }));
+    tiktok.set("caption", "Atlasium TikTok photo update");
+    tiktok.set("channels", JSON.stringify(["tt"]));
+    tiktok.set("mode", "addToQueue");
+    const tiktokResponse = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: tiktok }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(tiktokResponse.status, 201);
+    assert.deepEqual(mutations.at(-1).metadata.tiktok, { title: "Atlasium TikTok photo update", isAiGenerated: false });
   } finally { globalThis.fetch = originalFetch; }
 });

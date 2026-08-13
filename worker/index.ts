@@ -220,6 +220,12 @@ function normalizedContent(text: string) {
   return text.toLowerCase().replace(/https?:\/\/\S+/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function inferredPostType(text: string) {
+  if (/\b(story|stories)\b/i.test(text)) return "story";
+  if (/\breels?\b/i.test(text)) return "reel";
+  return "post";
+}
+
 async function refinePost(env: Env, caption: string, notes: string, service: string) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("Claude refinement is enabled, but Claude is not connected yet.");
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -237,7 +243,16 @@ async function refinePost(env: Env, caption: string, notes: string, service: str
   return data.content?.find((block) => block.type === "text")?.text?.trim() || caption;
 }
 
-async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; imageUrl: string; mode: string; dueAt?: string; aiAssisted: boolean }) {
+async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; imageUrl: string; mode: string; dueAt?: string; aiAssisted: boolean; typeHint?: string }) {
+  const service = input.service.toLowerCase();
+  const postType = inferredPostType(`${input.typeHint || ""} ${input.text}`);
+  const metadata = service === "instagram"
+    ? { instagram: { type: postType, shouldShareToFeed: postType !== "story", isAiGenerated: input.aiAssisted } }
+    : service === "facebook"
+      ? { facebook: { type: postType } }
+      : service === "tiktok"
+        ? { tiktok: { title: input.text.slice(0, 90), isAiGenerated: input.aiAssisted } }
+        : undefined;
   const data = await bufferRequest(env, `mutation CreatePost($input: CreatePostInput!) { createPost(input: $input) { __typename ... on PostActionSuccess { post { id dueAt status channelId } } ... on MutationError { message } } }`, {
     input: {
       text: input.text,
@@ -246,7 +261,7 @@ async function createBufferPost(env: Env, input: { channelId: string; service: s
       mode: input.mode,
       ...(input.dueAt ? { dueAt: input.dueAt } : {}),
       assets: [{ image: { url: input.imageUrl } }],
-      ...(input.service.toLowerCase() === "instagram" ? { metadata: { instagram: { type: "post", shouldShareToFeed: true, isAiGenerated: input.aiAssisted } } } : {}),
+      ...(metadata ? { metadata } : {}),
       aiAssisted: input.aiAssisted,
       source: "atlasium-publish-bridge",
     },
@@ -334,7 +349,7 @@ async function runAgent(request: Request, env: Env) {
     const fingerprint = `${normalizedContent(post.caption)}|${dueAt ? dueAt.slice(0, 16) : mode}`;
     if (submitted.has(fingerprint)) continue;
     submitted.add(fingerprint);
-    const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true });
+    const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true, typeHint: `${prompt} ${post.concept}` });
     results.push({ concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channel: channel.displayName || channel.name, service: channel.service, postId: created?.id, status: mode === "shareNow" ? "Publishing now" : mode === "addToQueue" ? "Added to queue" : "Scheduled", dueAt });
   }
   const usedChannels = new Set(results.map((result) => String(result.channel)));
@@ -414,7 +429,7 @@ async function publish(request: Request, env: Env) {
   const results = [];
   for (const channel of chosen) {
     const text = refine ? await refinePost(env, caption, notes, String(channel.service)) : caption;
-    const post = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text, imageUrl, mode, dueAt, aiAssisted: refine });
+    const post = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text, imageUrl, mode, dueAt, aiAssisted: refine, typeHint: notes });
     results.push({ channel: channel.displayName || channel.name, service: channel.service, postId: post?.id });
   }
   const action = mode === "shareNow" ? "published" : mode === "customScheduled" ? "scheduled" : "added to the queue";
