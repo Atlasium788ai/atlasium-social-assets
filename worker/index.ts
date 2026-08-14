@@ -442,7 +442,9 @@ async function generateAndHostMotion(request: Request, env: Env, _imageUrl: stri
   let job = createdJob;
   if (!create.ok || !job.id) throw new Error(job.error?.message || "OpenAI motion generation could not start.");
   const videoId = job.id;
-  const deadline = Date.now() + 4 * 60 * 1000;
+  // Leave enough time for the caller to report a static-media fallback before
+  // the Sites request boundary terminates the whole campaign request.
+  const deadline = Date.now() + 20_000;
   while (job.status !== "completed") {
     if (job.status === "failed") throw new Error(job.error?.message || "OpenAI motion generation failed.");
     if (Date.now() >= deadline) throw new Error("OpenAI motion generation timed out.");
