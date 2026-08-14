@@ -443,14 +443,20 @@ async function generateAndHostMotion(request: Request, env: Env, imageUrl: strin
     if (!source.ok) throw new Error("Could not load the generated image for motion rendering.");
     sourceBlob = await source.blob();
   }
-  const form = new FormData();
-  form.set("model", env.OPENAI_VIDEO_MODEL || "sora-2");
-  form.set("prompt", motionPrompt);
-  form.set("seconds", String(duration));
-  form.set("size", "720x1280");
-  form.set("input_reference", new File([sourceBlob], "atlasium-source.png", { type: "image/png" }));
-  const create = await fetch("https://api.openai.com/v1/videos", { method: "POST", headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body: form });
-  let job = await create.json() as { id?: string; status?: string; error?: { message?: string } };
+  const createVideo = async (includeReference: boolean) => {
+    const form = new FormData();
+    form.set("model", env.OPENAI_VIDEO_MODEL || "sora-2");
+    form.set("prompt", motionPrompt);
+    form.set("seconds", String(duration));
+    form.set("size", "720x1280");
+    if (includeReference) form.set("input_reference", new File([sourceBlob], "atlasium-source.png", { type: "image/png" }));
+    const response = await fetch("https://api.openai.com/v1/videos", { method: "POST", headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body: form });
+    return { response, job: await response.json() as { id?: string; status?: string; error?: { message?: string } } };
+  };
+  let { response: create, job } = await createVideo(true);
+  if (!create.ok && /must match the requested width and height/i.test(job.error?.message || "")) {
+    ({ response: create, job } = await createVideo(false));
+  }
   if (!create.ok || !job.id) throw new Error(job.error?.message || "OpenAI motion generation could not start.");
   const videoId = job.id;
   const deadline = Date.now() + 4 * 60 * 1000;
