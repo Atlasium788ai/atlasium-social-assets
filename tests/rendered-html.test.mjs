@@ -218,7 +218,7 @@ test("motion prompts create the exact requested MP4 count and TikTok video paylo
   const mp4 = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 2, 0, 105, 115, 111, 109, 109, 112, 52, 50, 0, 0, 0, 8, 109, 100, 97, 116]);
   const posts = Array.from({ length: 6 }, (_, index) => ({ concept: `Concept ${index}`, caption: `Caption ${index}`, imagePrompt: `Image ${index}` }));
   globalThis.fetch = async (url, init = {}) => {
-    if (String(url).startsWith("http://localhost/i/")) return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
+    if (String(url).startsWith("http://localhost/i/")) return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": String(url).endsWith(".mp4") ? "video/mp4" : "image/png" } });
     if (String(url).includes("api.openai.com/v1/videos/") && String(url).endsWith("/content")) return new Response(mp4, { headers: { "content-type": "video/mp4" } });
     if (String(url).endsWith("/v1/videos") && init.method === "POST") return Response.json({ id: `video-${Math.random()}`, status: "completed" });
     const request = JSON.parse(init.body);
@@ -338,5 +338,105 @@ test("publishes sample content through the complete Buffer scheduling mutation p
     const tiktokResponse = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: tiktok }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(tiktokResponse.status, 201);
     assert.deepEqual(mutations.at(-1).metadata.tiktok, { title: "Atlasium TikTok photo update" });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+function memoryR2() {
+  const values = new Map();
+  return {
+    values,
+    async put(key, value, options = {}) {
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(await new Response(value).arrayBuffer());
+      values.set(key, { bytes, options });
+    },
+    async get(key) {
+      const stored = values.get(key);
+      if (!stored) return null;
+      return { body: stored.bytes, httpEtag: "test", writeHttpMetadata(headers) { if (stored.options.httpMetadata?.contentType) headers.set("content-type", stored.options.httpMetadata.contentType); } };
+    },
+  };
+}
+
+test("async motion persists, resumes, hosts MP4, schedules once, and survives refresh", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  const r2 = memoryR2();
+  const mutations = [];
+  const mp4 = new Uint8Array([0,0,0,24,102,116,121,112,105,115,111,109,0,0,2,0,105,115,111,109,109,112,52,50,0,0,0,8,109,100,97,116]);
+  const channels = [
+    { id: "lip", displayName: "Blair Ryan Barton", service: "linkedin" },
+    { id: "lic", displayName: "Atlasium 7/88 AI", service: "linkedin" },
+    { id: "tt", displayName: "atlasium.788.ai", service: "tiktok" },
+    { id: "ig", displayName: "atlasium788ai", service: "instagram" },
+    { id: "fb", displayName: "Atlasium Facebook", service: "facebook" },
+  ];
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).startsWith("http://localhost/i/")) return new Response(null, { status: 200, headers: { "content-type": String(url).endsWith(".mp4") ? "video/mp4" : "image/png" } });
+    if (String(url).endsWith("/v1/videos") && init.method === "POST") return Response.json({ id: "video-persisted", status: "queued" });
+    if (String(url).endsWith("/videos/video-persisted")) return Response.json({ id: "video-persisted", status: "completed" });
+    if (String(url).endsWith("/videos/video-persisted/content")) return new Response(mp4, { headers: { "content-type": "video/mp4" } });
+    const request = JSON.parse(init.body);
+    if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org", name: "Atlasium" }] } } });
+    if (request.query?.includes("query Channels")) return Response.json({ data: { channels } });
+    if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Async", timing: "schedule", posts: [{ concept: "Motion", caption: "Company", personalLinkedInCaption: "Founder", companyLinkedInCaption: "Company", instagramCaption: "Instagram", facebookCaption: "Facebook", tiktokCaption: "TikTok", imagePrompt: "Image" }] }) }] }] });
+    if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    mutations.push(request.variables.input);
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `buffer-${mutations.length}`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: request.variables.input.channelId } } } });
+  };
+  try {
+    const started = Date.now();
+    const initial = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", timing: "auto", channels: [] }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(initial.status, 202);
+    assert.ok(Date.now() - started < 1000);
+    const created = await initial.json();
+    assert.ok(created.campaignId);
+    assert.equal(mutations.length, 0);
+    assert.ok(created.results.every((result) => result.status === "PROCESSING MOTION"));
+    const persisted = JSON.parse(new TextDecoder().decode(r2.values.get(`.atlasium-campaigns/${created.campaignId}.json`).bytes));
+    assert.equal(persisted.items[0].videoJobId, "video-persisted");
+
+    const progress = await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    const completed = await progress.json();
+    assert.equal(mutations.length, 4);
+    assert.ok(completed.results.every((result) => result.status === "SCHEDULED" && result.hostedMediaUrl.endsWith(".mp4")));
+    assert.ok(completed.results.some((result) => result.channelId === "tt"));
+    assert.ok(completed.results.some((result) => result.channelId === "lip"));
+    assert.ok(mutations.every((input) => input.dueAt === created.results[0].requestedDueAt));
+
+    await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(mutations.length, 4);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("failed async motion retries twice then reports static fallback", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  const r2 = memoryR2();
+  let creates = 0;
+  const mutations = [];
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/v1/videos") && init.method === "POST") return Response.json({ id: `video-${++creates}`, status: "queued" });
+    if (/\/videos\/video-\d+$/.test(String(url))) return Response.json({ status: "failed", error: { message: "render failed" } });
+    const request = JSON.parse(init.body);
+    if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org" }] } } });
+    if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "tt", displayName: "atlasium.788.ai", service: "tiktok" }] } });
+    if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Retry", timing: "schedule", posts: [{ concept: "Motion", caption: "Caption", imagePrompt: "Image" }] }) }] }] });
+    if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    mutations.push(request.variables.input);
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: "fallback", status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "tt" } } } });
+  };
+  try {
+    const initial = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", channels: ["tt"] }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    const id = (await initial.json()).campaignId;
+    let data;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await worker.fetch(new Request(`http://localhost/api/campaign/${id}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+      data = await response.json();
+    }
+    assert.equal(creates, 3);
+    assert.equal(mutations.length, 1);
+    assert.equal(data.results[0].status, "STATIC FALLBACK");
+    assert.match(data.results[0].motionError, /MOTION FAILED — STATIC FALLBACK USED/);
+    assert.ok(mutations[0].assets[0].image);
   } finally { globalThis.fetch = originalFetch; }
 });

@@ -51,6 +51,18 @@ type PlannedPost = AgentPlan["posts"][number] & {
   motionError?: string;
 };
 type BufferPost = { id: string; dueAt?: string | null; status?: string | null; channelId: string };
+type MotionState = "queued" | "rendering" | "completed" | "hosting" | "scheduling" | "scheduled" | "failed";
+type MotionJobStatus = { status: "queued" | "rendering" | "completed" | "failed"; error?: string };
+interface MotionProvider {
+  providerName: string;
+  modelName: string;
+  createJob(prompt: string, duration: number): Promise<{ id: string; status: MotionJobStatus["status"] }>;
+  getJobStatus(id: string): Promise<MotionJobStatus>;
+  downloadResult(id: string): Promise<Uint8Array>;
+  handleWebhook(_request: Request): Promise<never>;
+}
+type CampaignResult = Record<string, unknown> & { id: string; itemId: string; status: string; channelId: string; service: string; caption: string; requestedDueAt?: string | null; mediaType?: MediaType; imageUrl?: string; hostedMediaUrl?: string };
+type CampaignRecord = { id: string; createdAt: string; updatedAt: string; prompt: string; timeZone: string; message: string; schedule: { timing: TimingPlan; times: Array<string | null> }; items: Array<PlannedPost & { state: MotionState; videoJobId?: string; retryCount: number; providerName?: string; modelName?: string }>; results: CampaignResult[] };
 
 type TimingMode = "auto" | "now" | "queue" | "schedule";
 type TimingPlan = { mode: TimingMode; label: string; start: string | null; end: string | null; weekdaysOnly: boolean; postsPerWeek: number | null; launchDay: number | null };
@@ -427,48 +439,66 @@ function playableMp4(bytes: Uint8Array) {
   return bytes.length > 16 && String.fromCharCode(...bytes.slice(4, 8)) === "ftyp";
 }
 
-async function generateAndHostMotion(request: Request, env: Env, _imageUrl: string, motionPrompt: string, duration = 4) {
+function motionProvider(env: Env): MotionProvider {
   if (!env.OPENAI_API_KEY) throw new Error("OpenAI connection required for motion generation.");
-  const createVideo = async () => {
+  const providerName = "openai";
+  const modelName = env.OPENAI_VIDEO_MODEL || "sora-2";
+  return {
+    providerName,
+    modelName,
+    async createJob(prompt, duration) {
     const form = new FormData();
-    form.set("model", env.OPENAI_VIDEO_MODEL || "sora-2");
-    form.set("prompt", motionPrompt);
+      form.set("model", modelName);
+      form.set("prompt", prompt);
     form.set("seconds", String(duration));
     form.set("size", "720x1280");
     const response = await fetch("https://api.openai.com/v1/videos", { method: "POST", headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body: form });
-    return { response, job: await response.json() as { id?: string; status?: string; error?: { message?: string } } };
+      const job = await response.json() as { id?: string; status?: string; error?: { message?: string } };
+      if (!response.ok || !job.id) throw new Error(job.error?.message || "OpenAI motion generation could not start.");
+      return { id: job.id, status: job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "in_progress" ? "rendering" : "queued" };
+    },
+    async getJobStatus(id) {
+      const response = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
+      const job = await response.json() as { status?: string; error?: { message?: string } };
+      if (!response.ok) throw new Error(job.error?.message || "Could not check motion generation status.");
+      return { status: job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : job.status === "in_progress" ? "rendering" : "queued", error: job.error?.message };
+    },
+    async downloadResult(id) {
+      const response = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(id)}/content`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
+      if (!response.ok) throw new Error("Could not download the generated motion video.");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (!playableMp4(bytes)) throw new Error("OpenAI returned an invalid MP4 video.");
+      return bytes;
+    },
+    async handleWebhook() { throw new Error("OpenAI video webhooks are not configured; authenticated polling is active."); },
   };
-  const { response: create, job: createdJob } = await createVideo();
-  let job = createdJob;
-  if (!create.ok || !job.id) throw new Error(job.error?.message || "OpenAI motion generation could not start.");
-  const videoId = job.id;
-  // Leave enough time for the caller to report a static-media fallback before
-  // the Sites request boundary terminates the whole campaign request.
-  const deadline = Date.now() + 20_000;
-  while (job.status !== "completed") {
-    if (job.status === "failed") throw new Error(job.error?.message || "OpenAI motion generation failed.");
-    if (Date.now() >= deadline) throw new Error("OpenAI motion generation timed out.");
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    const status = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(videoId)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
-    job = await status.json() as typeof job;
-    if (!status.ok) throw new Error(job.error?.message || "Could not check motion generation status.");
-  }
-  const content = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(videoId)}/content`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
-  if (!content.ok) throw new Error("Could not download the generated motion video.");
-  const bytes = new Uint8Array(await content.arrayBuffer());
-  if (!playableMp4(bytes)) throw new Error("OpenAI returned an invalid MP4 video.");
+}
+
+async function hostMotion(request: Request, env: Env, bytes: Uint8Array) {
   const key = `${new Date().toISOString().slice(0, 10)}/motion-${crypto.randomUUID()}.mp4`;
   await env.UPLOADS.put(key, bytes, { httpMetadata: { contentType: "video/mp4", cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: "atlasium-motion.mp4" } });
-  return `${new URL(request.url).origin}/i/${key}`;
+  const url = `${new URL(request.url).origin}/i/${key}`;
+  const check = await fetch(url, { method: "HEAD" });
+  if (!check.ok || !/^video\//i.test(check.headers.get("content-type") || "")) throw new Error("Hosted motion video could not be verified publicly.");
+  return url;
 }
+
+const campaignKey = (id: string) => `.atlasium-campaigns/${id}.json`;
+async function saveCampaign(env: Env, campaign: CampaignRecord) { campaign.updatedAt = new Date().toISOString(); await env.UPLOADS.put(campaignKey(campaign.id), new TextEncoder().encode(JSON.stringify(campaign)), { httpMetadata: { contentType: "application/json", cacheControl: "no-store" } }); }
+async function loadCampaign(env: Env, id: string) { const object = await env.UPLOADS.get(campaignKey(id)); return object ? await new Response(object.body).json() as CampaignRecord : null; }
 
 async function motionPreview(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
   const body = await request.json() as { prompt?: string };
   const prompt = String(body.prompt || "Dark premium Atlasium data pathways with subtle cinematic motion").slice(0, 1000);
   const imageUrl = await generateAndHostImage(request, env, prompt);
-  const hostedMediaUrl = await generateAndHostMotion(request, env, imageUrl, `Preserve the source composition. Add a slow cinematic push-in and soft light sweep. ${prompt}`, 4);
-  return json({ mediaType: "video", duration: 4, aspectRatio: "9:16", imageUrl, hostedMediaUrl }, 201);
+  const provider = motionProvider(env);
+  const job = await provider.createJob(`Add a slow cinematic push-in and soft light sweep. ${prompt}`, 4);
+  const id = crypto.randomUUID();
+  const item: CampaignRecord["items"][number] = { id: `${id}-01`, itemIndex: 0, concept: "Motion preview", caption: "", imagePrompt: prompt, mediaType: "video", motionStyle: "slow cinematic push-in", motionPrompt: `Add a slow cinematic push-in and soft light sweep. ${prompt}`, duration: 4, aspectRatio: "9:16", imageUrl, hostedMediaUrl: undefined, state: job.status, videoJobId: job.id, retryCount: 0, providerName: provider.providerName, modelName: provider.modelName };
+  const campaign: CampaignRecord = { id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), prompt, timeZone: "America/Toronto", message: "PROCESSING MOTION", schedule: { timing: { mode: "auto", label: "Media-only proof", start: null, end: null, weekdaysOnly: false, postsPerWeek: null, launchDay: null }, times: [null] }, items: [item], results: [] };
+  await saveCampaign(env, campaign);
+  return json({ campaignId: id, mediaType: "video", duration: 4, aspectRatio: "9:16", imageUrl, videoJobId: job.id, status: job.status, providerName: provider.providerName, modelName: provider.modelName }, 202);
 }
 
 async function runAgent(request: Request, env: Env) {
@@ -498,8 +528,13 @@ async function runAgent(request: Request, env: Env) {
   posts = addMotionPlan(prompt, posts);
   const imageUrls = await Promise.all(posts.map((post) => generateAndHostImage(request, env, post.imagePrompt)));
   posts = posts.map((post, index) => ({ ...post, imageUrl: imageUrls[index], hostedMediaUrl: imageUrls[index] }));
+  const provider = motionProvider(env);
   for (const post of posts.filter((item) => item.mediaType === "video")) {
-    try { post.hostedMediaUrl = await generateAndHostMotion(request, env, post.imageUrl!, post.motionPrompt!, post.duration || 4); }
+    try {
+      const job = await provider.createJob(post.motionPrompt!, post.duration || 4);
+      Object.assign(post, { videoJobId: job.id, state: job.status, retryCount: 0, providerName: provider.providerName, modelName: provider.modelName });
+      if (job.status === "completed") post.hostedMediaUrl = await hostMotion(request, env, await provider.downloadResult(job.id));
+    }
     catch (error) { post.mediaType = "image"; post.hostedMediaUrl = post.imageUrl; post.motionError = error instanceof Error ? error.message : "Motion generation failed; a static image was used."; }
   }
   const assignments = routePosts(prompt, posts, chosen, requestedIds.length > 0);
@@ -514,6 +549,11 @@ async function runAgent(request: Request, env: Env) {
     if (submitted.has(fingerprint)) continue;
     submitted.add(fingerprint);
     const submissionId = `${stablePost.id}:${String(channel.id)}`;
+    const pendingMotion = stablePost.mediaType === "video" && !stablePost.hostedMediaUrl?.endsWith(".mp4");
+    if (pendingMotion) {
+      results.push({ id: submissionId, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: "video", motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: String(channel.service), status: "PROCESSING MOTION", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
+      continue;
+    }
     try {
       const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: caption, mediaUrl: stablePost.hostedMediaUrl!, mediaType: stablePost.mediaType, mode, dueAt: requestedDueAt || undefined, aiAssisted: true, typeHint: `${prompt} ${post.concept}` });
       const confirmedChannel = available.find((item) => String(item.id) === created.channelId);
@@ -524,8 +564,70 @@ async function runAgent(request: Request, env: Env) {
   }
   const usedChannels = new Set(results.map((result) => String(result.channel)));
   const failed = results.filter((result) => result.status === "FAILED").length;
-  const message = failed ? `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"}; ${results.length - failed} destination submission${results.length - failed === 1 ? "" : "s"} confirmed and ${failed} failed.` : `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"} created with ${results.length} confirmed destination submission${results.length === 1 ? "" : "s"} across ${usedChannels.size} channels.`;
-  return json({ message, campaign: plan.campaign, campaignItems: plan.posts.length, destinationSubmissions: results.length, postsCreated: results.length - failed, channels: usedChannels.size, schedule: schedule.timing, results }, failed ? 207 : 201);
+  const pending = results.filter((result) => result.status === "PROCESSING MOTION").length;
+  const message = pending ? `PROCESSING MOTION — ${pending} destination${pending === 1 ? "" : "s"} will be sent to Buffer only after the MP4 is hosted.` : failed ? `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"}; ${results.length - failed} destination submission${results.length - failed === 1 ? "" : "s"} confirmed and ${failed} failed.` : `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"} created with ${results.length} confirmed destination submission${results.length === 1 ? "" : "s"} across ${usedChannels.size} channels.`;
+  const campaign: CampaignRecord = { id: runId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), prompt, timeZone, message, schedule, items: posts.map((post) => ({ ...post, state: ((post as PlannedPost & { state?: MotionState }).state || (post.mediaType === "video" ? "rendering" : "scheduled")) as MotionState, retryCount: (post as PlannedPost & { retryCount?: number }).retryCount || 0 })), results: results as CampaignResult[] };
+  await saveCampaign(env, campaign);
+  return json({ campaignId: runId, message, campaign: plan.campaign, campaignItems: plan.posts.length, destinationSubmissions: results.length, postsCreated: results.length - failed - pending, channels: usedChannels.size, schedule: schedule.timing, results }, pending ? 202 : failed ? 207 : 201);
+}
+
+async function processCampaign(request: Request, env: Env, id: string) {
+  if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
+  const campaign = await loadCampaign(env, id);
+  if (!campaign) return json({ error: "Campaign not found." }, 404);
+  const provider = motionProvider(env);
+  const now = env.TEST_NOW && !Number.isNaN(Date.parse(env.TEST_NOW)) ? new Date(env.TEST_NOW) : new Date();
+  for (const item of campaign.items.filter((candidate) => candidate.mediaType === "video" && ["queued", "rendering"].includes(candidate.state))) {
+    let status: MotionJobStatus;
+    try { status = await provider.getJobStatus(item.videoJobId!); }
+    catch (error) { status = { status: "failed", error: error instanceof Error ? error.message : "Motion status check failed." }; }
+    if (status.status === "queued" || status.status === "rendering") { item.state = status.status; continue; }
+    if (status.status === "failed") {
+      if (item.retryCount < 2) {
+        item.retryCount += 1;
+        try { const retry = await provider.createJob(item.motionPrompt!, item.duration || 4); item.videoJobId = retry.id; item.state = retry.status; }
+        catch (error) { item.state = "failed"; item.motionError = error instanceof Error ? error.message : "Motion retry failed."; }
+        continue;
+      }
+      item.mediaType = "image";
+      item.hostedMediaUrl = item.imageUrl;
+      item.motionError = `MOTION FAILED — STATIC FALLBACK USED${status.error ? `: ${status.error}` : ""}`;
+      item.state = "scheduling";
+    } else {
+      item.state = "completed";
+      await saveCampaign(env, campaign);
+      item.state = "hosting";
+      await saveCampaign(env, campaign);
+      try { item.hostedMediaUrl = await hostMotion(request, env, await provider.downloadResult(item.videoJobId!)); item.state = "scheduling"; }
+      catch (error) { item.mediaType = "image"; item.hostedMediaUrl = item.imageUrl; item.state = "scheduling"; item.motionError = `MOTION FAILED — STATIC FALLBACK USED: ${error instanceof Error ? error.message : "Motion hosting failed."}`; }
+    }
+  }
+  await saveCampaign(env, campaign);
+
+  for (const item of campaign.items.filter((candidate) => ["scheduling", "completed"].includes(candidate.state))) {
+    const destinations = campaign.results.filter((result) => result.itemId === item.id && result.status === "PROCESSING MOTION");
+    for (const result of destinations) {
+      const dueAt = result.requestedDueAt ? String(result.requestedDueAt) : undefined;
+      const mode = campaign.schedule.timing.mode === "now" ? "shareNow" : campaign.schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
+      if (mode === "customScheduled" && (!dueAt || Date.parse(dueAt) <= now.getTime())) {
+        result.status = "FAILED"; result.error = "Requested schedule passed before motion rendering completed. Nothing was moved or republished."; continue;
+      }
+      result.status = "SCHEDULING";
+      await saveCampaign(env, campaign);
+      try {
+        const created = await createBufferPost(env, { channelId: result.channelId, service: result.service, text: result.caption, mediaUrl: item.hostedMediaUrl!, mediaType: item.mediaType, mode, dueAt, aiAssisted: true, typeHint: `${campaign.prompt} ${item.concept}` });
+        Object.assign(result, { mediaType: item.mediaType, hostedMediaUrl: item.hostedMediaUrl, motionError: item.motionError || null, postId: created.id, status: mode === "shareNow" ? "PUBLISHING" : mode === "addToQueue" ? "QUEUED" : item.mediaType === "image" && item.motionError ? "STATIC FALLBACK" : "SCHEDULED", bufferStatus: created.status || null, dueAt: created.dueAt || null });
+      } catch (error) { result.status = "FAILED"; result.error = error instanceof Error ? error.message : "Buffer rejected this post."; }
+      await saveCampaign(env, campaign);
+    }
+    item.state = campaign.results.some((result) => result.itemId === item.id && result.status === "FAILED") ? "failed" : "scheduled";
+  }
+  const processing = campaign.results.filter((result) => ["PROCESSING MOTION", "SCHEDULING"].includes(result.status)).length;
+  const activeItems = campaign.items.filter((item) => ["queued", "rendering", "completed", "hosting", "scheduling"].includes(item.state)).length;
+  const failed = campaign.results.filter((result) => result.status === "FAILED").length;
+  campaign.message = processing || activeItems ? `PROCESSING MOTION — ${processing || activeItems} ${processing ? "destination" : "item"}${(processing || activeItems) === 1 ? "" : "s"} pending.` : failed ? `Campaign finished with ${failed} failed destination${failed === 1 ? "" : "s"}.` : campaign.results.length ? "Campaign completed and confirmed by Buffer." : "Motion media completed.";
+  await saveCampaign(env, campaign);
+  return json({ campaignId: campaign.id, message: campaign.message, items: campaign.items, results: campaign.results, processing: processing > 0 || activeItems > 0 }, 200);
 }
 
 async function previewSchedule(request: Request, env: Env) {
@@ -647,6 +749,12 @@ const worker = {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       try { return await runAgent(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Campaign creation failed." }, 502); }
+    }
+
+    if (url.pathname.startsWith("/api/campaign/")) {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      try { return await processCampaign(request, env, decodeURIComponent(url.pathname.slice("/api/campaign/".length))); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Campaign progress failed." }, 502); }
     }
 
     if (url.pathname === "/api/motion-preview") {
