@@ -9,6 +9,7 @@ interface Env {
   OPENAI_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
   OPENAI_IMAGE_MODEL?: string;
+  OPENAI_VIDEO_MODEL?: string;
   ANTHROPIC_API_KEY?: string;
   CLAUDE_MODEL?: string;
   TEST_NOW?: string;
@@ -24,10 +25,31 @@ interface Env {
 type AgentPlan = {
   campaign: string;
   timing: "auto" | "now" | "queue" | "schedule";
-  posts: Array<{ concept: string; caption: string; imagePrompt: string }>;
+  posts: Array<{
+    concept: string;
+    caption: string;
+    imagePrompt: string;
+    personalLinkedInCaption?: string;
+    companyLinkedInCaption?: string;
+    instagramCaption?: string;
+    facebookCaption?: string;
+    tiktokCaption?: string;
+  }>;
 };
 
-type PlannedPost = AgentPlan["posts"][number] & { id: string };
+type MediaType = "image" | "video";
+type PlannedPost = AgentPlan["posts"][number] & {
+  id: string;
+  itemIndex: number;
+  mediaType: MediaType;
+  motionStyle: string | null;
+  motionPrompt: string | null;
+  duration: number | null;
+  aspectRatio: string;
+  imageUrl?: string;
+  hostedMediaUrl?: string;
+  motionError?: string;
+};
 type BufferPost = { id: string; dueAt?: string | null; status?: string | null; channelId: string };
 
 type TimingMode = "auto" | "now" | "queue" | "schedule";
@@ -158,9 +180,7 @@ function parseTiming(prompt: string, requested: string, timeZone: string, now = 
   const todayDay = localWeekday(today);
   let mode: TimingMode = requested === "now" || requested === "queue" || requested === "schedule" ? requested : "auto";
   if (requested === "auto") {
-    if (/\b(post|publish|share)\s+(it\s+)?now\b|\bimmediately\b/.test(text)) mode = "now";
-    else if (/\b(buffer\s+)?queue\b/.test(text)) mode = "queue";
-    else mode = "schedule";
+    mode = "schedule";
   }
   const frequency = text.match(/\b(\d+)\s+posts?\s+per\s+week\b/);
   const postsPerWeek = frequency ? Math.max(1, Math.min(14, Number(frequency[1]))) : null;
@@ -224,48 +244,67 @@ function buildSchedule(prompt: string, count: number, requested: string, timeZon
 
 function selectChannels(prompt: string, channels: Array<Record<string, unknown>>, requestedIds: string[]) {
   if (requestedIds.length) return channels.filter((channel) => requestedIds.includes(String(channel.id)));
-  const text = prompt.toLowerCase();
-  const services = ["instagram", "facebook", "linkedin", "twitter", "x"];
-  const named = services.filter((service) => new RegExp(`\\b${service}\\b`, "i").test(text));
-  const personal = /\b(blair|founder(?:'s)? (?:story|perspective|journey)|personal (?:story|perspective|update)|thought[- ]leadership|behind the scenes|lesson i learned|what i learned|my journey|my perspective)\b/.test(text);
   const linkedin = channels.filter((channel) => String(channel.service).toLowerCase() === "linkedin");
   const personalLinkedIn = linkedin.find((channel) => /blair|personal/i.test(`${channel.displayName || ""} ${channel.name || ""}`));
   const companyLinkedIn = linkedin.find((channel) => channel !== personalLinkedIn) || linkedin[0];
   const selected: Array<Record<string, unknown>> = [];
   const add = (channel: Record<string, unknown> | undefined) => { if (channel && !selected.includes(channel)) selected.push(channel); };
-  const allowedServices = named.length ? named : ["linkedin", "instagram", "facebook"];
-  for (const service of allowedServices) {
-    if (service === "linkedin") add(personal ? personalLinkedIn || companyLinkedIn : companyLinkedIn);
-    else add(channels.find((channel) => String(channel.service).toLowerCase() === (service === "x" ? "twitter" : service)));
-  }
+  add(personalLinkedIn);
+  add(companyLinkedIn);
+  add(channels.find((channel) => String(channel.service).toLowerCase() === "tiktok"));
+  add(channels.find((channel) => String(channel.service).toLowerCase() === "instagram"));
+  add(channels.find((channel) => String(channel.service).toLowerCase() === "facebook"));
   return selected;
 }
 
-function routePosts(prompt: string, posts: AgentPlan["posts"], channels: Array<Record<string, unknown>>, manual: boolean) {
+function isPersonalLinkedIn(channel: Record<string, unknown>) {
+  return String(channel.service).toLowerCase() === "linkedin" && /blair|personal/i.test(`${channel.displayName || ""} ${channel.name || ""}`);
+}
+
+function captionForChannel(post: AgentPlan["posts"][number], channel: Record<string, unknown>) {
+  const service = String(channel.service).toLowerCase();
+  if (service === "linkedin") return isPersonalLinkedIn(channel) ? post.personalLinkedInCaption || post.caption : post.companyLinkedInCaption || post.caption;
+  if (service === "instagram") return post.instagramCaption || post.caption;
+  if (service === "facebook") return post.facebookCaption || post.caption;
+  if (service === "tiktok") return post.tiktokCaption || post.caption;
+  return post.caption;
+}
+
+function routePosts(_prompt: string, posts: AgentPlan["posts"], channels: Array<Record<string, unknown>>, manual: boolean) {
   if (!channels.length) return [];
-  const personal = /\b(blair|founder(?:'s)? (?:story|perspective|journey)|personal (?:story|perspective|update)|thought[- ]leadership|lesson i learned|what i learned|my journey|my perspective)\b/i.test(prompt);
-  const ranked = [...channels].sort((a, b) => {
-    const score = (channel: Record<string, unknown>) => {
-      const service = String(channel.service).toLowerCase();
-      const name = `${channel.displayName || ""} ${channel.name || ""}`;
-      if (service === "linkedin" && /blair|personal/i.test(name)) return personal ? 0 : 20;
-      if (service === "linkedin") return 0;
-      if (service === "instagram") return 1;
-      if (service === "facebook") return 2;
-      return 10;
-    };
-    return score(a) - score(b);
+  if (manual) return posts.flatMap((post) => channels.map((channel) => ({ post, channel, caption: captionForChannel(post, channel) })));
+  const personal = channels.find(isPersonalLinkedIn);
+  const company = channels.find((channel) => String(channel.service).toLowerCase() === "linkedin" && !isPersonalLinkedIn(channel));
+  const tiktok = channels.find((channel) => String(channel.service).toLowerCase() === "tiktok");
+  const instagram = channels.find((channel) => String(channel.service).toLowerCase() === "instagram");
+  const facebook = channels.find((channel) => String(channel.service).toLowerCase() === "facebook");
+  return posts.flatMap((post, index) => {
+    const destinations = [personal, company, tiktok, index % 2 === 0 ? instagram : facebook].filter(Boolean) as Array<Record<string, unknown>>;
+    return [...new Map(destinations.map((channel) => [String(channel.id), channel])).values()].map((channel) => ({ post, channel, caption: captionForChannel(post, channel) }));
   });
-  const usable = manual ? ranked : ranked.filter((channel) => String(channel.service).toLowerCase() !== "tiktok");
+}
+
+const motionStyles = ["slow cinematic push-in", "gentle horizontal camera drift", "layered parallax", "soft light sweep", "controlled particles and data movement", "animated lines and pathways"];
+
+function motionCount(prompt: string, count: number) {
+  const text = prompt.toLowerCase();
+  if (/\b(all[- ]static|static only|no motion)\b/.test(text)) return 0;
+  const numbered = text.match(/\b(\d+)\s+(?:motion|animated|video)\s+posts?\b/);
+  if (numbered) return Math.min(count, Number(numbered[1]));
+  const percent = text.match(/\b(\d{1,3})\s*%\s+(?:motion|animated|video)\b/);
+  if (percent) return Math.min(count, Math.round(count * Math.min(100, Number(percent[1])) / 100));
+  if (/\b(all|every)\s+(?:post|item)s?\s+(?:with\s+)?(?:motion|animated|video)\b/.test(text)) return count;
+  return count < 3 ? (/\bsome motion\b/.test(text) ? 1 : 0) : Math.max(1, Math.round(count / 3));
+}
+
+function addMotionPlan(prompt: string, posts: PlannedPost[]) {
+  const count = motionCount(prompt, posts.length);
+  const selected = new Set<number>();
+  for (let index = 0; index < count; index++) selected.add(Math.min(posts.length - 1, Math.floor(index * posts.length / Math.max(1, count))));
   return posts.map((post, index) => {
-    const content = `${post.concept} ${post.caption}`.toLowerCase();
-    let channel = usable[index % usable.length];
-    if (!manual && posts.length < usable.length) {
-      if (/visual|design|brand|image|look|creative/.test(content)) channel = usable.find((item) => String(item.service).toLowerCase() === "instagram") || channel;
-      else if (/community|customer|conversation|local|audience/.test(content)) channel = usable.find((item) => String(item.service).toLowerCase() === "facebook") || channel;
-      else if (/business|company|offer|strategy|work|professional/.test(content)) channel = usable.find((item) => String(item.service).toLowerCase() === "linkedin") || channel;
-    }
-    return { post, channel };
+    if (!selected.has(index)) return post;
+    const style = motionStyles[index % motionStyles.length];
+    return { ...post, mediaType: "video" as const, motionStyle: style, motionPrompt: `Preserve the source composition and Atlasium visual identity. Add only ${style}. Dark, premium, modern, clean. No new claims, logos, wild movement, camera shake, or generic AI effects.`, duration: 4, aspectRatio: "9:16" };
   });
 }
 
@@ -296,15 +335,15 @@ async function refinePost(env: Env, caption: string, notes: string, service: str
   return data.content?.find((block) => block.type === "text")?.text?.trim() || caption;
 }
 
-async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; imageUrl: string; mode: string; dueAt?: string; aiAssisted: boolean; typeHint?: string }): Promise<BufferPost> {
+async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; mediaUrl: string; mediaType?: MediaType; mode: string; dueAt?: string; aiAssisted: boolean; typeHint?: string }): Promise<BufferPost> {
   const service = input.service.toLowerCase();
   const postType = inferredPostType(`${input.typeHint || ""} ${input.text}`);
   const metadata = service === "instagram"
-    ? { instagram: { type: postType, shouldShareToFeed: postType !== "story", isAiGenerated: input.aiAssisted } }
+    ? { instagram: { type: input.mediaType === "video" ? "reel" : postType, shouldShareToFeed: postType !== "story", isAiGenerated: input.aiAssisted } }
     : service === "facebook"
       ? { facebook: { type: postType } }
       : service === "tiktok"
-        ? { tiktok: { title: input.text.slice(0, 90), isAiGenerated: input.aiAssisted } }
+        ? { tiktok: input.mediaType === "video" ? { isAiGenerated: input.aiAssisted } : { title: input.text.slice(0, 90) } }
         : undefined;
   const data = await bufferRequest(env, `mutation CreatePost($input: CreatePostInput!) { createPost(input: $input) { __typename ... on PostActionSuccess { post { id dueAt status channelId } } ... on MutationError { message } } }`, {
     input: {
@@ -313,7 +352,7 @@ async function createBufferPost(env: Env, input: { channelId: string; service: s
       schedulingType: "automatic",
       mode: input.mode,
       ...(input.dueAt ? { dueAt: input.dueAt } : {}),
-      assets: [{ image: { url: input.imageUrl } }],
+      assets: [input.mediaType === "video" ? { video: { url: input.mediaUrl, metadata: { thumbnailOffset: 1000 } } } : { image: { url: input.mediaUrl } }],
       ...(metadata ? { metadata } : {}),
       aiAssisted: input.aiAssisted,
       source: "atlasium-publish-bridge",
@@ -345,8 +384,9 @@ async function createPlan(env: Env, prompt: string, channelNames: string[], timi
     properties: {
       campaign: { type: "string" },
       timing: { type: "string", enum: ["auto", "now", "queue", "schedule"] },
-      posts: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false, required: ["concept", "caption", "imagePrompt"], properties: {
+      posts: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false, required: ["concept", "caption", "imagePrompt", "personalLinkedInCaption", "companyLinkedInCaption", "instagramCaption", "facebookCaption", "tiktokCaption"], properties: {
         concept: { type: "string" }, caption: { type: "string" }, imagePrompt: { type: "string" },
+        personalLinkedInCaption: { type: "string" }, companyLinkedInCaption: { type: "string" }, instagramCaption: { type: "string" }, facebookCaption: { type: "string" }, tiktokCaption: { type: "string" },
       } } },
     },
   };
@@ -356,7 +396,7 @@ async function createPlan(env: Env, prompt: string, channelNames: string[], timi
     body: JSON.stringify({
       model: env.OPENAI_TEXT_MODEL || "gpt-5.6-luna",
       input: [
-        { role: "system", content: "You are Atlasium's autonomous social campaign planner. Turn the request into 1-20 distinct posts, using the exact requested count when one is stated. Preserve facts and intent; never invent offers, prices, dates, proof, or links. Write polished captions suitable for the named channels. Each image prompt must describe a premium, dark, modern Atlasium-style square social image, visually distinct, with no logos and minimal or no rendered text. Infer timing from the request: now only when explicitly immediate; queue when explicitly requested; schedule for stated date windows; otherwise auto. Return only the schema." },
+        { role: "system", content: "You are Atlasium's autonomous social campaign planner. Turn the request into 1-20 distinct campaign items, using the exact requested count when stated. Preserve facts and intent; never invent offers, prices, dates, proof, links, personal experiences, founder stories, or claims. For every item provide platform-adapted captions for Blair Ryan Barton's professional founder LinkedIn, the Atlasium company LinkedIn, Instagram, Facebook, and TikTok. Blair's version may use a professional founder perspective but must not invent first-person experience. Keep the underlying message consistent. Each image prompt must describe a premium, dark, modern Atlasium-style portrait-friendly social image, visually distinct, with no logos and minimal or no rendered text. Infer timing from the request: now only when explicitly immediate; queue only when explicitly requested; schedule for stated date windows; otherwise auto. Return only the schema." },
         { role: "user", content: `Today is ${new Date().toISOString()}. Channels: ${channelNames.join(", ")}. UI timing preference: ${timingOverride}. Request: ${prompt}` },
       ],
       text: { format: { type: "json_schema", name: "atlasium_campaign", strict: true, schema } },
@@ -383,11 +423,56 @@ async function generateAndHostImage(request: Request, env: Env, prompt: string) 
   return `${new URL(request.url).origin}/i/${key}`;
 }
 
+function playableMp4(bytes: Uint8Array) {
+  return bytes.length > 16 && String.fromCharCode(...bytes.slice(4, 8)) === "ftyp";
+}
+
+async function generateAndHostMotion(request: Request, env: Env, imageUrl: string, motionPrompt: string, duration = 4) {
+  if (!env.OPENAI_API_KEY) throw new Error("OpenAI connection required for motion generation.");
+  const source = await fetch(imageUrl);
+  if (!source.ok) throw new Error("Could not load the generated image for motion rendering.");
+  const form = new FormData();
+  form.set("model", env.OPENAI_VIDEO_MODEL || "sora-2");
+  form.set("prompt", motionPrompt);
+  form.set("seconds", String(duration));
+  form.set("size", "720x1280");
+  form.set("input_reference", new File([await source.blob()], "atlasium-source.png", { type: "image/png" }));
+  const create = await fetch("https://api.openai.com/v1/videos", { method: "POST", headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body: form });
+  let job = await create.json() as { id?: string; status?: string; error?: { message?: string } };
+  if (!create.ok || !job.id) throw new Error(job.error?.message || "OpenAI motion generation could not start.");
+  const videoId = job.id;
+  const deadline = Date.now() + 4 * 60 * 1000;
+  while (job.status !== "completed") {
+    if (job.status === "failed") throw new Error(job.error?.message || "OpenAI motion generation failed.");
+    if (Date.now() >= deadline) throw new Error("OpenAI motion generation timed out.");
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const status = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(videoId)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
+    job = await status.json() as typeof job;
+    if (!status.ok) throw new Error(job.error?.message || "Could not check motion generation status.");
+  }
+  const content = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(videoId)}/content`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
+  if (!content.ok) throw new Error("Could not download the generated motion video.");
+  const bytes = new Uint8Array(await content.arrayBuffer());
+  if (!playableMp4(bytes)) throw new Error("OpenAI returned an invalid MP4 video.");
+  const key = `${new Date().toISOString().slice(0, 10)}/motion-${crypto.randomUUID()}.mp4`;
+  await env.UPLOADS.put(key, bytes, { httpMetadata: { contentType: "video/mp4", cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: "atlasium-motion.mp4" } });
+  return `${new URL(request.url).origin}/i/${key}`;
+}
+
+async function motionPreview(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
+  const body = await request.json() as { prompt?: string };
+  const prompt = String(body.prompt || "Dark premium Atlasium data pathways with subtle cinematic motion").slice(0, 1000);
+  const imageUrl = await generateAndHostImage(request, env, prompt);
+  const hostedMediaUrl = await generateAndHostMotion(request, env, imageUrl, `Preserve the source composition. Add a slow cinematic push-in and soft light sweep. ${prompt}`, 4);
+  return json({ mediaType: "video", duration: 4, aspectRatio: "9:16", imageUrl, hostedMediaUrl }, 201);
+}
+
 async function runAgent(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
   if (!env.BUFFER_API_KEY) return json({ error: "Buffer is not connected yet." }, 503);
   if (!env.OPENAI_API_KEY) return json({ error: "OpenAI connection required." }, 503);
-  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string; timeZone?: string };
+  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string; timeZone?: string; selectedDueAt?: string; selectedLocalTime?: string };
   const prompt = String(body.prompt || "").trim();
   if (!prompt || prompt.length > 4000) return json({ error: "Enter a clear prompt under 4,000 characters." }, 400);
   const available = await getChannels(env);
@@ -397,34 +482,47 @@ async function runAgent(request: Request, env: Env) {
   const timing = ["auto", "now", "queue", "schedule"].includes(String(body.timing)) ? String(body.timing) : "auto";
   const plan = await createPlan(env, prompt, chosen.map((channel) => `${channel.service}: ${channel.displayName || channel.name}`), timing);
   const scheduleNow = env.TEST_NOW && !Number.isNaN(Date.parse(env.TEST_NOW)) ? new Date(env.TEST_NOW) : new Date();
-  const schedule = buildSchedule(prompt, plan.posts.length, timing, String(body.timeZone || "America/Toronto"), scheduleNow);
   const timeZone = validTimeZone(String(body.timeZone || "America/Toronto"));
+  let schedule = buildSchedule(prompt, plan.posts.length, timing, timeZone, scheduleNow);
+  if (body.selectedDueAt || body.selectedLocalTime) {
+    const local = body.selectedLocalTime?.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+    const selected = local ? wallToUtc(Number(local[1]), Number(local[2]), Number(local[3]), Number(local[4]), Number(local[5]), timeZone) : new Date(body.selectedDueAt!);
+    if (Number.isNaN(selected.getTime()) || selected.getTime() <= scheduleNow.getTime()) return json({ error: "The selected schedule time is invalid or already past. No posts were submitted." }, 400);
+    schedule = { timing: { ...schedule.timing, mode: "schedule", label: "Exact time selected in the UI", start: dateKey(selected, timeZone), end: dateKey(selected, timeZone) }, times: Array(plan.posts.length).fill(selected.toISOString()) };
+  }
   const runId = crypto.randomUUID();
-  const posts: PlannedPost[] = plan.posts.map((post, index) => ({ ...post, id: `${runId}-${String(index + 1).padStart(2, "0")}` }));
-  const assignments = routePosts(prompt, posts, chosen, requestedIds.length > 0);
+  let posts: PlannedPost[] = plan.posts.map((post, index) => ({ ...post, id: `${runId}-${String(index + 1).padStart(2, "0")}`, itemIndex: index, mediaType: "image", motionStyle: null, motionPrompt: null, duration: null, aspectRatio: "4:5" }));
+  posts = addMotionPlan(prompt, posts);
   const imageUrls = await Promise.all(posts.map((post) => generateAndHostImage(request, env, post.imagePrompt)));
+  posts = posts.map((post, index) => ({ ...post, imageUrl: imageUrls[index], hostedMediaUrl: imageUrls[index] }));
+  for (const post of posts.filter((item) => item.mediaType === "video")) {
+    try { post.hostedMediaUrl = await generateAndHostMotion(request, env, post.imageUrl!, post.motionPrompt!, post.duration || 4); }
+    catch (error) { post.mediaType = "image"; post.hostedMediaUrl = post.imageUrl; post.motionError = error instanceof Error ? error.message : "Motion generation failed; a static image was used."; }
+  }
+  const assignments = routePosts(prompt, posts, chosen, requestedIds.length > 0);
   const results: Array<Record<string, unknown>> = [];
   const submitted = new Set<string>();
-  for (let postIndex = 0; postIndex < assignments.length; postIndex++) {
-    const { post, channel } = assignments[postIndex];
+  for (const assignment of assignments) {
+    const { post, channel, caption } = assignment;
     const stablePost = post as PlannedPost;
     const mode = schedule.timing.mode === "now" ? "shareNow" : schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
-    const requestedDueAt = mode === "customScheduled" ? schedule.times[postIndex]! : undefined;
-    const fingerprint = `${normalizedContent(post.caption)}|${requestedDueAt ? requestedDueAt.slice(0, 16) : mode}`;
+    const requestedDueAt = mode === "customScheduled" ? schedule.times[stablePost.itemIndex]! : undefined;
+    const fingerprint = `${String(channel.id)}|${normalizedContent(caption)}|${requestedDueAt ? requestedDueAt.slice(0, 16) : mode}`;
     if (submitted.has(fingerprint)) continue;
     submitted.add(fingerprint);
+    const submissionId = `${stablePost.id}:${String(channel.id)}`;
     try {
-      const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt: requestedDueAt || undefined, aiAssisted: true, typeHint: `${prompt} ${post.concept}` });
+      const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: caption, mediaUrl: stablePost.hostedMediaUrl!, mediaType: stablePost.mediaType, mode, dueAt: requestedDueAt || undefined, aiAssisted: true, typeHint: `${prompt} ${post.concept}` });
       const confirmedChannel = available.find((item) => String(item.id) === created.channelId);
-      results.push({ id: stablePost.id, concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channelId: created.channelId, channel: confirmedChannel?.displayName || confirmedChannel?.name || channel.displayName || channel.name, service: confirmedChannel?.service || channel.service, postId: created.id, status: mode === "shareNow" ? "PUBLISHING" : mode === "addToQueue" ? "QUEUED" : "SCHEDULED", bufferStatus: created.status || null, requestedDueAt: requestedDueAt || null, dueAt: created.dueAt || null, timeZone });
+      results.push({ id: submissionId, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: stablePost.hostedMediaUrl, motionError: stablePost.motionError || null, channelId: created.channelId, channel: confirmedChannel?.displayName || confirmedChannel?.name || channel.displayName || channel.name, service: confirmedChannel?.service || channel.service, postId: created.id, status: mode === "shareNow" ? "PUBLISHING" : mode === "addToQueue" ? "QUEUED" : "SCHEDULED", bufferStatus: created.status || null, requestedDueAt: requestedDueAt || null, dueAt: created.dueAt || null, timeZone });
     } catch (error) {
-      results.push({ id: stablePost.id, concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: error instanceof Error ? error.message : "Buffer rejected this post." });
+      results.push({ id: submissionId, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: stablePost.hostedMediaUrl, motionError: stablePost.motionError || null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: error instanceof Error ? error.message : "Buffer rejected this post." });
     }
   }
   const usedChannels = new Set(results.map((result) => String(result.channel)));
   const failed = results.filter((result) => result.status === "FAILED").length;
-  const message = failed ? `${results.length - failed} post${results.length - failed === 1 ? "" : "s"} confirmed by Buffer; ${failed} failed.` : `${results.length} post${results.length === 1 ? "" : "s"} confirmed across ${usedChannels.size} channel${usedChannels.size === 1 ? "" : "s"}.`;
-  return json({ message, campaign: plan.campaign, postsCreated: results.length - failed, channels: usedChannels.size, schedule: schedule.timing, results }, failed ? 207 : 201);
+  const message = failed ? `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"}; ${results.length - failed} destination submission${results.length - failed === 1 ? "" : "s"} confirmed and ${failed} failed.` : `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"} created with ${results.length} confirmed destination submission${results.length === 1 ? "" : "s"} across ${usedChannels.size} channels.`;
+  return json({ message, campaign: plan.campaign, campaignItems: plan.posts.length, destinationSubmissions: results.length, postsCreated: results.length - failed, channels: usedChannels.size, schedule: schedule.timing, results }, failed ? 207 : 201);
 }
 
 async function previewSchedule(request: Request, env: Env) {
@@ -439,7 +537,7 @@ async function previewSchedule(request: Request, env: Env) {
   const selectedIds = Array.isArray(body.selected) ? body.selected : [];
   const chosen = selectChannels(prompt, channels, selectedIds);
   const samplePosts = Array.isArray(body.samplePosts) ? body.samplePosts.slice(0, count) : [];
-  const assignments = routePosts(prompt, samplePosts, chosen, selectedIds.length > 0).map(({ post, channel }, index) => ({ id: `preview-${String(index + 1).padStart(2, "0")}`, concept: post.concept, caption: post.caption, channelId: channel.id, channel: channel.displayName || channel.name, service: channel.service, requestedDueAt: schedule.times[index], dueAt: schedule.times[index] }));
+  const assignments = routePosts(prompt, samplePosts, chosen, selectedIds.length > 0).map(({ post, channel, caption }, index) => { const itemIndex = samplePosts.indexOf(post); return { id: `preview-${String(index + 1).padStart(2, "0")}`, itemIndex, concept: post.concept, caption, channelId: channel.id, channel: channel.displayName || channel.name, service: channel.service, requestedDueAt: schedule.times[itemIndex], dueAt: schedule.times[itemIndex] }; });
   return json({ ...schedule, timeZone: zone, channels: chosen, assignments });
 }
 
@@ -501,7 +599,7 @@ async function publish(request: Request, env: Env) {
   const results = [];
   for (const channel of chosen) {
     const text = refine ? await refinePost(env, caption, notes, String(channel.service)) : caption;
-    const post = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text, imageUrl, mode, dueAt, aiAssisted: refine, typeHint: notes });
+    const post = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text, mediaUrl: imageUrl, mediaType: "image", mode, dueAt, aiAssisted: refine, typeHint: notes });
     results.push({ channel: channel.displayName || channel.name, service: channel.service, postId: post?.id });
   }
   const action = mode === "shareNow" ? "published" : mode === "customScheduled" ? "scheduled" : "added to the queue";
@@ -546,6 +644,12 @@ const worker = {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       try { return await runAgent(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Campaign creation failed." }, 502); }
+    }
+
+    if (url.pathname === "/api/motion-preview") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await motionPreview(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Motion preview failed." }, 502); }
     }
 
     if (url.pathname === "/api/preview-schedule") {
