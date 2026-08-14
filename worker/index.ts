@@ -454,14 +454,25 @@ async function generateAndHostMotion(request: Request, env: Env, imageUrl: strin
     return { response, job: await response.json() as { id?: string; status?: string; error?: { message?: string } } };
   };
   let { response: create, job } = await createVideo(true);
+  let referenceFallbackUsed = false;
   if (!create.ok && /must match the requested width and height/i.test(job.error?.message || "")) {
     ({ response: create, job } = await createVideo(false));
+    referenceFallbackUsed = true;
   }
   if (!create.ok || !job.id) throw new Error(job.error?.message || "OpenAI motion generation could not start.");
-  const videoId = job.id;
+  let videoId = job.id;
   const deadline = Date.now() + 4 * 60 * 1000;
   while (job.status !== "completed") {
-    if (job.status === "failed") throw new Error(job.error?.message || "OpenAI motion generation failed.");
+    if (job.status === "failed") {
+      if (!referenceFallbackUsed && /must match the requested width and height/i.test(job.error?.message || "")) {
+        ({ response: create, job } = await createVideo(false));
+        referenceFallbackUsed = true;
+        if (!create.ok || !job.id) throw new Error(job.error?.message || "OpenAI motion generation could not restart.");
+        videoId = job.id;
+        continue;
+      }
+      throw new Error(job.error?.message || "OpenAI motion generation failed.");
+    }
     if (Date.now() >= deadline) throw new Error("OpenAI motion generation timed out.");
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const status = await fetch(`https://api.openai.com/v1/videos/${encodeURIComponent(videoId)}`, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` } });
