@@ -433,7 +433,10 @@ async function generateAndHostMotion(request: Request, env: Env, imageUrl: strin
   let sourceBlob: Blob | null = null;
   if (mediaUrl.origin === new URL(request.url).origin && mediaUrl.pathname.startsWith("/i/") && typeof env.UPLOADS.get === "function") {
     const object = await env.UPLOADS.get(decodeURIComponent(mediaUrl.pathname.slice(3)));
-    if (object) sourceBlob = await new Response(object.body, { headers: { "Content-Type": "image/png" } }).blob();
+    if (object && env.IMAGES) {
+      const resized = await env.IMAGES.input(object.body).transform({ width: 720, height: 1280, fit: "cover" }).output({ format: "image/png", quality: 90 });
+      sourceBlob = await resized.response().blob();
+    } else if (object) sourceBlob = await new Response(object.body, { headers: { "Content-Type": "image/png" } }).blob();
   }
   if (!sourceBlob) {
     const source = await fetch(imageUrl);
