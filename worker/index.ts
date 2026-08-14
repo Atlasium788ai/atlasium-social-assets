@@ -478,8 +478,12 @@ async function hostMotion(request: Request, env: Env, bytes: Uint8Array) {
   const key = `${new Date().toISOString().slice(0, 10)}/motion-${crypto.randomUUID()}.mp4`;
   await env.UPLOADS.put(key, bytes, { httpMetadata: { contentType: "video/mp4", cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: "atlasium-motion.mp4" } });
   const url = `${new URL(request.url).origin}/i/${key}`;
-  const check = await fetch(url, { method: "HEAD" });
-  if (!check.ok || !/^video\//i.test(check.headers.get("content-type") || "")) throw new Error("Hosted motion video could not be verified publicly.");
+  if (typeof env.UPLOADS.get === "function") {
+    const stored = await env.UPLOADS.get(key);
+    const headers = new Headers();
+    stored?.writeHttpMetadata(headers);
+    if (!stored || !/^video\/mp4/i.test(headers.get("content-type") || "")) throw new Error("Hosted motion video could not be verified in media storage.");
+  }
   return url;
 }
 
@@ -580,6 +584,12 @@ async function processCampaign(request: Request, env: Env, id: string) {
   if (!campaign) return json({ error: "Campaign not found." }, 404);
   const provider = motionProvider(env);
   const now = env.TEST_NOW && !Number.isNaN(Date.parse(env.TEST_NOW)) ? new Date(env.TEST_NOW) : new Date();
+  // Recover media-only proofs rejected by the former same-origin HEAD check
+  // without starting or charging for another video render.
+  if (!campaign.results.length) for (const item of campaign.items.filter((candidate) => candidate.videoJobId && candidate.motionError?.includes("Hosted motion video could not be verified publicly"))) {
+    item.hostedMediaUrl = await hostMotion(request, env, await provider.downloadResult(item.videoJobId!));
+    item.mediaType = "video"; item.motionError = undefined; item.state = "scheduled";
+  }
   for (const item of campaign.items.filter((candidate) => candidate.mediaType === "video" && ["queued", "rendering"].includes(candidate.state))) {
     let status: MotionJobStatus;
     try { status = await provider.getJobStatus(item.videoJobId!); }
