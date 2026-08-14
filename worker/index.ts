@@ -526,17 +526,20 @@ async function runAgent(request: Request, env: Env) {
   const runId = crypto.randomUUID();
   let posts: PlannedPost[] = plan.posts.map((post, index) => ({ ...post, id: `${runId}-${String(index + 1).padStart(2, "0")}`, itemIndex: index, mediaType: "image", motionStyle: null, motionPrompt: null, duration: null, aspectRatio: "4:5" }));
   posts = addMotionPlan(prompt, posts);
-  const imageUrls = await Promise.all(posts.map((post) => generateAndHostImage(request, env, post.imagePrompt)));
-  posts = posts.map((post, index) => ({ ...post, imageUrl: imageUrls[index], hostedMediaUrl: imageUrls[index] }));
   const provider = motionProvider(env);
-  for (const post of posts.filter((item) => item.mediaType === "video")) {
-    try {
-      const job = await provider.createJob(post.motionPrompt!, post.duration || 4);
-      Object.assign(post, { videoJobId: job.id, state: job.status, retryCount: 0, providerName: provider.providerName, modelName: provider.modelName });
-      if (job.status === "completed") post.hostedMediaUrl = await hostMotion(request, env, await provider.downloadResult(job.id));
+  posts = await Promise.all(posts.map(async (post) => {
+    const imagePromise = generateAndHostImage(request, env, post.imagePrompt);
+    const jobPromise = post.mediaType === "video" ? provider.createJob(post.motionPrompt!, post.duration || 4).then((job) => ({ job })).catch((error) => ({ error })) : Promise.resolve(null);
+    const [imageUrl, motion] = await Promise.all([imagePromise, jobPromise]);
+    const prepared = { ...post, imageUrl, hostedMediaUrl: imageUrl } as PlannedPost & { videoJobId?: string; state?: MotionState; retryCount?: number; providerName?: string; modelName?: string };
+    if (motion && "job" in motion) {
+      Object.assign(prepared, { videoJobId: motion.job.id, state: motion.job.status, retryCount: 0, providerName: provider.providerName, modelName: provider.modelName });
+      if (motion.job.status === "completed") prepared.hostedMediaUrl = await hostMotion(request, env, await provider.downloadResult(motion.job.id));
+    } else if (motion && "error" in motion) {
+      prepared.mediaType = "image"; prepared.motionError = motion.error instanceof Error ? motion.error.message : "Motion generation failed; a static image was used.";
     }
-    catch (error) { post.mediaType = "image"; post.hostedMediaUrl = post.imageUrl; post.motionError = error instanceof Error ? error.message : "Motion generation failed; a static image was used."; }
-  }
+    return prepared;
+  }));
   const assignments = routePosts(prompt, posts, chosen, requestedIds.length > 0);
   const results: Array<Record<string, unknown>> = [];
   const submitted = new Set<string>();
