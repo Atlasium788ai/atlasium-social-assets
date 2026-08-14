@@ -1,9 +1,20 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useState } from "react";
 
 type Channel = { id: string; name: string; displayName?: string; service: string };
-type Result = { concept: string; caption: string; imageUrl: string; channel: string; service: string; status: string; dueAt?: string };
+type Result = { id: string; concept: string; caption: string; imageUrl: string; channel: string; service: string; status: string; bufferStatus?: string | null; requestedDueAt?: string | null; dueAt?: string | null; timeZone?: string; error?: string };
+
+function confirmedTime(result: Result) {
+  if (!result.dueAt) return "";
+  return formatTime(result.dueAt, result.timeZone);
+}
+
+function formatTime(value: string, timeZone?: string) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: timeZone || "America/Toronto", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value));
+}
 
 export default function Home() {
   const [key, setKey] = useState("");
@@ -42,7 +53,9 @@ export default function Home() {
       const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json", "X-Upload-Key": key }, body: JSON.stringify({ prompt: prompt.trim(), channels: selected, timing, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
       const data = await response.json() as { message?: string; error?: string; results?: Result[] };
       if (!response.ok) throw new Error(data.error || "Campaign creation failed.");
-      setResults(data.results || []); setStatus({ kind: "ok", text: data.message || "Campaign sent to Buffer." });
+      const returnedResults = data.results || [];
+      setResults(returnedResults);
+      setStatus({ kind: returnedResults.some((result) => result.status === "FAILED") ? "error" : "ok", text: data.message || "Campaign sent to Buffer." });
     } catch (error) { setStatus({ kind: "error", text: error instanceof Error ? error.message : "Campaign creation failed." }); }
     finally { setBusy(false); }
   }
@@ -71,7 +84,7 @@ export default function Home() {
       {!key && <p className="access-warning">Open your private Atlasium link to enable publishing.</p>}
     </section>
 
-    {results.length > 0 && <section className="results"><div className="results-head"><p className="eyebrow">CAMPAIGN COMPLETE</p><h2>What was created</h2></div>{results.map((result, index) => <article className="result" key={`${result.channel}-${index}`}>{/* eslint-disable-next-line @next/next/no-img-element */}<img src={result.imageUrl} alt="Generated social media creative" /><div><span className="result-status">{result.status}</span><h3>{result.concept}</h3><p>{result.caption}</p><small>{result.service} · {result.channel}{result.dueAt ? ` · ${new Date(result.dueAt).toLocaleString()}` : ""}</small></div></article>)}</section>}
+    {results.length > 0 && <section className="results"><div className="results-head"><p className="eyebrow">BUFFER RESULTS</p><h2>Confirmed campaign status</h2></div>{results.map((result) => <article className={`result ${result.status === "FAILED" ? "failed" : ""}`} key={result.id}><img src={result.imageUrl} alt="Generated social media creative" /><div><span className="result-status">{result.status}</span><h3>{result.concept}</h3><p>{result.caption}</p><small>{result.service} · {result.channel}{confirmedTime(result) ? ` · ${confirmedTime(result)}` : ""}{result.bufferStatus ? ` · Buffer: ${result.bufferStatus}` : ""}</small>{result.error && <p className="result-error">{result.error}{result.requestedDueAt ? ` Requested: ${formatTime(result.requestedDueAt, result.timeZone)}.` : ""}</p>}</div></article>)}</section>}
 
     <details className="manual-link"><summary>Need the manual uploader?</summary><p>The original upload and permanent-public-URL API remains active as a secondary fallback.</p></details>
     <footer>OpenAI and Buffer credentials stay encrypted on the server.</footer>

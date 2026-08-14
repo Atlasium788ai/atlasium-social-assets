@@ -81,6 +81,17 @@ test("parses common prompt timing phrases and creates unique timezone-aware slot
   assert.ok(Date.parse(weekly.times[3]) - Date.parse(weekly.times[0]) >= 6 * 24 * 60 * 60 * 1000);
 });
 
+test("refuses past exact schedule slots instead of moving or republishing them", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/preview-schedule", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "August 13, 2026 at 6:45 PM Eastern", count: 1, timing: "schedule", timeZone: "America/Toronto", now: "2026-08-14T12:00:00Z" }) }),
+    { UPLOAD_KEY: "test-key" },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /past.*No posts were submitted or moved/i);
+});
+
 test("selects distinct LinkedIn destinations and intelligently distributes an 8-day Atlasium campaign", async () => {
   const worker = await loadWorker();
   const channels = [
@@ -113,12 +124,81 @@ test("agent suppresses effectively identical same-time Buffer submissions", asyn
     if (String(url).includes("api.openai.com/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Duplicate guard", timing: "now", posts: [{ concept: "One", caption: "Same message!", imagePrompt: "One" }, { concept: "Two", caption: "same message", imagePrompt: "Two" }] }) }] }] });
     if (String(url).includes("api.openai.com/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
     mutations.push(request.variables.input);
-    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `post-${mutations.length}` } } } });
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `post-${mutations.length}`, status: "sent", channelId: request.variables.input.channelId } } } });
   };
   try {
     const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create two posts and publish now", channels: [], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     assert.equal(mutations.length, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("preserves the exact 15-post Toronto campaign schedule and stable Buffer mapping", async () => {
+  const worker = await loadWorker();
+  const prompt = "Create 15 Atlasium company campaign posts. August 13, 2026: 6:45 PM Eastern. August 14–20, 2026: 5:30 AM and 3:00 PM Eastern daily.";
+  const exact = await preview(worker, prompt, 15, { timing: "schedule", now: "2026-08-12T12:00:00Z" });
+  const expected = ["2026-08-13T22:45:00.000Z"];
+  for (let day = 14; day <= 20; day++) expected.push(`2026-08-${day}T09:30:00.000Z`, `2026-08-${day}T19:00:00.000Z`);
+  assert.deepEqual(exact.times, expected);
+
+  const channels = [
+    { id: "ig", name: "Instagram", displayName: "atlasium788ai", service: "instagram" },
+    { id: "lip", name: "LinkedIn", displayName: "Blair Ryan Barton", service: "linkedin" },
+    { id: "lic", name: "LinkedIn", displayName: "Atlasium 7/88 AI", service: "linkedin" },
+    { id: "fb", name: "Facebook", displayName: "Atlasium 7/88 AI", service: "facebook" },
+  ];
+  const posts = Array.from({ length: 15 }, (_, index) => ({ concept: `Concept ${index + 1}`, caption: `Unique Atlasium company post ${index + 1}`, imagePrompt: `Image ${index + 1}` }));
+  const originalFetch = globalThis.fetch;
+  const mutations = [];
+  globalThis.fetch = async (url, init) => {
+    const request = JSON.parse(init.body);
+    if (String(url).includes("api.buffer.com") && request.query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org", name: "Atlasium" }] } } });
+    if (String(url).includes("api.buffer.com") && request.query.includes("query Channels")) return Response.json({ data: { channels } });
+    if (String(url).includes("api.openai.com/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "15 post campaign", timing: "schedule", posts }) }] }] });
+    if (String(url).includes("api.openai.com/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    mutations.push(request.variables.input);
+    const input = request.variables.input;
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `buffer-${mutations.length}`, status: "scheduled", dueAt: input.dueAt, channelId: input.channelId } } } });
+  };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt, channels: [], timing: "schedule", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-12T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 201);
+    const data = await response.json();
+    assert.equal(mutations.length, 15);
+    assert.deepEqual(mutations.map((input) => input.dueAt), expected);
+    assert.equal(new Set(data.results.map((result) => result.id)).size, 15);
+    assert.deepEqual(data.results.map((result) => result.dueAt), expected);
+    assert.ok(data.results.every((result, index) => result.channelId === mutations[index].channelId && result.status === "SCHEDULED"));
+    assert.ok(data.results.every((result) => result.channel !== "Blair Ryan Barton"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("manual channel selection overrides automatic routing", async () => {
+  const worker = await loadWorker();
+  const channels = [{ id: "ig", service: "instagram", displayName: "Instagram" }, { id: "fb", service: "facebook", displayName: "Facebook" }];
+  const samplePosts = Array.from({ length: 3 }, (_, index) => ({ concept: `Concept ${index}`, caption: `Caption ${index}`, imagePrompt: "Image" }));
+  const data = await preview(worker, "Create an Atlasium campaign", 3, { channels, selected: ["fb"], samplePosts });
+  assert.ok(data.assignments.every((item) => item.channelId === "fb"));
+});
+
+test("Buffer rejection stays attached to its stable post and displays FAILED", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const request = JSON.parse(init.body);
+    if (String(url).includes("api.buffer.com") && request.query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org", name: "Atlasium" }] } } });
+    if (String(url).includes("api.buffer.com") && request.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "lic", name: "LinkedIn", displayName: "Atlasium 7/88 AI", service: "linkedin" }] } });
+    if (String(url).includes("api.openai.com/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Failure", timing: "now", posts: [{ concept: "One", caption: "One unique post", imagePrompt: "One" }] }) }] }] });
+    if (String(url).includes("api.openai.com/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    return Response.json({ data: { createPost: { __typename: "MutationError", message: "Schedule rejected" } } });
+  };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Publish one company post now", channels: [], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 207);
+    const data = await response.json();
+    assert.equal(data.results[0].status, "FAILED");
+    assert.match(data.results[0].error, /Schedule rejected/);
+    assert.ok(data.results[0].id);
   } finally { globalThis.fetch = originalFetch; }
 });
 

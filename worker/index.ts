@@ -11,6 +11,7 @@ interface Env {
   OPENAI_IMAGE_MODEL?: string;
   ANTHROPIC_API_KEY?: string;
   CLAUDE_MODEL?: string;
+  TEST_NOW?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -25,6 +26,9 @@ type AgentPlan = {
   timing: "auto" | "now" | "queue" | "schedule";
   posts: Array<{ concept: string; caption: string; imagePrompt: string }>;
 };
+
+type PlannedPost = AgentPlan["posts"][number] & { id: string };
+type BufferPost = { id: string; dueAt?: string | null; status?: string | null; channelId: string };
 
 type TimingMode = "auto" | "now" | "queue" | "schedule";
 type TimingPlan = { mode: TimingMode; label: string; start: string | null; end: string | null; weekdaysOnly: boolean; postsPerWeek: number | null; launchDay: number | null };
@@ -61,14 +65,14 @@ async function bufferRequest(env: Env, query: string, variables: Record<string, 
   return data.data || {};
 }
 
-async function getChannels(env: Env) {
+async function getChannels(env: Env): Promise<Array<Record<string, unknown>>> {
   const account = await bufferRequest(env, `query Account { account { organizations { id name } } }`);
   const organizations = (account.account as { organizations?: Array<{ id: string; name: string }> })?.organizations || [];
   const lists = await Promise.all(organizations.map(async (organization) => {
     const data = await bufferRequest(env, `query Channels($organizationId: OrganizationId!) { channels(input: { organizationId: $organizationId }) { id name displayName service avatar isQueuePaused } }`, { organizationId: organization.id });
     return (data.channels as Array<Record<string, unknown>> || []).map((channel) => ({ ...channel, organizationName: organization.name }));
   }));
-  return lists.flat();
+  return lists.flat() as Array<Record<string, unknown>>;
 }
 
 const dayNames: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
@@ -92,6 +96,44 @@ function wallToUtc(year: number, month: number, day: number, hour: number, minut
     guess += target - shown;
   }
   return new Date(guess);
+}
+
+const monthNumbers: Record<string, number> = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+};
+
+function clockParts(value: string) {
+  const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (!match) throw new Error(`Could not understand scheduled time “${value}”.`);
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  if (hour < 1 || hour > 12 || minute > 59) throw new Error(`Invalid scheduled time “${value}”.`);
+  if (match[3].toLowerCase() === "pm" && hour !== 12) hour += 12;
+  if (match[3].toLowerCase() === "am" && hour === 12) hour = 0;
+  return { hour, minute };
+}
+
+function explicitSchedule(prompt: string, timeZone: string) {
+  const slots: Date[] = [];
+  const time = "(\\d{1,2}(?::\\d{2})?\\s*(?:a\\.?m\\.?|p\\.?m\\.?))";
+  const range = new RegExp(`\\b(${Object.keys(monthNumbers).join("|")})\\s+(\\d{1,2})\\s*[-–—]\\s*(\\d{1,2}),?\\s*(\\d{4})\\s*(?::|at)?\\s*${time}(?:\\s*(?:and|&)\\s*${time})?`, "gi");
+  for (const match of prompt.matchAll(range)) {
+    const month = monthNumbers[match[1].toLowerCase()];
+    const startDay = Number(match[2]);
+    const endDay = Number(match[3]);
+    const year = Number(match[4]);
+    const clocks = [match[5], match[6]].filter(Boolean).map((value) => clockParts(value.replace(/\./g, "")));
+    if (endDay < startDay || endDay - startDay > 90) throw new Error("The requested schedule date range is invalid.");
+    for (let day = startDay; day <= endDay; day++) for (const clock of clocks) slots.push(wallToUtc(year, month, day, clock.hour, clock.minute, timeZone));
+  }
+  const single = new RegExp(`\\b(${Object.keys(monthNumbers).join("|")})\\s+(\\d{1,2}),?\\s*(\\d{4})\\s*(?::|at)?\\s*${time}`, "gi");
+  for (const match of prompt.matchAll(single)) {
+    const month = monthNumbers[match[1].toLowerCase()];
+    const clock = clockParts(match[4].replace(/\./g, ""));
+    slots.push(wallToUtc(Number(match[3]), month, Number(match[2]), clock.hour, clock.minute, timeZone));
+  }
+  return [...new Map(slots.map((slot) => [slot.toISOString(), slot])).values()].sort((a, b) => a.getTime() - b.getTime());
 }
 
 function dateKey(date: Date, timeZone: string) {
@@ -145,6 +187,13 @@ function buildSchedule(prompt: string, count: number, requested: string, timeZon
   const zone = validTimeZone(timeZone);
   const timing = parseTiming(prompt, requested, zone, now);
   if (timing.mode !== "schedule") return { timing, times: Array(count).fill(null) as Array<string | null> };
+  const explicit = explicitSchedule(prompt, zone);
+  if (explicit.length) {
+    if (explicit.length < count) throw new Error(`The prompt defines ${explicit.length} exact posting time${explicit.length === 1 ? "" : "s"}, but ${count} posts were created. No posts were submitted.`);
+    const selected = explicit.slice(0, count);
+    if (selected.some((slot) => slot.getTime() <= now.getTime())) throw new Error("One or more requested posting times are in the past. No posts were submitted or moved.");
+    return { timing: { ...timing, label: "Exact times from prompt", start: dateKey(selected[0], zone), end: dateKey(selected[selected.length - 1], zone) }, times: selected.map((slot) => slot.toISOString()) };
+  }
   const candidates: string[] = [];
   let cursor = timing.start!;
   const hardEnd = timing.end || addLocalDays(cursor, timing.postsPerWeek ? Math.max(6, Math.ceil(count / timing.postsPerWeek) * 7 - 1) : Math.max(14, count * 3));
@@ -163,7 +212,11 @@ function buildSchedule(prompt: string, count: number, requested: string, timeZon
     if (timing.weekdaysOnly) while ([0, 6].includes(localWeekday(key))) key = addLocalDays(key, 1);
     const [year, month, day] = key.split("-").map(Number);
     let scheduled = wallToUtc(year, month, day, hours[index % hours.length], (index * 13) % 47, zone);
-    if (scheduled.getTime() < now.getTime() + 60 * 60 * 1000) scheduled = wallToUtc(year, month, day, Math.min(21, localParts(now, zone).hour + 2), (index * 13) % 47, zone);
+    while (scheduled.getTime() < now.getTime() + 60 * 60 * 1000) {
+      key = addLocalDays(key, 1);
+      const next = key.split("-").map(Number);
+      scheduled = wallToUtc(next[0], next[1], next[2], hours[index % hours.length], (index * 13) % 47, zone);
+    }
     times.push(scheduled.toISOString());
   }
   return { timing, times };
@@ -174,7 +227,7 @@ function selectChannels(prompt: string, channels: Array<Record<string, unknown>>
   const text = prompt.toLowerCase();
   const services = ["instagram", "facebook", "linkedin", "twitter", "x"];
   const named = services.filter((service) => new RegExp(`\\b${service}\\b`, "i").test(text));
-  const personal = /\b(i|me|my|mine|founder|personal|behind the scenes|lesson i|what i learned|my journey|my perspective)\b/.test(text);
+  const personal = /\b(blair|founder(?:'s)? (?:story|perspective|journey)|personal (?:story|perspective|update)|thought[- ]leadership|behind the scenes|lesson i learned|what i learned|my journey|my perspective)\b/.test(text);
   const linkedin = channels.filter((channel) => String(channel.service).toLowerCase() === "linkedin");
   const personalLinkedIn = linkedin.find((channel) => /blair|personal/i.test(`${channel.displayName || ""} ${channel.name || ""}`));
   const companyLinkedIn = linkedin.find((channel) => channel !== personalLinkedIn) || linkedin[0];
@@ -190,7 +243,7 @@ function selectChannels(prompt: string, channels: Array<Record<string, unknown>>
 
 function routePosts(prompt: string, posts: AgentPlan["posts"], channels: Array<Record<string, unknown>>, manual: boolean) {
   if (!channels.length) return [];
-  const personal = /\b(i|me|my|mine|founder|personal|lesson i|what i learned|my journey|my perspective)\b/i.test(prompt);
+  const personal = /\b(blair|founder(?:'s)? (?:story|perspective|journey)|personal (?:story|perspective|update)|thought[- ]leadership|lesson i learned|what i learned|my journey|my perspective)\b/i.test(prompt);
   const ranked = [...channels].sort((a, b) => {
     const score = (channel: Record<string, unknown>) => {
       const service = String(channel.service).toLowerCase();
@@ -243,7 +296,7 @@ async function refinePost(env: Env, caption: string, notes: string, service: str
   return data.content?.find((block) => block.type === "text")?.text?.trim() || caption;
 }
 
-async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; imageUrl: string; mode: string; dueAt?: string; aiAssisted: boolean; typeHint?: string }) {
+async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; imageUrl: string; mode: string; dueAt?: string; aiAssisted: boolean; typeHint?: string }): Promise<BufferPost> {
   const service = input.service.toLowerCase();
   const postType = inferredPostType(`${input.typeHint || ""} ${input.text}`);
   const metadata = service === "instagram"
@@ -266,8 +319,14 @@ async function createBufferPost(env: Env, input: { channelId: string; service: s
       source: "atlasium-publish-bridge",
     },
   });
-  const result = data.createPost as { __typename?: string; message?: string; post?: { id: string } };
+  const result = data.createPost as { __typename?: string; message?: string; post?: BufferPost };
   if (result?.__typename !== "PostActionSuccess") throw new Error(result?.message || "Buffer rejected the post.");
+  if (!result.post?.id || !result.post.channelId) throw new Error("Buffer did not confirm the created post and channel.");
+  if (result.post.channelId !== input.channelId) throw new Error("Buffer confirmed the post on a different channel than requested.");
+  if (input.mode === "customScheduled") {
+    if (!input.dueAt || !result.post.dueAt) throw new Error("Buffer did not confirm the requested scheduled time.");
+    if (Math.abs(Date.parse(result.post.dueAt) - Date.parse(input.dueAt)) > 1000) throw new Error("Buffer confirmed a different scheduled time than requested.");
+  }
   return result.post;
 }
 
@@ -286,7 +345,7 @@ async function createPlan(env: Env, prompt: string, channelNames: string[], timi
     properties: {
       campaign: { type: "string" },
       timing: { type: "string", enum: ["auto", "now", "queue", "schedule"] },
-      posts: { type: "array", minItems: 1, maxItems: 8, items: { type: "object", additionalProperties: false, required: ["concept", "caption", "imagePrompt"], properties: {
+      posts: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false, required: ["concept", "caption", "imagePrompt"], properties: {
         concept: { type: "string" }, caption: { type: "string" }, imagePrompt: { type: "string" },
       } } },
     },
@@ -297,7 +356,7 @@ async function createPlan(env: Env, prompt: string, channelNames: string[], timi
     body: JSON.stringify({
       model: env.OPENAI_TEXT_MODEL || "gpt-5.6-luna",
       input: [
-        { role: "system", content: "You are Atlasium's autonomous social campaign planner. Turn the request into 1-8 distinct posts. Preserve facts and intent; never invent offers, prices, dates, proof, or links. Write polished captions suitable for the named channels. Each image prompt must describe a premium, dark, modern Atlasium-style square social image, visually distinct, with no logos and minimal or no rendered text. Infer timing from the request: now only when explicitly immediate; queue when explicitly requested; schedule for stated date windows; otherwise auto. Return only the schema." },
+        { role: "system", content: "You are Atlasium's autonomous social campaign planner. Turn the request into 1-20 distinct posts, using the exact requested count when one is stated. Preserve facts and intent; never invent offers, prices, dates, proof, or links. Write polished captions suitable for the named channels. Each image prompt must describe a premium, dark, modern Atlasium-style square social image, visually distinct, with no logos and minimal or no rendered text. Infer timing from the request: now only when explicitly immediate; queue when explicitly requested; schedule for stated date windows; otherwise auto. Return only the schema." },
         { role: "user", content: `Today is ${new Date().toISOString()}. Channels: ${channelNames.join(", ")}. UI timing preference: ${timingOverride}. Request: ${prompt}` },
       ],
       text: { format: { type: "json_schema", name: "atlasium_campaign", strict: true, schema } },
@@ -337,37 +396,50 @@ async function runAgent(request: Request, env: Env) {
   if (!chosen.length || (requestedIds.length && chosen.length !== requestedIds.length)) return json({ error: "Choose at least one valid Buffer channel." }, 400);
   const timing = ["auto", "now", "queue", "schedule"].includes(String(body.timing)) ? String(body.timing) : "auto";
   const plan = await createPlan(env, prompt, chosen.map((channel) => `${channel.service}: ${channel.displayName || channel.name}`), timing);
-  const imageUrls = await Promise.all(plan.posts.map((post) => generateAndHostImage(request, env, post.imagePrompt)));
-  const schedule = buildSchedule(prompt, plan.posts.length, timing, String(body.timeZone || "America/Toronto"));
-  const assignments = routePosts(prompt, plan.posts, chosen, requestedIds.length > 0);
+  const scheduleNow = env.TEST_NOW && !Number.isNaN(Date.parse(env.TEST_NOW)) ? new Date(env.TEST_NOW) : new Date();
+  const schedule = buildSchedule(prompt, plan.posts.length, timing, String(body.timeZone || "America/Toronto"), scheduleNow);
+  const timeZone = validTimeZone(String(body.timeZone || "America/Toronto"));
+  const runId = crypto.randomUUID();
+  const posts: PlannedPost[] = plan.posts.map((post, index) => ({ ...post, id: `${runId}-${String(index + 1).padStart(2, "0")}` }));
+  const assignments = routePosts(prompt, posts, chosen, requestedIds.length > 0);
+  const imageUrls = await Promise.all(posts.map((post) => generateAndHostImage(request, env, post.imagePrompt)));
   const results: Array<Record<string, unknown>> = [];
   const submitted = new Set<string>();
   for (let postIndex = 0; postIndex < assignments.length; postIndex++) {
     const { post, channel } = assignments[postIndex];
+    const stablePost = post as PlannedPost;
     const mode = schedule.timing.mode === "now" ? "shareNow" : schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
-    const dueAt = mode === "customScheduled" ? schedule.times[postIndex]! : undefined;
-    const fingerprint = `${normalizedContent(post.caption)}|${dueAt ? dueAt.slice(0, 16) : mode}`;
+    const requestedDueAt = mode === "customScheduled" ? schedule.times[postIndex]! : undefined;
+    const fingerprint = `${normalizedContent(post.caption)}|${requestedDueAt ? requestedDueAt.slice(0, 16) : mode}`;
     if (submitted.has(fingerprint)) continue;
     submitted.add(fingerprint);
-    const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt, aiAssisted: true, typeHint: `${prompt} ${post.concept}` });
-    results.push({ concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channel: channel.displayName || channel.name, service: channel.service, postId: created?.id, status: mode === "shareNow" ? "Publishing now" : mode === "addToQueue" ? "Added to queue" : "Scheduled", dueAt });
+    try {
+      const created = await createBufferPost(env, { channelId: String(channel.id), service: String(channel.service), text: post.caption, imageUrl: imageUrls[postIndex], mode, dueAt: requestedDueAt || undefined, aiAssisted: true, typeHint: `${prompt} ${post.concept}` });
+      const confirmedChannel = available.find((item) => String(item.id) === created.channelId);
+      results.push({ id: stablePost.id, concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channelId: created.channelId, channel: confirmedChannel?.displayName || confirmedChannel?.name || channel.displayName || channel.name, service: confirmedChannel?.service || channel.service, postId: created.id, status: mode === "shareNow" ? "PUBLISHING" : mode === "addToQueue" ? "QUEUED" : "SCHEDULED", bufferStatus: created.status || null, requestedDueAt: requestedDueAt || null, dueAt: created.dueAt || null, timeZone });
+    } catch (error) {
+      results.push({ id: stablePost.id, concept: post.concept, caption: post.caption, imageUrl: imageUrls[postIndex], channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: error instanceof Error ? error.message : "Buffer rejected this post." });
+    }
   }
   const usedChannels = new Set(results.map((result) => String(result.channel)));
-  return json({ message: `${results.length} post${results.length === 1 ? "" : "s"} created and sent across ${usedChannels.size} channel${usedChannels.size === 1 ? "" : "s"}.`, campaign: plan.campaign, postsCreated: results.length, channels: usedChannels.size, schedule: schedule.timing, results }, 201);
+  const failed = results.filter((result) => result.status === "FAILED").length;
+  const message = failed ? `${results.length - failed} post${results.length - failed === 1 ? "" : "s"} confirmed by Buffer; ${failed} failed.` : `${results.length} post${results.length === 1 ? "" : "s"} confirmed across ${usedChannels.size} channel${usedChannels.size === 1 ? "" : "s"}.`;
+  return json({ message, campaign: plan.campaign, postsCreated: results.length - failed, channels: usedChannels.size, schedule: schedule.timing, results }, failed ? 207 : 201);
 }
 
 async function previewSchedule(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
-  const body = await request.json() as { prompt?: string; count?: number; timing?: string; timeZone?: string; channels?: Array<Record<string, unknown>>; selected?: string[]; samplePosts?: AgentPlan["posts"] };
+  const body = await request.json() as { prompt?: string; count?: number; timing?: string; timeZone?: string; now?: string; channels?: Array<Record<string, unknown>>; selected?: string[]; samplePosts?: AgentPlan["posts"] };
   const prompt = String(body.prompt || "");
   const count = Math.max(1, Math.min(50, Number(body.count) || 1));
   const zone = validTimeZone(String(body.timeZone || "America/Toronto"));
-  const schedule = buildSchedule(prompt, count, String(body.timing || "auto"), zone);
+  const suppliedNow = body.now && !Number.isNaN(Date.parse(body.now)) ? new Date(body.now) : new Date();
+  const schedule = buildSchedule(prompt, count, String(body.timing || "auto"), zone, suppliedNow);
   const channels = Array.isArray(body.channels) ? body.channels : [];
   const selectedIds = Array.isArray(body.selected) ? body.selected : [];
   const chosen = selectChannels(prompt, channels, selectedIds);
   const samplePosts = Array.isArray(body.samplePosts) ? body.samplePosts.slice(0, count) : [];
-  const assignments = routePosts(prompt, samplePosts, chosen, selectedIds.length > 0).map(({ post, channel }, index) => ({ concept: post.concept, caption: post.caption, channel: channel.displayName || channel.name, service: channel.service, dueAt: schedule.times[index] }));
+  const assignments = routePosts(prompt, samplePosts, chosen, selectedIds.length > 0).map(({ post, channel }, index) => ({ id: `preview-${String(index + 1).padStart(2, "0")}`, concept: post.concept, caption: post.caption, channelId: channel.id, channel: channel.displayName || channel.name, service: channel.service, requestedDueAt: schedule.times[index], dueAt: schedule.times[index] }));
   return json({ ...schedule, timeZone: zone, channels: chosen, assignments });
 }
 
