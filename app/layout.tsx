@@ -10,11 +10,18 @@ export const metadata: Metadata = {
     description: "One prompt, every brand, one controlled publishing flow.",
     url: "https://www.echoflowsocial.ca",
     siteName: "EchoFlow Social",
+    images: [{
+      url: "/echoflow-social.png",
+      width: 1254,
+      height: 1254,
+      alt: "EchoFlow Social, powered by Atlasium 7/88 AI",
+    }],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "EchoFlow Social",
     description: "One prompt, every brand, one controlled publishing flow.",
+    images: ["/echoflow-social.png"],
   },
 };
 

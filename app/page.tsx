@@ -27,9 +27,15 @@ function confirmedTime(result: Result) { return result.dueAt ? formatTime(result
 function brandInitial(name: string) { return name.trim().charAt(0).toUpperCase() || "E"; }
 
 function EchoFlowIdentity({ full = false }: { full?: boolean }) {
-  return <div className={`echo-identity ${full ? "echo-identity-full" : ""}`} aria-label="EchoFlow Social">
-    <span className="echo-orbit" aria-hidden="true"><i /><i /><i /></span>
-    <span><b>EchoFlow</b><em>Social</em>{full && <small>Powered by Atlasium 7/88 AI</small>}</span>
+  return <div className={`echo-identity ${full ? "echo-identity-full" : ""}`}>
+    <img
+      className={full ? "echo-art-full" : "echo-art-compact"}
+      src="/echoflow-social.png"
+      alt="EchoFlow Social, powered by Atlasium 7/88 AI"
+      width={1254}
+      height={1254}
+    />
+    {!full && <span><b>EchoFlow</b><em>Social</em></span>}
   </div>;
 }
 
