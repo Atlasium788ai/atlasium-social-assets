@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -8,7 +9,25 @@ async function loadWorker() {
   return (await import(workerUrl.href)).default;
 }
 
-test("renders the Atlasium social agent", async () => {
+async function memoryD1() {
+  const database = new DatabaseSync(":memory:");
+  const migration = await readFile(new URL("../drizzle/0000_fast_thaddeus_ross.sql", import.meta.url), "utf8");
+  for (const statement of migration.split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) database.exec(statement);
+  class Prepared {
+    constructor(sql, bindings = []) { this.sql = sql; this.bindings = bindings; }
+    bind(...bindings) { return new Prepared(this.sql, bindings); }
+    async first() { return database.prepare(this.sql).get(...this.bindings) || null; }
+    async all() { return { success: true, results: database.prepare(this.sql).all(...this.bindings) }; }
+    async run() { const result = database.prepare(this.sql).run(...this.bindings); return { success: true, meta: { changes: Number(result.changes) } }; }
+  }
+  return {
+    database,
+    prepare(sql) { return new Prepared(sql); },
+    async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); },
+  };
+}
+
+test("renders the EchoFlow Social authenticated entry", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/", { headers: { accept: "text/html" } }),
@@ -21,9 +40,9 @@ test("renders the Atlasium social agent", async () => {
   );
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<title>Atlasium Social Agent<\/title>/i);
-  assert.match(html, /What should/);
-  assert.match(html, /Create &amp; Publish/);
+  assert.match(html, /<title>EchoFlow Social<\/title>/i);
+  assert.match(html, /Powered by Atlasium 7\/88 AI/);
+  assert.match(html, /private authenticated EchoFlow link/);
   assert.doesNotMatch(html, /codex-preview/);
 });
 
@@ -31,9 +50,28 @@ test("client allows automatic channel routing and never silently ignores a publi
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /!selected\.length\s*\|\|\s*busy/);
   assert.match(source, /channels:\s*selected/);
-  assert.match(source, /if \(!prompt\.trim\(\)\) \{ setStatus/);
-  assert.match(source, /if \(!channels\.length\) \{ setStatus/);
-  assert.match(source, /disabled=\{busy\}/);
+  assert.match(source, /if \(!prompt\.trim\(\)\) \{ setBrandStatus/);
+  assert.match(source, /if \(!channels\.length\) \{ setBrandStatus/);
+  assert.match(source, /disabled=\{busy \|\| Boolean\(campaignId\)\}/);
+});
+
+test("client exposes brand tabs, four short setup steps, scoped draft saves, and mobile states", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(source, /\+ New Brand/);
+  assert.match(source, /STEP \{wizardStep\} OF 4/);
+  assert.match(source, /Identity/);
+  assert.match(source, /Brand brain/);
+  assert.match(source, /Social channels/);
+  assert.match(source, /Review/);
+  assert.match(source, /persistDraft\(activeBrandId/);
+  assert.match(source, /echoflow-active-campaign:\$\{brand\.id\}/);
+  assert.match(source, /No campaigns yet/);
+  assert.match(source, /role="alert"/);
+  assert.match(styles, /@media\(max-width:600px\)/);
+  assert.match(styles, /@media\(prefers-reduced-motion:reduce\)/);
 });
 
 test("rejects an agent run without the private key", async () => {
@@ -354,6 +392,9 @@ function memoryR2() {
       if (!stored) return null;
       return { body: stored.bytes, httpEtag: "test", writeHttpMetadata(headers) { if (stored.options.httpMetadata?.contentType) headers.set("content-type", stored.options.httpMetadata.contentType); } };
     },
+    async list({ prefix = "" } = {}) {
+      return { objects: [...values.keys()].filter((key) => key.startsWith(prefix)).map((key) => ({ key })), truncated: false };
+    },
   };
 }
 
@@ -438,5 +479,95 @@ test("failed async motion retries twice then reports static fallback", async () 
     assert.equal(data.results[0].status, "STATIC FALLBACK");
     assert.match(data.results[0].motionError, /MOTION FAILED — STATIC FALLBACK USED/);
     assert.ok(mutations[0].assets[0].image);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("migrates Atlasium history, creates an isolated brand, restores its draft, and blocks cross-brand access", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  const db = await memoryD1();
+  const r2 = memoryR2();
+  const legacy = { id: "legacy-campaign-1", createdAt: "2026-08-13T22:45:00.000Z", updatedAt: "2026-08-14T09:30:00.000Z", prompt: "Preserved Atlasium campaign", timeZone: "America/Toronto", message: "SCHEDULED", schedule: { timing: { label: "Exact times from prompt" } }, items: [], results: [] };
+  await r2.put(".atlasium-campaigns/legacy-campaign-1.json", new TextEncoder().encode(JSON.stringify(legacy)), { httpMetadata: { contentType: "application/json" } });
+  const connected = [
+    { id: "lip", displayName: "Blair Ryan Barton", service: "linkedin" },
+    { id: "lic", displayName: "Atlasium 7/88 AI", service: "linkedin" },
+    { id: "tt", displayName: "atlasium.788.ai", service: "tiktok" },
+    { id: "ig", displayName: "atlasium788ai", service: "instagram" },
+    { id: "fb", displayName: "Atlasium 7/88 AI", service: "facebook" },
+    { id: "client-ig", displayName: "Northstar Studio", service: "instagram" },
+  ];
+  const bufferMutations = [];
+  let plannerSystem = "";
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).includes("api.buffer.com")) {
+      const request = JSON.parse(init.body);
+      if (request.query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org", name: "EchoFlow" }] } } });
+      if (request.query.includes("query Channels")) return Response.json({ data: { channels: connected } });
+      bufferMutations.push(request.variables.input);
+      return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `client-post-${bufferMutations.length}`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: request.variables.input.channelId } } } });
+    }
+    if (String(url).includes("/v1/responses")) {
+      const request = JSON.parse(init.body); plannerSystem = request.input[0].content;
+      return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Northstar campaign", timing: "schedule", posts: [{ concept: "Client concept", caption: "Client caption", imagePrompt: "Northstar visual", personalLinkedInCaption: "Client caption", companyLinkedInCaption: "Client caption", instagramCaption: "Northstar Instagram", facebookCaption: "Client Facebook", tiktokCaption: "Client TikTok" }] }) }] }] });
+    }
+    if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+  const env = { DB: db, UPLOADS: r2, UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-16T12:00:00Z" };
+  try {
+    const first = await worker.fetch(new Request("http://localhost/api/workspace", { headers: { "X-Upload-Key": "test-key" } }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(first.status, 200);
+    const initial = await first.json();
+    assert.equal(initial.brands[0].id, "brand_atlasium_788_ai");
+    assert.equal(initial.brands[0].channels.length, 5);
+    assert.ok(initial.recentCampaigns.some((campaign) => campaign.id === "legacy-campaign-1" && campaign.brandId === "brand_atlasium_788_ai"));
+    assert.equal(bufferMutations.length, 0);
+    const preservedObject = await r2.get(".atlasium-campaigns/legacy-campaign-1.json");
+    assert.deepEqual(await new Response(preservedObject.body).json(), legacy);
+
+    const profile = { name: "Northstar", website: "https://northstar.example", industry: "Consulting", location: "Toronto", timezone: "America/Vancouver", whatItDoes: "Advises operators", targetAudience: "Business owners", mainOffers: "Advisory", primaryCta: "Book a call", tone: "Clear and calm", wordsUse: "practical", wordsAvoid: "hype", visualStyle: "Minimal navy and copper", instructions: "Never mention Atlasium", routingRules: "{}", channelIds: ["client-ig"] };
+    const createForm = new FormData(); createForm.set("profile", JSON.stringify(profile));
+    const createdResponse = await worker.fetch(new Request("http://localhost/api/brands", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: createForm }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(createdResponse.status, 201);
+    const created = (await createdResponse.json()).brand;
+    assert.equal(created.name, "Northstar");
+    assert.deepEqual(created.channelIds, ["client-ig"]);
+
+    const draftResponse = await worker.fetch(new Request(`http://localhost/api/brands/${created.id}/draft`, { method: "PUT", headers: { "content-type": "application/json", "X-Upload-Key": "test-key", "X-Brand-ID": created.id }, body: JSON.stringify({ prompt: "Northstar draft", timing: "auto", selectedChannels: ["client-ig"] }) }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(draftResponse.status, 200);
+
+    const editForm = new FormData(); editForm.set("profile", JSON.stringify({ ...profile, tone: "Direct and precise" }));
+    const editResponse = await worker.fetch(new Request(`http://localhost/api/brands/${created.id}`, { method: "PATCH", headers: { "X-Upload-Key": "test-key", "X-Brand-ID": created.id }, body: editForm }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(editResponse.status, 200);
+    assert.equal((await editResponse.json()).brand.tone, "Direct and precise");
+
+    const snapshotResponse = await worker.fetch(new Request("http://localhost/api/workspace", { headers: { "X-Upload-Key": "test-key" } }), env, { waitUntil() {}, passThroughOnException() {} });
+    const snapshot = await snapshotResponse.json();
+    const restored = snapshot.brands.find((brand) => brand.id === created.id);
+    assert.equal(restored.draft.prompt, "Northstar draft");
+    assert.deepEqual(restored.channelIds, ["client-ig"]);
+
+    const unauthorized = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key", "X-Brand-ID": created.id }, body: JSON.stringify({ brandId: created.id, prompt: "Create one post", channels: ["lic"], timing: "auto" }) }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(unauthorized.status, 400);
+    assert.equal(bufferMutations.length, 0);
+
+    const campaignResponse = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key", "X-Brand-ID": created.id }, body: JSON.stringify({ brandId: created.id, prompt: "Create one Northstar post next week", channels: [], timing: "auto" }) }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(campaignResponse.status, 201);
+    const campaign = await campaignResponse.json();
+    assert.equal(campaign.brandId, created.id);
+    assert.equal(bufferMutations.length, 1);
+    assert.equal(bufferMutations[0].channelId, "client-ig");
+    assert.match(plannerSystem, /Brand: Northstar|brand Northstar/i);
+    assert.doesNotMatch(plannerSystem, /You are Atlasium's autonomous/);
+    assert.ok([...r2.values.keys()].some((key) => key.startsWith(`brands/${created.id}/`) && key.endsWith(".png")));
+    assert.ok([...r2.values.keys()].some((key) => key === `.echoflow-campaigns/${created.id}/${campaign.campaignId}.json`));
+
+    const crossBrand = await worker.fetch(new Request(`http://localhost/api/campaign/${campaign.campaignId}`, { headers: { "X-Upload-Key": "test-key", "X-Brand-ID": "brand_atlasium_788_ai" } }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(crossBrand.status, 403);
+    assert.equal(bufferMutations.length, 1);
+
+    const jobs = db.database.prepare("SELECT brand_id, destination_id, status FROM publish_jobs").all().map((row) => ({ ...row }));
+    assert.deepEqual(jobs, [{ brand_id: created.id, destination_id: "client-ig", status: "confirmed" }]);
   } finally { globalThis.fetch = originalFetch; }
 });

@@ -6,3 +6,4 @@ dist/
 .wrangler/
 .pnpm-store/
 .env*
+*.tsbuildinfo

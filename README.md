@@ -1,53 +1,29 @@
-# Atlasium social assets
+# EchoFlow Social
 
-A minimal, GitHub-backed library for public social-media images. There is no website, app, build step, or deployment.
+EchoFlow Social is the shared, multi-brand social publishing agent powered by Atlasium 7/88 AI.
 
-## One-time setup
+## Product flow
 
-1. Install Apple's Command Line Tools if Git is not already working:
+Select a brand → enter one campaign prompt → generate copy and media → route to that brand's assigned destinations → schedule → publish through Buffer → track delivery.
 
-   ```sh
-   xcode-select --install
-   ```
+The original permanent public media URLs remain available through `/i/*`, and the manual upload/publish endpoints remain supported as secondary tools.
 
-2. Create a **public** empty repository on GitHub (do not add a README or `.gitignore`).
-3. In this folder, connect and publish it:
+## Architecture
 
-   ```sh
-   git init
-   git branch -M main
-   git add .
-   git commit -m "Set up social asset library"
-   git remote add origin https://github.com/OWNER/REPOSITORY.git
-   git push -u origin main
-   ```
+- One Next/vinext application and one Sites deployment.
+- D1 stores workspaces, brands, profiles, channel assignments, campaign indexes, posts, media metadata, drafts, publish jobs, delivery status and audit history.
+- R2 stores uploaded/generated images, MP4 files and the complete campaign job records.
+- Buffer is the active publishing provider. Disabled direct Meta, LinkedIn and TikTok feature flags are marked `APPROVAL PENDING`.
+- OpenAI generates campaign copy, images and optional motion media.
+- All secrets remain server-side and are never committed.
 
-Replace `OWNER/REPOSITORY` with the public GitHub repository's actual path.
+## Safety
 
-## Add images
+- Every brand-owned record and background job carries an immutable workspace and brand ID.
+- Buffer destinations must be explicitly assigned to one brand.
+- Publishing jobs use a persistent brand/campaign/post/destination/schedule idempotency key.
+- The legacy Atlasium campaign objects keep their original R2 keys and IDs; the migration only indexes them under the default Atlasium brand and never republishes them.
 
-Copy images into [`images/`](images), then run:
+## Validation
 
-```sh
-git add images
-git commit -m "Add social assets"
-git push
-./image-urls.sh
-```
-
-The script prints a direct public URL for every committed image. Give those URLs to Claude/Buffer only **after the push has finished**. Each URL is pinned to the publishing commit, so its contents cannot change later.
-
-Example:
-
-```text
-https://raw.githubusercontent.com/OWNER/REPOSITORY/COMMIT/images/product-launch.png
-```
-
-## Rules that keep URLs reliable
-
-- Use lowercase descriptive filenames with letters, numbers, hyphens, or underscores, such as `launch-square-2026-08.png`.
-- Supported files: `.png`, `.jpg`, `.jpeg`, `.gif`, and `.webp`.
-- Published URLs are pinned to a Git commit and remain immutable even if a file is later changed on `main`.
-- Prefer versioned replacement filenames, such as `launch-square-v2.png`, so the library remains easy to understand.
-- Keep the repository public. A private repository's raw URLs are not publicly accessible.
-- These URLs are stable path-based URLs, not an archival guarantee. Deleting the repository or changing its owner/name breaks them.
+`pnpm test` builds the production worker and runs mocked rendered, scheduling, routing, publishing, motion, migration and isolation tests. Tests do not call live Buffer or social destinations.

@@ -2,26 +2,26 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Atlasium Social Agent",
-  description: "Create and publish complete social campaigns from one prompt.",
-  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+  metadataBase: new URL("https://www.echoflowsocial.ca"),
+  title: "EchoFlow Social",
+  description: "One prompt, every brand, one controlled social publishing flow. Powered by Atlasium 7/88 AI.",
   openGraph: {
-    title: "Atlasium Social Agent",
-    description: "One prompt. A complete social campaign.",
-    images: [{ url: "/og.png", width: 1792, height: 921, alt: "Atlasium — Upload. Copy. Post." }],
+    title: "EchoFlow Social",
+    description: "One prompt, every brand, one controlled publishing flow.",
+    url: "https://www.echoflowsocial.ca",
+    siteName: "EchoFlow Social",
   },
   twitter: {
-    card: "summary_large_image",
-    title: "Atlasium Social Agent",
-    description: "One prompt. A complete social campaign.",
-    images: ["/og.png"],
+    card: "summary",
+    title: "EchoFlow Social",
+    description: "One prompt, every brand, one controlled publishing flow.",
   },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#080b0a",
+  themeColor: "#070706",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
