@@ -51,6 +51,7 @@ type PlannedPost = AgentPlan["posts"][number] & {
   motionError?: string;
 };
 type BufferPost = { id: string; dueAt?: string | null; status?: string | null; channelId: string };
+type BufferPostStatus = BufferPost & { sentAt?: string | null; externalLink?: string | null; error?: { message?: string; supportUrl?: string | null } | null };
 type MotionState = "queued" | "rendering" | "completed" | "hosting" | "scheduling" | "scheduled" | "failed";
 type MotionJobStatus = { status: "queued" | "rendering" | "completed" | "failed"; error?: string };
 interface MotionProvider {
@@ -107,6 +108,11 @@ async function getChannels(env: Env): Promise<Array<Record<string, unknown>>> {
     return (data.channels as Array<Record<string, unknown>> || []).map((channel) => ({ ...channel, organizationName: organization.name }));
   }));
   return lists.flat() as Array<Record<string, unknown>>;
+}
+
+async function getBufferPostStatus(env: Env, id: string): Promise<BufferPostStatus> {
+  const data = await bufferRequest(env, `query PostStatus($input: PostInput!) { post(input: $input) { id channelId status dueAt sentAt externalLink error { message supportUrl } } }`, { input: { id } });
+  return data.post as BufferPostStatus;
 }
 
 const dayNames: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
@@ -635,6 +641,19 @@ async function processCampaign(request: Request, env: Env, id: string) {
     }
     item.state = campaign.results.some((result) => result.itemId === item.id && result.status === "FAILED") ? "failed" : "scheduled";
   }
+  await Promise.all(campaign.results.map(async (result) => {
+    const postId = typeof result.postId === "string" ? result.postId : null;
+    const dueAt = result.dueAt || result.requestedDueAt;
+    if (!postId || !dueAt || Date.parse(String(dueAt)) > now.getTime() || result.status === "FAILED") return;
+    try {
+      const current = await getBufferPostStatus(env, postId);
+      result.bufferStatus = current.status || null;
+      result.sentAt = current.sentAt || null;
+      result.externalLink = current.externalLink || null;
+      if (current.status === "sent") result.status = "SENT";
+      if (current.status === "error") { result.status = "FAILED"; result.error = current.error?.message || "Buffer could not publish this post."; result.supportUrl = current.error?.supportUrl || null; }
+    } catch { /* Preserve the last confirmed state if Buffer status refresh is unavailable. */ }
+  }));
   const processing = campaign.results.filter((result) => ["PROCESSING MOTION", "SCHEDULING"].includes(result.status)).length;
   const activeItems = campaign.items.filter((item) => ["queued", "rendering", "completed", "hosting", "scheduling"].includes(item.state)).length;
   const failed = campaign.results.filter((result) => result.status === "FAILED").length;
