@@ -2,11 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
+import ts from "typescript";
 
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   return (await import(workerUrl.href)).default;
+}
+
+async function loadFlowConnectionService() {
+  const source = await readFile(new URL("../app/flow/services/flow-connection-service.ts", import.meta.url), "utf8");
+  const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
+  return import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}#${Date.now()}`);
 }
 
 async function memoryD1() {
@@ -47,6 +54,33 @@ test("renders the EchoFlow Social authenticated entry", async () => {
   assert.doesNotMatch(html, /codex-preview/);
 });
 
+test("serves refresh-safe ECHO, FLOW and AMPLIFY routes with clear top-level navigation", async () => {
+  const worker = await loadWorker();
+  const env = {
+    ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+    UPLOADS: { get: async () => null },
+    UPLOAD_KEY: "test-key",
+  };
+  const context = { waitUntil() {}, passThroughOnException() {} };
+  const echoResponse = await worker.fetch(new Request("http://localhost/echo", { headers: { accept: "text/html" } }), env, context);
+  const flowResponses = await Promise.all(["/flow", "/flow/channels", "/flow/calendar", "/flow/queue", "/flow/activity"].map((path) => worker.fetch(new Request(`http://localhost${path}`, { headers: { accept: "text/html" } }), env, context)));
+  assert.equal(echoResponse.status, 200);
+  for (const response of flowResponses) assert.equal(response.status, 200);
+  const [echoHtml, ...flowPages] = await Promise.all([echoResponse.text(), ...flowResponses.map((response) => response.text())]);
+  const flowHtml = flowPages.join("\n");
+  assert.match(echoHtml, /ECHO/);
+  assert.match(echoHtml, /Create content/);
+  assert.match(echoHtml, /FLOW/);
+  assert.match(flowHtml, /Schedule &amp; publish/);
+  assert.match(flowHtml, /Channels/);
+  assert.match(flowHtml, /Calendar/);
+  assert.match(flowHtml, /Queue/);
+  assert.match(flowHtml, /Activity/);
+  assert.match(echoHtml, /AMPLIFY/);
+  assert.match(flowHtml, /AMPLIFY/);
+  assert.match(flowHtml, /Run ads/);
+});
+
 test("client allows automatic channel routing and never silently ignores a publish click", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /!selected\.length\s*\|\|\s*busy/);
@@ -77,6 +111,103 @@ test("client exposes brand tabs, four short setup steps, scoped draft saves, and
   assert.match(styles, /\.echo-art-compact\{[^}]*object-fit:contain/);
   assert.match(styles, /@media\(max-width:600px\)/);
   assert.match(styles, /@media\(prefers-reduced-motion:reduce\)/);
+});
+
+test("FLOW has isolated routes, state, components, connection services, adapters, and an error boundary", async () => {
+  const [echoRoute, flowPage, flowWorkspace, flowConnectionService, flowBrandService, providerCatalog, adapterRegistry, errorBoundary, navigation, styles] = await Promise.all([
+    readFile(new URL("../app/echo/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/components/flow-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/services/flow-connection-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/services/flow-brand-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/providers/provider-catalog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/providers/provider-adapter-registry.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/components/flow-error-boundary.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/product-navigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(echoRoute, /export \{ default \} from "\.\.\/page"/);
+  assert.match(flowPage, /FlowRoute/);
+  assert.match(flowWorkspace, /useFlowWorkspace/);
+  assert.match(flowWorkspace, /FlowChannels/);
+  assert.match(flowConnectionService, /class FlowConnectionCoordinator/);
+  assert.match(flowConnectionService, /codeVerifier/);
+  assert.match(flowConnectionService, /codeChallenge/);
+  assert.match(flowConnectionService, /authorizeBrand/);
+  assert.match(flowConnectionService, /confirmation_required/);
+  assert.match(flowBrandService, /\/api\/workspace/);
+  assert.match(flowBrandService, /X-Upload-Key/);
+  assert.doesNotMatch(flowBrandService, /connectedChannels/);
+  assert.match(providerCatalog, /authorizationEnabled: false/g);
+  assert.match(adapterRegistry, /createFlowProviderAdapterRegistry/);
+  assert.match(adapterRegistry, /flowProviderAdapters = createFlowProviderAdapterRegistry\(\)/);
+  assert.match(errorBoundary, /FlowErrorBoundary/);
+  assert.doesNotMatch(`${flowPage}\n${flowWorkspace}\n${flowConnectionService}\n${providerCatalog}`, /AMPLIFY|BUFFER_API_KEY|OPENAI_API_KEY/);
+  assert.match(navigation, /aria-current/);
+  assert.match(navigation, /Create content/);
+  assert.match(navigation, /Schedule &amp; publish/);
+  assert.match(styles, /\.flow-platform-grid/);
+  assert.match(styles, /@media\(max-width:600px\)[^\n]*\.flow-platform-grid\{grid-template-columns:1fr 1fr\}/);
+});
+
+test("FLOW exposes every requested platform with accurate independently flagged statuses", async () => {
+  const [catalog, service] = await Promise.all([
+    readFile(new URL("../app/flow/providers/provider-catalog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/services/flow-connection-service.ts", import.meta.url), "utf8"),
+  ]);
+  for (const name of ["Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X", "Threads", "Pinterest", "Google Business Profile", "Bluesky", "Snapchat"]) assert.match(catalog, new RegExp(`name: "${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  for (const provider of ["facebook", "instagram", "linkedin", "tiktok"]) assert.match(catalog, new RegExp(`providerId: "${provider}"[^\n]*status: "approval_pending"[^\n]*authorizationEnabled: false`));
+  for (const provider of ["youtube", "x", "threads", "pinterest", "google_business", "bluesky", "snapchat"]) assert.match(catalog, new RegExp(`providerId: "${provider}"[^\n]*status: "coming_soon"[^\n]*authorizationEnabled: false`));
+  assert.equal((catalog.match(/featureFlag: "flow_/g) || []).length, 11);
+  for (const status of ["connect", "connected", "approval_pending", "coming_soon", "reconnect", "needs_attention", "unavailable"]) assert.match(service, new RegExp(`"${status}"`));
+});
+
+test("FLOW mock authorization validates brands, state, PKCE, expiry, permissions, reconnect, and disconnect", async () => {
+  const { FlowConnectionCoordinator, FlowConnectionError } = await loadFlowConnectionService();
+  const transactions = new Map();
+  const calls = { began: [], completed: [], revoked: [] };
+  let now = 1_000_000;
+  let sequence = 0;
+  const account = { id: "account-a", brandId: "brand-a", providerId: "instagram", accountName: "Atlasium", handle: "@atlasium", accountType: "Business account", status: "connected" };
+  const adapter = {
+    async begin(input) { calls.began.push(input); return { authorizationUrl: `https://provider.invalid/authorize?state=${input.state}` }; },
+    async complete(input) { calls.completed.push(input); return { account, grantedScopes: ["profile", "publish"] }; },
+    async refresh(value) { return value; },
+    async revoke(value) { calls.revoked.push(value); },
+  };
+  const coordinator = new FlowConnectionCoordinator({
+    providers: { instagram: { providerId: "instagram", authorizationEnabled: true, featureFlag: "flow_instagram", scopes: ["profile", "publish"], pkce: "required" } },
+    adapters: { instagram: adapter },
+    store: { async save(transaction) { transactions.set(transaction.state, transaction); }, async take(state) { const value = transactions.get(state) || null; transactions.delete(state); return value; } },
+    authorizeBrand: async (brandId) => brandId === "brand-a",
+    randomValue: () => `secure-${++sequence}`,
+    now: () => now,
+  });
+
+  await assert.rejects(() => coordinator.begin({ brandId: "brand-b", providerId: "instagram" }), (error) => error instanceof FlowConnectionError && error.code === "brand_forbidden");
+  const started = await coordinator.begin({ brandId: "brand-a", providerId: "instagram" });
+  assert.match(started.authorizationUrl, /provider\.invalid\/authorize/);
+  assert.notEqual(calls.began[0].codeChallenge, transactions.get(started.state).codeVerifier);
+  const success = await coordinator.complete({ brandId: "brand-a", providerId: "instagram", state: started.state, code: "official-code" });
+  assert.equal(success.outcome, "success");
+  assert.equal(success.account.brandId, "brand-a");
+  assert.equal(calls.completed[0].codeVerifier, "secure-2");
+
+  const cancelledStart = await coordinator.begin({ brandId: "brand-a", providerId: "instagram" });
+  assert.deepEqual(await coordinator.complete({ brandId: "brand-a", providerId: "instagram", state: cancelledStart.state, error: "access_denied" }), { outcome: "cancelled" });
+  const rejectedStart = await coordinator.begin({ brandId: "brand-a", providerId: "instagram" });
+  assert.deepEqual(await coordinator.complete({ brandId: "brand-a", providerId: "instagram", state: rejectedStart.state, error: "permissions_rejected" }), { outcome: "permissions_rejected" });
+  const expiredStart = await coordinator.begin({ brandId: "brand-a", providerId: "instagram" });
+  now += 10 * 60_000;
+  assert.deepEqual(await coordinator.complete({ brandId: "brand-a", providerId: "instagram", state: expiredStart.state, code: "late" }), { outcome: "expired" });
+  now = 1_000_000;
+
+  await coordinator.reconnect(account);
+  assert.equal(calls.began.at(-1).mode, "reconnect");
+  await assert.rejects(() => coordinator.disconnect(account, false), (error) => error instanceof FlowConnectionError && error.code === "confirmation_required");
+  assert.deepEqual(await coordinator.disconnect(account, true), { disconnected: true, accountId: "account-a", brandId: "brand-a" });
+  assert.equal(calls.revoked.length, 1);
+  await assert.rejects(() => coordinator.complete({ brandId: "brand-a", providerId: "instagram", state: "unknown", code: "code" }), (error) => error instanceof FlowConnectionError && error.code === "invalid_state");
 });
 
 test("rejects an agent run without the private key", async () => {

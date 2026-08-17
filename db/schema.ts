@@ -167,3 +167,54 @@ export const auditLogs = sqliteTable("audit_logs", {
   details: text("details").notNull().default("{}"),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("idx_audit_workspace_created").on(table.workspaceId, table.createdAt)]);
+
+export const advertisingAssets = sqliteTable("advertising_assets", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  sourceType: text("source_type").notNull(),
+  label: text("label").notNull(),
+  mediaType: text("media_type").notNull(),
+  url: text("url").notNull(),
+  r2Key: text("r2_key").notNull(),
+  contentType: text("content_type").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("idx_advertising_assets_brand_created").on(table.brandId, table.createdAt)]);
+
+export const advertisingCampaignDrafts = sqliteTable("advertising_campaign_drafts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  name: text("name").notNull(),
+  prompt: text("prompt").notNull(),
+  status: text("status").notNull(),
+  payload: text("payload").notNull(),
+  revision: integer("revision").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [index("idx_advertising_drafts_brand_updated").on(table.brandId, table.updatedAt)]);
+
+export const advertisingDryRuns = sqliteTable("advertising_dry_runs", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  draftId: text("draft_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  status: text("status").notNull(),
+  result: text("result").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_advertising_dry_run_idempotency").on(table.brandId, table.idempotencyKey),
+  index("idx_advertising_dry_runs_draft").on(table.draftId),
+]);
+
+export const advertisingStatusEvents = sqliteTable("advertising_status_events", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  draftId: text("draft_id").notNull(),
+  providerId: text("provider_id"),
+  status: text("status").notNull(),
+  detail: text("detail").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("idx_advertising_events_draft_created").on(table.draftId, table.createdAt)]);

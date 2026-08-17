@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ProductNavigation } from "./components/product-navigation";
 
 type Channel = { id: string; name?: string; displayName?: string; service: string; assignedBrandId?: string | null; assignedBrandName?: string | null };
 type Draft = { prompt: string; timing: string; selectedChannels: string[]; updatedAt?: string };
@@ -100,6 +101,14 @@ export default function Home() {
     // Private access is restored once on hydration.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!workspace || new URLSearchParams(location.search).get("new-brand") !== "1") return;
+    openBrandWizard("create");
+    window.history.replaceState(null, "", location.pathname);
+    // This bridges AMPLIFY to the existing New Brand workflow without changing it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace]);
 
   useEffect(() => {
     const entries = Object.entries(campaigns);
@@ -215,6 +224,7 @@ export default function Home() {
   if (!key) return <main className="welcome-shell">
     <section className="welcome-card">
       <EchoFlowIdentity full />
+      <ProductNavigation active="echo" />
       <p>One prompt. Every brand. One controlled publishing flow.</p>
       <div className="access-warning">Open your private authenticated EchoFlow link in this browser to continue.</div>
       <a href="https://www.echoflowsocial.ca" target="_blank" rel="noreferrer">echoflowsocial.ca</a>
@@ -223,6 +233,7 @@ export default function Home() {
 
   return <main className="app-shell">
     <header className="app-header"><EchoFlowIdentity /><span className="powered">Powered by Atlasium 7/88 AI</span></header>
+    <ProductNavigation active="echo" />
 
     <nav className="brand-nav" aria-label="Brands">
       <div className="brand-tabs">

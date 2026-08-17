@@ -20,6 +20,13 @@ import {
   type BrandProfileInput,
   type BufferDestination,
 } from "./brand-store";
+import {
+  createAmplifyDraft,
+  loadAmplifyWorkspace,
+  runAmplifyDryTest,
+  updateAmplifyDraft,
+  uploadAmplifyAsset,
+} from "./amplify-store";
 
 interface Env {
   ASSETS: Fetcher;
@@ -34,6 +41,9 @@ interface Env {
   ANTHROPIC_API_KEY?: string;
   CLAUDE_MODEL?: string;
   TEST_NOW?: string;
+  AMPLIFY_ENABLED?: string;
+  AMPLIFY_DRY_RUN_ENABLED?: string;
+  AMPLIFY_LIVE_SUBMISSION_ENABLED?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -912,6 +922,55 @@ async function archiveBrandRoute(request: Request, env: Env, brandId: string) {
   return json({ archived: true, brandId });
 }
 
+function requiredAmplifyBrand(request: Request, bodyBrandId?: unknown) {
+  const headerBrandId = request.headers.get("X-Brand-ID")?.trim() || "";
+  const suppliedBrandId = String(bodyBrandId || "").trim();
+  if (!headerBrandId) throw new Error("A valid brand is required for every AMPLIFY operation.");
+  if (suppliedBrandId && suppliedBrandId !== headerBrandId) throw new Error("The requested AMPLIFY brand does not match the authorized brand context.");
+  return headerBrandId;
+}
+
+async function amplifyWorkspaceRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This AMPLIFY workspace is not authorized." }, 401);
+  const brandId = requiredAmplifyBrand(request);
+  return json(await loadAmplifyWorkspace(env, brandId));
+}
+
+async function amplifyDraftRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This AMPLIFY workspace is not authorized." }, 401);
+  const body = await request.json() as Record<string, unknown>;
+  const brandId = requiredAmplifyBrand(request, body.brandId);
+  return json({ draft: await createAmplifyDraft(env, brandId, body) }, 201);
+}
+
+async function amplifyDraftUpdateRoute(request: Request, env: Env, draftId: string) {
+  if (!authorized(request, env)) return json({ error: "This AMPLIFY workspace is not authorized." }, 401);
+  const body = await request.json() as Record<string, unknown>;
+  const brandId = requiredAmplifyBrand(request, body.brandId);
+  return json({ draft: await updateAmplifyDraft(env, brandId, draftId, body.payload as Record<string, unknown> || {}) });
+}
+
+async function amplifyAssetRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This AMPLIFY workspace is not authorized." }, 401);
+  const brandId = requiredAmplifyBrand(request);
+  return json({ asset: await uploadAmplifyAsset(request, env, brandId) }, 201);
+}
+
+async function amplifyDryTestRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This AMPLIFY workspace is not authorized." }, 401);
+  const body = await request.json() as Record<string, unknown>;
+  const brandId = requiredAmplifyBrand(request, body.brandId);
+  const result = await runAmplifyDryTest(env, brandId, String(body.draftId || ""), String(body.idempotencyKey || ""), body.confirmed === true);
+  return json({ result });
+}
+
+async function amplifyLiveSubmissionRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This AMPLIFY workspace is not authorized." }, 401);
+  const body = await request.json() as Record<string, unknown>;
+  requiredAmplifyBrand(request, body.brandId);
+  return json({ error: "Live advertising submission is disabled. Run a dry test instead. No advertisement was launched and no money was spent.", code: "amplify_live_submission_disabled" }, 403);
+}
+
 async function serveImage(request: Request, env: Env, key: string) {
   const object = await env.UPLOADS.get(key);
   if (!object) return new Response("Image not found", { status: 404 });
@@ -930,6 +989,42 @@ const worker = {
     if (url.pathname === "/api/upload") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       return upload(request, env);
+    }
+
+    if (url.pathname === "/api/amplify/workspace") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      try { return await amplifyWorkspaceRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load AMPLIFY." }, statusFor(error, 400)); }
+    }
+
+    if (url.pathname === "/api/amplify/drafts") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await amplifyDraftRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not prepare the advertising draft." }, statusFor(error, 400)); }
+    }
+
+    const amplifyDraftMatch = url.pathname.match(/^\/api\/amplify\/drafts\/([^/]+)$/);
+    if (amplifyDraftMatch) {
+      if (request.method !== "PATCH") return json({ error: "Method not allowed." }, 405);
+      try { return await amplifyDraftUpdateRoute(request, env, decodeURIComponent(amplifyDraftMatch[1])); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not update the advertising draft." }, statusFor(error, 400)); }
+    }
+
+    if (url.pathname === "/api/amplify/assets") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await amplifyAssetRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not upload this advertising creative." }, statusFor(error, 400)); }
+    }
+
+    if (url.pathname === "/api/amplify/dry-test") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await amplifyDryTestRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "The AMPLIFY dry test failed." }, statusFor(error, 400)); }
+    }
+
+    if (url.pathname === "/api/amplify/launch") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      return amplifyLiveSubmissionRoute(request, env);
     }
 
     if (url.pathname === "/api/workspace") {
