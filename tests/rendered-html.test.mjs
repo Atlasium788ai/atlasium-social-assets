@@ -284,7 +284,7 @@ test("AUTO routes every item to TikTok and personal LinkedIn without duplicate d
     assert.ok(destinations.some((item) => item.channel === "Blair Ryan Barton"));
     assert.ok(destinations.some((item) => item.channel === "Atlasium 7/88 AI"));
     assert.ok(destinations.some((item) => item.channel === "atlasium.788.ai"));
-    assert.equal(new Set(destinations.map((item) => item.channelId)).size, destinations.length);
+    assert.equal(new Set(destinations.map((item) => `${item.channelId}:${item.surfaceId}`)).size, destinations.length);
     assert.match(destinations.find((item) => item.channel === "Blair Ryan Barton").caption, /Professional founder version/);
   }
   assert.deepEqual(new Set(campaign.assignments.map((item) => item.service)), new Set(["linkedin", "instagram", "facebook", "tiktok"]));
@@ -306,8 +306,8 @@ test("agent suppresses effectively identical same-time Buffer submissions", asyn
   try {
     const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create two posts and publish now", channels: [], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
-    assert.equal(mutations.length, 2);
-    assert.equal(new Set(mutations.map((input) => input.channelId)).size, 2);
+    assert.equal(mutations.length, 3);
+    assert.deepEqual(new Set(mutations.map((input) => input.metadata?.instagram?.type || input.channelId)), new Set(["li", "post", "story"]));
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -343,14 +343,14 @@ test("preserves the exact 15-post Toronto campaign schedule and stable Buffer ma
     const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt, channels: [], timing: "schedule", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-12T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     const data = await response.json();
-    assert.equal(mutations.length, 60);
-    assert.deepEqual(mutations.map((input) => input.dueAt), expected.flatMap((time) => [time, time, time, time]));
-    assert.equal(new Set(data.results.map((result) => result.id)).size, 60);
+    assert.equal(mutations.length, 75);
+    assert.deepEqual(mutations.map((input) => input.dueAt), expected.flatMap((time) => [time, time, time, time, time]));
+    assert.equal(new Set(data.results.map((result) => result.id)).size, 75);
     assert.equal(new Set(data.results.map((result) => result.itemId)).size, 15);
-    assert.deepEqual(data.results.map((result) => result.dueAt), expected.flatMap((time) => [time, time, time, time]));
+    assert.deepEqual(data.results.map((result) => result.dueAt), expected.flatMap((time) => [time, time, time, time, time]));
     assert.ok(data.results.every((result, index) => result.channelId === mutations[index].channelId && result.status === "SCHEDULED"));
     assert.equal(data.campaignItems, 15);
-    assert.equal(data.destinationSubmissions, 60);
+    assert.equal(data.destinationSubmissions, 75);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -378,9 +378,8 @@ test("UI-selected schedule overrides prompt timing and never uses the Buffer que
   try {
     const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Add this to the queue next week", channels: ["fb"], timing: "schedule", selectedLocalTime: "2026-08-21T15:00", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
-    assert.equal(mutations.length, 1);
-    assert.equal(mutations[0].mode, "customScheduled");
-    assert.equal(mutations[0].dueAt, "2026-08-21T19:00:00.000Z");
+    assert.equal(mutations.length, 2);
+    assert.ok(mutations.every((input) => input.mode === "customScheduled" && input.dueAt === "2026-08-21T19:00:00.000Z"));
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -486,22 +485,27 @@ test("publishes sample content through the complete Buffer scheduling mutation p
     form.set("timeZone", "America/Toronto");
     const response = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: form }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
-    assert.equal(mutations.length, 3);
+    assert.equal(mutations.length, 5);
     assert.ok(mutations.every((input) => input.mode === "customScheduled" && Date.parse(input.dueAt) > Date.now() && input.assets[0].image.url.startsWith("http://localhost/i/")));
     assert.deepEqual(mutations[0].metadata.instagram, { type: "post", shouldShareToFeed: true, isAiGenerated: false });
-    assert.equal(mutations[1].metadata, undefined);
-    assert.deepEqual(mutations[2].metadata.facebook, { type: "post" });
+    assert.deepEqual(mutations[1].metadata.instagram, { type: "story", shouldShareToFeed: false, isAiGenerated: false });
+    assert.equal(mutations[2].metadata, undefined);
+    assert.deepEqual(mutations[3].metadata.facebook, { type: "post" });
+    assert.deepEqual(mutations[4].metadata.facebook, { type: "story" });
 
     for (const type of ["story", "reel"]) {
+      const before = mutations.length;
       const typed = new FormData();
       typed.set("image", new File([new Uint8Array([137, 80, 78, 71])], `${type}.png`, { type: "image/png" }));
       typed.set("caption", "Atlasium update");
-      typed.set("notes", `Create a Facebook ${type}`);
+      typed.set("notes", type === "story" ? "Create a Facebook story only" : "Create a Facebook reel");
       typed.set("channels", JSON.stringify(["fb"]));
       typed.set("mode", "addToQueue");
       const typedResponse = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: typed }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
       assert.equal(typedResponse.status, 201);
-      assert.deepEqual(mutations.at(-1).metadata.facebook, { type });
+      const added = mutations.slice(before);
+      if (type === "story") assert.deepEqual(added.map((input) => input.metadata.facebook.type), ["story"]);
+      else assert.deepEqual(added.map((input) => input.metadata.facebook.type), ["reel", "story"]);
     }
 
     const tiktok = new FormData();
@@ -533,6 +537,175 @@ function memoryR2() {
     },
   };
 }
+
+test("ECHO creates separate Instagram and Facebook main posts plus Stories while native-only platforms stay single", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  const r2 = memoryR2();
+  const mutations = [];
+  const channels = [
+    { id: "ig", displayName: "Atlasium Instagram", service: "instagram" },
+    { id: "fb", displayName: "Atlasium Facebook", service: "facebook" },
+    { id: "li", displayName: "Atlasium LinkedIn", service: "linkedin" },
+  ];
+  globalThis.fetch = async (url, init = {}) => {
+    const request = JSON.parse(init.body);
+    if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org" }] } } });
+    if (request.query?.includes("query Channels")) return Response.json({ data: { channels } });
+    if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Surface defaults", timing: "now", posts: [{ concept: "One", caption: "One", instagramCaption: "Instagram", facebookCaption: "Facebook", imagePrompt: "Image" }] }) }] }] });
+    if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    if (!String(url).includes("api.buffer.com")) throw new Error(`Unexpected external request: ${url}`);
+    mutations.push(request.variables.input);
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `surface-${mutations.length}`, status: "sent", channelId: request.variables.input.channelId } } } });
+  };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static post now", channels: ["ig", "fb", "li"], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 201);
+    const data = await response.json();
+    assert.deepEqual(data.results.map((result) => result.surfaceId), ["instagram:feed", "instagram:story", "facebook:feed", "facebook:story", "linkedin:post"]);
+    assert.equal(new Set(data.results.map((result) => result.id)).size, 5);
+    assert.deepEqual(mutations.map((input) => input.metadata?.instagram?.type || input.metadata?.facebook?.type || "linkedin-post"), ["post", "story", "post", "story", "linkedin-post"]);
+    assert.deepEqual(mutations[0].metadata.instagram, { type: "post", shouldShareToFeed: true, isAiGenerated: true });
+    assert.deepEqual(mutations[1].metadata.instagram, { type: "story", shouldShareToFeed: false, isAiGenerated: true });
+    assert.deepEqual(mutations[2].metadata.facebook, { type: "post" });
+    assert.equal(data.results.filter((result) => result.service === "linkedin").length, 1);
+    assert.notEqual(mutations[0].assets[0].image.url, mutations[1].assets[0].image.url);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("Instagram motion creates a Reel and companion Story using the same hosted MP4", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  const r2 = memoryR2();
+  const mutations = [];
+  const mp4 = new Uint8Array([0,0,0,24,102,116,121,112,105,115,111,109,0,0,2,0,105,115,111,109,109,112,52,50,0,0,0,8,109,100,97,116]);
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).endsWith("/v1/videos")) return Response.json({ id: "video-surface", status: "completed" });
+    if (String(url).endsWith("/videos/video-surface/content")) return new Response(mp4, { headers: { "content-type": "video/mp4" } });
+    const request = JSON.parse(init.body);
+    if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org" }] } } });
+    if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", displayName: "Atlasium Instagram", service: "instagram" }] } });
+    if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Motion surfaces", timing: "schedule", posts: [{ concept: "Motion", caption: "Motion", instagramCaption: "Motion", imagePrompt: "Image" }] }) }] }] });
+    if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    if (!String(url).includes("api.buffer.com")) throw new Error(`Unexpected external request: ${url}`);
+    mutations.push(request.variables.input);
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `motion-${mutations.length}`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "ig" } } } });
+  };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", channels: ["ig"], timing: "auto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 201);
+    const data = await response.json();
+    assert.deepEqual(data.results.map((result) => result.surfaceId), ["instagram:reel", "instagram:story"]);
+    assert.deepEqual(mutations.map((input) => input.metadata.instagram.type), ["reel", "story"]);
+    assert.ok(mutations.every((input) => input.assets[0].video.url.endsWith(".mp4")));
+    assert.equal(mutations[0].assets[0].video.url, mutations[1].assets[0].video.url);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("Story and main failures are isolated and the campaign cannot report a hidden main-post failure", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  async function execute(failedType) {
+    const mutations = [];
+    globalThis.fetch = async (url, init = {}) => {
+      const request = JSON.parse(init.body);
+      if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org" }] } } });
+      if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", displayName: "Atlasium Instagram", service: "instagram" }] } });
+      if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Failure isolation", timing: "schedule", posts: [{ concept: "One", caption: "One", instagramCaption: "Instagram", imagePrompt: "Image" }] }) }] }] });
+      if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+      if (!String(url).includes("api.buffer.com")) throw new Error(`Unexpected external request: ${url}`);
+      const type = request.variables.input.metadata.instagram.type;
+      mutations.push(type);
+      if (type === failedType) return Response.json({ data: { createPost: { __typename: "MutationError", message: `${type} rejected` } } });
+      return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `${type}-ok`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "ig" } } } });
+    };
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static Instagram post next week", channels: ["ig"], timing: "auto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: memoryR2() }, { waitUntil() {}, passThroughOnException() {} });
+    return { response, data: await response.json(), mutations };
+  }
+  try {
+    const storyFailure = await execute("story");
+    assert.equal(storyFailure.response.status, 207);
+    assert.equal(storyFailure.data.results.find((result) => result.surface === "feed").status, "SCHEDULED");
+    assert.equal(storyFailure.data.results.find((result) => result.surface === "story").status, "FAILED");
+    const mainFailure = await execute("post");
+    assert.equal(mainFailure.response.status, 207);
+    assert.equal(mainFailure.data.results.find((result) => result.surface === "feed").status, "FAILED");
+    assert.equal(mainFailure.data.results.find((result) => result.surface === "story").status, "SCHEDULED");
+    assert.match(mainFailure.data.message, /1 failed/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("Story media failure preserves the main post and reports the Story separately", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  const base = memoryR2();
+  const r2 = { ...base, async put(key, value, options) { if (key.includes("-story.png")) throw new Error("vertical format failed"); return base.put(key, value, options); } };
+  const mutations = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const request = JSON.parse(init.body);
+    if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org" }] } } });
+    if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", displayName: "Atlasium Instagram", service: "instagram" }] } });
+    if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Media failure", timing: "now", posts: [{ concept: "One", caption: "One", imagePrompt: "Image" }] }) }] }] });
+    if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    if (!String(url).includes("api.buffer.com")) throw new Error(`Unexpected external request: ${url}`);
+    mutations.push(request.variables.input);
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: "main-ok", status: "sent", channelId: "ig" } } } });
+  };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static post now", channels: ["ig"], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 207);
+    const data = await response.json();
+    assert.equal(mutations.length, 1);
+    assert.equal(mutations[0].metadata.instagram.type, "post");
+    assert.equal(data.results.find((result) => result.surface === "feed").status, "PUBLISHING");
+    const story = data.results.find((result) => result.surface === "story");
+    assert.equal(story.status, "FAILED");
+    assert.match(story.error, /vertical format failed.*Main publication was preserved/i);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("surface-aware idempotency survives refresh and explicit Story-only remains available", async () => {
+  const worker = await loadWorker();
+  const originalFetch = globalThis.fetch;
+  const db = await memoryD1();
+  const r2 = memoryR2();
+  const mutations = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const request = JSON.parse(init.body);
+    if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org" }] } } });
+    if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", displayName: "Atlasium Instagram", service: "instagram" }] } });
+    if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Idempotent surfaces", timing: "schedule", posts: [{ concept: "One", caption: "One", imagePrompt: "Image" }] }) }] }] });
+    if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
+    if (!String(url).includes("api.buffer.com")) throw new Error(`Unexpected external request: ${url}`);
+    mutations.push(request.variables.input);
+    return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `job-${mutations.length}`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "ig" } } } });
+  };
+  const env = { DB: db, UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: r2 };
+  try {
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static post next week", channels: ["ig"], timing: "auto" }) }), env, { waitUntil() {}, passThroughOnException() {} });
+    const created = await response.json();
+    assert.equal(mutations.length, 2);
+    await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), env, { waitUntil() {}, passThroughOnException() {} });
+    await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(mutations.length, 2);
+    const jobs = db.database.prepare("SELECT destination_id FROM publish_jobs ORDER BY destination_id").all();
+    assert.deepEqual(jobs.map((job) => job.destination_id), ["ig#instagram:feed", "ig#instagram:story"]);
+
+    const previewResponse = await worker.fetch(new Request("http://localhost/api/preview-schedule", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one post", count: 1, channels: [{ id: "ig", displayName: "Instagram", service: "instagram" }], selected: ["ig"], samplePosts: [{ concept: "One", caption: "One", imagePrompt: "Image" }], surfaceMode: "story", surfaceModeManual: true }) }), { UPLOAD_KEY: "test-key" }, { waitUntil() {}, passThroughOnException() {} });
+    const storyOnly = await previewResponse.json();
+    assert.deepEqual(storyOnly.assignments.map((assignment) => assignment.surfaceId), ["instagram:story"]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("ECHO confirmation UI exposes the simple surface selector and renders every confirmed surface separately", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /Main Post \+ Story/);
+  assert.match(source, /Main Post/);
+  assert.match(source, /\["story","Story"\]/);
+  assert.match(source, /surfaceModeManual/);
+  assert.match(source, /result\.surfaceLabel/);
+  assert.match(source, /A Story never replaces the main post/);
+});
 
 test("async motion persists, resumes, hosts MP4, schedules once, and survives refresh", async () => {
   const worker = await loadWorker();
@@ -574,14 +747,14 @@ test("async motion persists, resumes, hosts MP4, schedules once, and survives re
 
     const progress = await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
     const completed = await progress.json();
-    assert.equal(mutations.length, 4);
+    assert.equal(mutations.length, 5);
     assert.ok(completed.results.every((result) => result.status === "SCHEDULED" && result.hostedMediaUrl.endsWith(".mp4")));
     assert.ok(completed.results.some((result) => result.channelId === "tt"));
     assert.ok(completed.results.some((result) => result.channelId === "lip"));
     assert.ok(mutations.every((input) => input.dueAt === created.results[0].requestedDueAt));
 
     await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
-    assert.equal(mutations.length, 4);
+    assert.equal(mutations.length, 5);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -692,8 +865,8 @@ test("migrates Atlasium history, creates an isolated brand, restores its draft, 
     assert.equal(campaignResponse.status, 201);
     const campaign = await campaignResponse.json();
     assert.equal(campaign.brandId, created.id);
-    assert.equal(bufferMutations.length, 1);
-    assert.equal(bufferMutations[0].channelId, "client-ig");
+    assert.equal(bufferMutations.length, 2);
+    assert.ok(bufferMutations.every((input) => input.channelId === "client-ig"));
     assert.match(plannerSystem, /Brand: Northstar|brand Northstar/i);
     assert.doesNotMatch(plannerSystem, /You are Atlasium's autonomous/);
     assert.ok([...r2.values.keys()].some((key) => key.startsWith(`brands/${created.id}/`) && key.endsWith(".png")));
@@ -701,9 +874,9 @@ test("migrates Atlasium history, creates an isolated brand, restores its draft, 
 
     const crossBrand = await worker.fetch(new Request(`http://localhost/api/campaign/${campaign.campaignId}`, { headers: { "X-Upload-Key": "test-key", "X-Brand-ID": "brand_atlasium_788_ai" } }), env, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(crossBrand.status, 403);
-    assert.equal(bufferMutations.length, 1);
+    assert.equal(bufferMutations.length, 2);
 
     const jobs = db.database.prepare("SELECT brand_id, destination_id, status FROM publish_jobs").all().map((row) => ({ ...row }));
-    assert.deepEqual(jobs, [{ brand_id: created.id, destination_id: "client-ig", status: "confirmed" }]);
+    assert.deepEqual(jobs, [{ brand_id: created.id, destination_id: "client-ig#instagram:feed", status: "confirmed" }, { brand_id: created.id, destination_id: "client-ig#instagram:story", status: "confirmed" }]);
   } finally { globalThis.fetch = originalFetch; }
 });

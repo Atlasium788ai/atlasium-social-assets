@@ -158,6 +158,35 @@ export const brandDrafts = sqliteTable("brand_drafts", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const echoContentDrafts = sqliteTable("echo_content_drafts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  contentType: text("content_type").notNull(),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("draft"),
+  prompt: text("prompt").notNull().default(""),
+  settings: text("settings").notNull().default("{}"),
+  payload: text("payload").notNull().default("{}"),
+  featuredImageUrl: text("featured_image_url"),
+  sourceDraftId: text("source_draft_id"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("idx_echo_content_brand_updated").on(table.brandId, table.updatedAt),
+  index("idx_echo_content_brand_type_status").on(table.brandId, table.contentType, table.status),
+]);
+
+export const echoContentRevisions = sqliteTable("echo_content_revisions", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  draftId: text("draft_id").notNull(),
+  operation: text("operation").notNull(),
+  payload: text("payload").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("idx_echo_revisions_draft_created").on(table.draftId, table.createdAt)]);
+
 export const auditLogs = sqliteTable("audit_logs", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull(),

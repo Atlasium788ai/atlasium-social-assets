@@ -15,6 +15,13 @@
       "when": 1786971204256,
       "tag": "0001_oval_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787233114216,
+      "tag": "0002_heavy_hellfire_club",
+      "breakpoints": true
     }
   ]
 }

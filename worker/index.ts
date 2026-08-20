@@ -27,6 +27,17 @@ import {
   updateAmplifyDraft,
   uploadAmplifyAsset,
 } from "./amplify-store";
+import {
+  createEchoContentDraft,
+  deleteEchoContentDraft,
+  duplicateEchoContentDraft,
+  generateEchoFeaturedImage,
+  loadEchoContentWorkspace,
+  repurposeEchoContentDraft,
+  reviseEchoContentSection,
+  undoEchoContentRevision,
+  updateEchoContentDraft,
+} from "./content-store";
 
 interface Env {
   ASSETS: Fetcher;
@@ -44,7 +55,7 @@ interface Env {
   AMPLIFY_ENABLED?: string;
   AMPLIFY_DRY_RUN_ENABLED?: string;
   AMPLIFY_LIVE_SUBMISSION_ENABLED?: string;
-  IMAGES: {
+  IMAGES?: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
         output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
@@ -69,6 +80,8 @@ type AgentPlan = {
 };
 
 type MediaType = "image" | "video";
+type SurfaceMode = "main" | "story" | "main_and_story";
+type PublicationSurface = "feed" | "story" | "reel" | "post" | "video" | "pin" | "short";
 type PlannedPost = AgentPlan["posts"][number] & {
   id: string;
   itemIndex: number;
@@ -78,6 +91,8 @@ type PlannedPost = AgentPlan["posts"][number] & {
   duration: number | null;
   aspectRatio: string;
   imageUrl?: string;
+  storyImageUrl?: string;
+  storyMediaError?: string;
   hostedMediaUrl?: string;
   motionError?: string;
 };
@@ -93,7 +108,7 @@ interface MotionProvider {
   downloadResult(id: string): Promise<Uint8Array>;
   handleWebhook(_request: Request): Promise<never>;
 }
-type CampaignResult = Record<string, unknown> & { id: string; itemId: string; status: string; channelId: string; service: string; caption: string; requestedDueAt?: string | null; mediaType?: MediaType; imageUrl?: string; hostedMediaUrl?: string };
+type CampaignResult = Record<string, unknown> & { id: string; itemId: string; status: string; channelId: string; service: string; caption: string; surface: PublicationSurface; surfaceId: string; surfaceLabel: string; requestedDueAt?: string | null; mediaType?: MediaType; imageUrl?: string; hostedMediaUrl?: string };
 type CampaignRecord = { id: string; workspaceId: string; brandId: string; createdAt: string; updatedAt: string; prompt: string; timeZone: string; message: string; schedule: { timing: TimingPlan; times: Array<string | null> }; items: Array<PlannedPost & { state: MotionState; videoJobId?: string; retryCount: number; providerName?: string; modelName?: string }>; results: CampaignResult[] };
 
 type TimingMode = "auto" | "now" | "queue" | "schedule";
@@ -108,7 +123,7 @@ interface PublishingProvider {
   id: string;
   name: string;
   listDestinations(): Promise<BufferDestination[]>;
-  createPost(input: { channelId: string; service: string; text: string; mediaUrl: string; mediaType?: MediaType; mode: string; dueAt?: string; aiAssisted: boolean; typeHint?: string }): Promise<BufferPost>;
+  createPost(input: { channelId: string; service: string; text: string; mediaUrl: string; mediaType?: MediaType; surface: PublicationSurface; mode: string; dueAt?: string; aiAssisted: boolean }): Promise<BufferPost>;
   getPostStatus(id: string): Promise<BufferPostStatus>;
 }
 
@@ -387,10 +402,47 @@ function normalizedContent(text: string) {
   return text.toLowerCase().replace(/https?:\/\/\S+/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function inferredPostType(text: string) {
-  if (/\b(story|stories)\b/i.test(text)) return "story";
-  if (/\breels?\b/i.test(text)) return "reel";
+function storyService(service: string) {
+  return ["instagram", "facebook"].includes(service.toLowerCase());
+}
+
+function surfaceModeFor(prompt: string, requested?: string, manual = false): SurfaceMode {
+  if (manual && ["main", "story", "main_and_story"].includes(String(requested))) return requested as SurfaceMode;
+  if (/\b(?:story|stories)\s*[- ]?only\b|\bonly\s+(?:an?\s+)?(?:instagram\s+|facebook\s+)?(?:story|stories)\b/i.test(prompt)) return "story";
+  if (/\b(?:main|feed|profile)\s+(?:post\s+)?only\b|\bno\s+(?:story|stories)\b/i.test(prompt)) return "main";
+  return "main_and_story";
+}
+
+function mainSurface(service: string, mediaType: MediaType, typeHint = ""): PublicationSurface {
+  const normalized = service.toLowerCase();
+  if (normalized === "instagram" || normalized === "facebook") return mediaType === "video" || /\breels?\b/i.test(typeHint) ? "reel" : "feed";
+  if (normalized === "tiktok") return "video";
+  if (normalized === "pinterest") return "pin";
+  if (normalized === "youtube") return /\bshorts?\b/i.test(typeHint) ? "short" : "video";
   return "post";
+}
+
+function surfaceName(service: string, surface: PublicationSurface) {
+  const platform = service.charAt(0).toUpperCase() + service.slice(1).toLowerCase();
+  const label = surface === "feed" ? (service.toLowerCase() === "facebook" ? "Post" : "Feed") : surface === "reel" ? "Reel" : surface === "story" ? "Story" : surface === "pin" ? "Pin" : surface === "short" ? "Short" : surface === "video" ? "Video Post" : "Post";
+  return `${platform} ${label}`;
+}
+
+function expandSurfaceAssignments<T extends { post: AgentPlan["posts"][number]; channel: Record<string, unknown>; caption: string }>(assignments: T[], mode: SurfaceMode, typeHint = "") {
+  return assignments.flatMap((assignment) => {
+    const service = String(assignment.channel.service).toLowerCase();
+    const mediaType = (assignment.post as PlannedPost).mediaType || "image";
+    const main = mainSurface(service, mediaType, typeHint);
+    const surfaces: PublicationSurface[] = storyService(service)
+      ? [...(mode === "story" ? [] : [main]), ...(mode === "main" ? [] : ["story" as const])]
+      : [main];
+    return surfaces.map((surface) => ({ ...assignment, surface, surfaceId: `${service}:${surface}`, surfaceLabel: surfaceName(service, surface) }));
+  });
+}
+
+function surfaceMedia(post: PlannedPost, surface: PublicationSurface) {
+  if (post.mediaType === "video" && post.hostedMediaUrl?.endsWith(".mp4")) return post.hostedMediaUrl;
+  return surface === "story" ? post.storyImageUrl : post.hostedMediaUrl || post.imageUrl;
 }
 
 async function refinePost(env: Env, caption: string, notes: string, service: string) {
@@ -410,11 +462,11 @@ async function refinePost(env: Env, caption: string, notes: string, service: str
   return data.content?.find((block) => block.type === "text")?.text?.trim() || caption;
 }
 
-async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; mediaUrl: string; mediaType?: MediaType; mode: string; dueAt?: string; aiAssisted: boolean; typeHint?: string }): Promise<BufferPost> {
+async function createBufferPost(env: Env, input: { channelId: string; service: string; text: string; mediaUrl: string; mediaType?: MediaType; surface: PublicationSurface; mode: string; dueAt?: string; aiAssisted: boolean }): Promise<BufferPost> {
   const service = input.service.toLowerCase();
-  const postType = inferredPostType(`${input.typeHint || ""} ${input.text}`);
+  const postType = input.surface === "story" ? "story" : input.surface === "reel" ? "reel" : "post";
   const metadata = service === "instagram"
-    ? { instagram: { type: input.mediaType === "video" ? "reel" : postType, shouldShareToFeed: postType !== "story", isAiGenerated: input.aiAssisted } }
+    ? { instagram: { type: postType, shouldShareToFeed: input.surface !== "story", isAiGenerated: input.aiAssisted } }
     : service === "facebook"
       ? { facebook: { type: postType } }
       : service === "tiktok"
@@ -494,18 +546,45 @@ async function createPlan(env: Env, prompt: string, channelNames: string[], timi
   return plan;
 }
 
-async function generateAndHostImage(request: Request, env: Env, prompt: string, brandId = ATLASIUM_BRAND_ID) {
+async function imageVariant(env: Env, binary: Uint8Array, width: number, height: number) {
+  if (!env.IMAGES) return binary;
+  try {
+    const body = new Response(binary.slice().buffer as ArrayBuffer).body;
+    if (!body) return binary;
+    const transformed = await env.IMAGES.input(body).transform({ width, height, fit: "cover", gravity: "center" }).output({ format: "image/png", quality: 95 });
+    const response = transformed.response();
+    if (!response.ok) return binary;
+    return new Uint8Array(await response.arrayBuffer());
+  } catch { return binary; }
+}
+
+async function storeGeneratedImage(request: Request, env: Env, binary: Uint8Array, brandId: string, variant: "feed" | "story") {
+  const key = `brands/${brandId}/${new Date().toISOString().slice(0, 10)}/ai-${crypto.randomUUID()}-${variant}.png`;
+  await env.UPLOADS.put(key, binary, { httpMetadata: { contentType: "image/png", cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: `echoflow-ai-${variant}.png`, brandId, surface: variant } });
+  return `${new URL(request.url).origin}/i/${key}`;
+}
+
+async function generateAndHostImages(request: Request, env: Env, prompt: string, brandId = ATLASIUM_BRAND_ID, includeStory = false) {
   const response = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
-    body: JSON.stringify({ model: env.OPENAI_IMAGE_MODEL || "gpt-image-2", prompt, size: "1024x1024", quality: "medium", output_format: "png" }),
+    body: JSON.stringify({ model: env.OPENAI_IMAGE_MODEL || "gpt-image-2", prompt: `${prompt}. Compose a portrait master with the central subject and any essential details inside a safe area suitable for both a 4:5 feed crop and a 9:16 Story crop.`, size: "1024x1536", quality: "medium", output_format: "png" }),
   });
   const data = await response.json() as { data?: Array<{ b64_json?: string }>; error?: { message?: string } };
   if (!response.ok || !data.data?.[0]?.b64_json) throw new Error(data.error?.message || "OpenAI image generation failed.");
   const binary = Uint8Array.from(atob(data.data[0].b64_json), (character) => character.charCodeAt(0));
-  const key = `brands/${brandId}/${new Date().toISOString().slice(0, 10)}/ai-${crypto.randomUUID()}.png`;
-  await env.UPLOADS.put(key, binary, { httpMetadata: { contentType: "image/png", cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: "echoflow-ai-generated.png", brandId } });
-  return `${new URL(request.url).origin}/i/${key}`;
+  const imageUrl = await storeGeneratedImage(request, env, await imageVariant(env, binary, 1080, 1350), brandId, "feed");
+  if (!includeStory) return { imageUrl };
+  try {
+    const storyImageUrl = await storeGeneratedImage(request, env, await imageVariant(env, binary, 1080, 1920), brandId, "story");
+    return { imageUrl, storyImageUrl };
+  } catch (error) {
+    return { imageUrl, storyMediaError: `Story media formatting failed: ${error instanceof Error ? error.message : "the vertical asset could not be stored"}` };
+  }
+}
+
+async function generateAndHostImage(request: Request, env: Env, prompt: string, brandId = ATLASIUM_BRAND_ID) {
+  return (await generateAndHostImages(request, env, prompt, brandId, false)).imageUrl;
 }
 
 function playableMp4(bytes: Uint8Array) {
@@ -597,7 +676,7 @@ async function runAgent(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
   if (!env.BUFFER_API_KEY) return json({ error: "Buffer is not connected yet." }, 503);
   if (!env.OPENAI_API_KEY) return json({ error: "OpenAI connection required." }, 503);
-  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string; timeZone?: string; selectedDueAt?: string; selectedLocalTime?: string; brandId?: string };
+  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string; timeZone?: string; selectedDueAt?: string; selectedLocalTime?: string; brandId?: string; surfaceMode?: string; surfaceModeManual?: boolean };
   const prompt = String(body.prompt || "").trim();
   if (!prompt || prompt.length > 4000) return json({ error: "Enter a clear prompt under 4,000 characters." }, 400);
   const publisher = publishingProvider(env);
@@ -611,6 +690,8 @@ async function runAgent(request: Request, env: Env) {
   const requestedIds = Array.isArray(body.channels) ? body.channels : [];
   const chosen = selectChannels(prompt, available, requestedIds, brand.id);
   if (!chosen.length || (requestedIds.length && chosen.length !== requestedIds.length)) return json({ error: "Choose at least one social destination assigned to this brand." }, 400);
+  const surfaceMode = surfaceModeFor(prompt, body.surfaceMode, body.surfaceModeManual === true);
+  const includeStoryMedia = surfaceMode !== "main" && chosen.some((channel) => storyService(String(channel.service)));
   const timing = ["auto", "now", "queue", "schedule"].includes(String(body.timing)) ? String(body.timing) : "auto";
   const plan = await createPlan(env, prompt, chosen.map((channel) => `${channel.service}: ${channel.displayName || channel.name}`), timing, brand);
   const scheduleNow = env.TEST_NOW && !Number.isNaN(Date.parse(env.TEST_NOW)) ? new Date(env.TEST_NOW) : new Date();
@@ -627,10 +708,10 @@ async function runAgent(request: Request, env: Env) {
   posts = addMotionPlan(prompt, posts, brand);
   const provider = motionProvider(env);
   posts = await Promise.all(posts.map(async (post) => {
-    const imagePromise = generateAndHostImage(request, env, post.imagePrompt, brand.id);
+    const imagePromise = generateAndHostImages(request, env, post.imagePrompt, brand.id, includeStoryMedia);
     const jobPromise = post.mediaType === "video" ? provider.createJob(post.motionPrompt!, post.duration || 4).then((job) => ({ job })).catch((error) => ({ error })) : Promise.resolve(null);
-    const [imageUrl, motion] = await Promise.all([imagePromise, jobPromise]);
-    const prepared = { ...post, imageUrl, hostedMediaUrl: imageUrl } as PlannedPost & { videoJobId?: string; state?: MotionState; retryCount?: number; providerName?: string; modelName?: string };
+    const [images, motion] = await Promise.all([imagePromise, jobPromise]);
+    const prepared = { ...post, ...images, hostedMediaUrl: images.imageUrl } as PlannedPost & { videoJobId?: string; state?: MotionState; retryCount?: number; providerName?: string; modelName?: string };
     if (motion && "job" in motion) {
       Object.assign(prepared, { videoJobId: motion.job.id, state: motion.job.status, retryCount: 0, providerName: provider.providerName, modelName: provider.modelName });
       if (motion.job.status === "completed") prepared.hostedMediaUrl = await hostMotion(request, env, await provider.downloadResult(motion.job.id), brand.id);
@@ -639,37 +720,42 @@ async function runAgent(request: Request, env: Env) {
     }
     return prepared;
   }));
-  const assignments = routePosts(prompt, posts, chosen, requestedIds.length > 0, brand.id);
+  const assignments = expandSurfaceAssignments(routePosts(prompt, posts, chosen, requestedIds.length > 0, brand.id), surfaceMode, prompt);
   const results: Array<Record<string, unknown>> = [];
   const submitted = new Set<string>();
   for (const assignment of assignments) {
-    const { post, channel, caption } = assignment;
+    const { post, channel, caption, surface, surfaceId, surfaceLabel } = assignment;
     const stablePost = post as PlannedPost;
     const mode = schedule.timing.mode === "now" ? "shareNow" : schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
     const requestedDueAt = mode === "customScheduled" ? schedule.times[stablePost.itemIndex]! : undefined;
-    const fingerprint = `${String(channel.id)}|${normalizedContent(caption)}|${requestedDueAt ? requestedDueAt.slice(0, 16) : mode}`;
+    const fingerprint = `${String(channel.id)}|${surfaceId}|${normalizedContent(caption)}|${requestedDueAt ? requestedDueAt.slice(0, 16) : mode}`;
     if (submitted.has(fingerprint)) continue;
     submitted.add(fingerprint);
-    const submissionId = `${stablePost.id}:${String(channel.id)}`;
-    const pendingMotion = stablePost.mediaType === "video" && !stablePost.hostedMediaUrl?.endsWith(".mp4");
-    if (pendingMotion) {
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: "video", motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: String(channel.service), status: "PROCESSING MOTION", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
+    const submissionId = `${stablePost.id}:${String(channel.id)}:${surface}`;
+    const mediaUrl = surfaceMedia(stablePost, surface);
+    if (surface === "story" && stablePost.mediaType === "image" && (!mediaUrl || stablePost.storyMediaError)) {
+      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: stablePost.mediaType, hostedMediaUrl: null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: `${stablePost.storyMediaError || "Story media could not be prepared."} Main publication was preserved.` });
       continue;
     }
-    const reserved = await reservePublishJob(env, { id: submissionId, brandId: brand.id, campaignId: runId, postId: stablePost.id, destinationId: String(channel.id), scheduledTime: requestedDueAt || mode, provider: publisher.id });
+    const pendingMotion = stablePost.mediaType === "video" && !stablePost.hostedMediaUrl?.endsWith(".mp4");
+    if (pendingMotion) {
+      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: surface === "story" ? stablePost.storyImageUrl || stablePost.imageUrl : stablePost.imageUrl, mediaType: "video", motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: String(channel.service), surface, surfaceId, surfaceLabel, status: "PROCESSING MOTION", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
+      continue;
+    }
+    const reserved = await reservePublishJob(env, { id: submissionId, brandId: brand.id, campaignId: runId, postId: stablePost.id, destinationId: `${String(channel.id)}#${surfaceId}`, scheduledTime: requestedDueAt || mode, provider: publisher.id });
     if (!reserved) {
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: stablePost.mediaType, hostedMediaUrl: stablePost.hostedMediaUrl, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, status: "DUPLICATE PREVENTED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
+      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, hostedMediaUrl: mediaUrl, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "DUPLICATE PREVENTED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
       continue;
     }
     try {
-      const created = await publisher.createPost({ channelId: String(channel.id), service: String(channel.service), text: caption, mediaUrl: stablePost.hostedMediaUrl!, mediaType: stablePost.mediaType, mode, dueAt: requestedDueAt || undefined, aiAssisted: true, typeHint: `${prompt} ${post.concept}` });
+      const created = await publisher.createPost({ channelId: String(channel.id), service: String(channel.service), text: caption, mediaUrl: mediaUrl!, mediaType: stablePost.mediaType, surface, mode, dueAt: requestedDueAt || undefined, aiAssisted: true });
       await finishPublishJob(env, submissionId, "confirmed", created.id, null);
       const confirmedChannel = available.find((item) => String(item.id) === created.channelId);
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: stablePost.hostedMediaUrl, motionError: stablePost.motionError || null, channelId: created.channelId, channel: confirmedChannel?.displayName || confirmedChannel?.name || channel.displayName || channel.name, service: confirmedChannel?.service || channel.service, postId: created.id, status: mode === "shareNow" ? "PUBLISHING" : mode === "addToQueue" ? "QUEUED" : "SCHEDULED", bufferStatus: created.status || null, requestedDueAt: requestedDueAt || null, dueAt: created.dueAt || null, timeZone });
+      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: surface === "story" ? "9:16" : stablePost.aspectRatio, hostedMediaUrl: mediaUrl, motionError: stablePost.motionError || null, channelId: created.channelId, channel: confirmedChannel?.displayName || confirmedChannel?.name || channel.displayName || channel.name, service: confirmedChannel?.service || channel.service, surface, surfaceId, surfaceLabel, postId: created.id, status: mode === "shareNow" ? "PUBLISHING" : mode === "addToQueue" ? "QUEUED" : "SCHEDULED", bufferStatus: created.status || null, requestedDueAt: requestedDueAt || null, dueAt: created.dueAt || null, timeZone });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Buffer rejected this post.";
       await finishPublishJob(env, submissionId, "failed", null, message);
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: stablePost.hostedMediaUrl, motionError: stablePost.motionError || null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: message });
+      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: surface === "story" ? "9:16" : stablePost.aspectRatio, hostedMediaUrl: mediaUrl, motionError: stablePost.motionError || null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: message });
     }
   }
   const usedChannels = new Set(results.map((result) => String(result.channel)));
@@ -727,6 +813,10 @@ async function processCampaign(request: Request, env: Env, id: string) {
   for (const item of campaign.items.filter((candidate) => ["scheduling", "completed"].includes(candidate.state))) {
     const destinations = campaign.results.filter((result) => result.itemId === item.id && result.status === "PROCESSING MOTION");
     for (const result of destinations) {
+      const surface = result.surface || mainSurface(result.service, item.mediaType, campaign.prompt);
+      result.surface = surface;
+      result.surfaceId ||= `${result.service.toLowerCase()}:${surface}`;
+      result.surfaceLabel ||= surfaceName(result.service, surface);
       const dueAt = result.requestedDueAt ? String(result.requestedDueAt) : undefined;
       const mode = campaign.schedule.timing.mode === "now" ? "shareNow" : campaign.schedule.timing.mode === "queue" ? "addToQueue" : "customScheduled";
       if (mode === "customScheduled" && (!dueAt || Date.parse(dueAt) <= now.getTime())) {
@@ -734,16 +824,18 @@ async function processCampaign(request: Request, env: Env, id: string) {
       }
       result.status = "SCHEDULING";
       await saveCampaign(env, campaign);
-      const reserved = await reservePublishJob(env, { id: result.id, brandId: campaign.brandId, campaignId: campaign.id, postId: item.id, destinationId: result.channelId, scheduledTime: dueAt || mode, provider: publisher.id });
+      const reserved = await reservePublishJob(env, { id: result.id, brandId: campaign.brandId, campaignId: campaign.id, postId: item.id, destinationId: `${result.channelId}#${result.surfaceId}`, scheduledTime: dueAt || mode, provider: publisher.id });
       if (!reserved) { result.status = "DUPLICATE PREVENTED"; result.error = "An identical publishing job already exists; no second submission was made."; await saveCampaign(env, campaign); continue; }
       try {
-        const created = await publisher.createPost({ channelId: result.channelId, service: result.service, text: result.caption, mediaUrl: item.hostedMediaUrl!, mediaType: item.mediaType, mode, dueAt, aiAssisted: true, typeHint: `${campaign.prompt} ${item.concept}` });
+        const mediaUrl = surfaceMedia(item, surface);
+        if (!mediaUrl) throw new Error(`${result.surfaceLabel} media is unavailable.`);
+        const created = await publisher.createPost({ channelId: result.channelId, service: result.service, text: result.caption, mediaUrl, mediaType: item.mediaType, surface, mode, dueAt, aiAssisted: true });
         await finishPublishJob(env, result.id, "confirmed", created.id, null);
-        Object.assign(result, { mediaType: item.mediaType, hostedMediaUrl: item.hostedMediaUrl, motionError: item.motionError || null, postId: created.id, status: mode === "shareNow" ? "PUBLISHING" : mode === "addToQueue" ? "QUEUED" : item.mediaType === "image" && item.motionError ? "STATIC FALLBACK" : "SCHEDULED", bufferStatus: created.status || null, dueAt: created.dueAt || null });
+        Object.assign(result, { imageUrl: surface === "story" ? item.storyImageUrl || item.imageUrl : item.imageUrl, mediaType: item.mediaType, hostedMediaUrl: mediaUrl, motionError: item.motionError || null, postId: created.id, status: mode === "shareNow" ? "PUBLISHING" : mode === "addToQueue" ? "QUEUED" : item.mediaType === "image" && item.motionError ? "STATIC FALLBACK" : "SCHEDULED", bufferStatus: created.status || null, dueAt: created.dueAt || null });
       } catch (error) { result.status = "FAILED"; result.error = error instanceof Error ? error.message : "Buffer rejected this post."; await finishPublishJob(env, result.id, "failed", null, String(result.error)); }
       await saveCampaign(env, campaign);
     }
-    item.state = campaign.results.some((result) => result.itemId === item.id && result.status === "FAILED") ? "failed" : "scheduled";
+    item.state = campaign.results.some((result) => result.itemId === item.id && result.surface !== "story" && result.status === "FAILED") ? "failed" : "scheduled";
   }
   await Promise.all(campaign.results.map(async (result) => {
     const postId = typeof result.postId === "string" ? result.postId : null;
@@ -769,7 +861,7 @@ async function processCampaign(request: Request, env: Env, id: string) {
 
 async function previewSchedule(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
-  const body = await request.json() as { prompt?: string; count?: number; timing?: string; timeZone?: string; now?: string; channels?: Array<Record<string, unknown>>; selected?: string[]; samplePosts?: AgentPlan["posts"]; brandId?: string };
+  const body = await request.json() as { prompt?: string; count?: number; timing?: string; timeZone?: string; now?: string; channels?: Array<Record<string, unknown>>; selected?: string[]; samplePosts?: AgentPlan["posts"]; brandId?: string; surfaceMode?: string; surfaceModeManual?: boolean };
   const prompt = String(body.prompt || "");
   const count = Math.max(1, Math.min(50, Number(body.count) || 1));
   const zone = validTimeZone(String(body.timeZone || "America/Toronto"));
@@ -780,7 +872,8 @@ async function previewSchedule(request: Request, env: Env) {
   const brandId = String(body.brandId || ATLASIUM_BRAND_ID);
   const chosen = selectChannels(prompt, channels, selectedIds, brandId);
   const samplePosts = Array.isArray(body.samplePosts) ? body.samplePosts.slice(0, count) : [];
-  const assignments = routePosts(prompt, samplePosts, chosen, selectedIds.length > 0, brandId).map(({ post, channel, caption }, index) => { const itemIndex = samplePosts.indexOf(post); return { id: `preview-${String(index + 1).padStart(2, "0")}`, brandId, itemIndex, concept: post.concept, caption, channelId: channel.id, channel: channel.displayName || channel.name, service: channel.service, requestedDueAt: schedule.times[itemIndex], dueAt: schedule.times[itemIndex] }; });
+  const mode = surfaceModeFor(prompt, body.surfaceMode, body.surfaceModeManual === true);
+  const assignments = expandSurfaceAssignments(routePosts(prompt, samplePosts, chosen, selectedIds.length > 0, brandId), mode, prompt).map(({ post, channel, caption, surface, surfaceId, surfaceLabel }, index) => { const itemIndex = samplePosts.indexOf(post); return { id: `preview-${String(index + 1).padStart(2, "0")}`, brandId, itemIndex, concept: post.concept, caption, channelId: channel.id, channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, requestedDueAt: schedule.times[itemIndex], dueAt: schedule.times[itemIndex] }; });
   return json({ ...schedule, brandId, timeZone: zone, channels: chosen, assignments });
 }
 
@@ -822,6 +915,8 @@ async function publish(request: Request, env: Env) {
   const caption = String(form.get("caption") || "").trim();
   const notes = String(form.get("notes") || "").trim();
   const refine = form.get("refine") === "true";
+  const requestedSurfaceMode = String(form.get("surfaceMode") || "");
+  const surfaceMode = surfaceModeFor(notes, requestedSurfaceMode, Boolean(requestedSurfaceMode));
   let mode = String(form.get("mode") || "addToQueue");
   let dueAt = String(form.get("dueAt") || "") || undefined;
   let channelIds: string[] = [];
@@ -842,30 +937,61 @@ async function publish(request: Request, env: Env) {
   if (chosen.length !== channelIds.length) return json({ error: "One or more Buffer channels are invalid." }, 400);
 
   const extension = allowedTypes.get(image.type.toLowerCase())!;
-  const key = `brands/${brand.id}/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${extension}`;
-  await env.UPLOADS.put(key, image.stream(), { httpMetadata: { contentType: image.type, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: image.name.slice(0, 200), brandId: brand.id } });
+  const binary = new Uint8Array(await image.arrayBuffer());
+  const key = `brands/${brand.id}/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-feed.${extension}`;
+  await env.UPLOADS.put(key, binary, { httpMetadata: { contentType: image.type, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: image.name.slice(0, 200), brandId: brand.id, surface: "feed" } });
   const imageUrl = `${new URL(request.url).origin}/i/${key}`;
+  let storyImageUrl: string | undefined;
+  let storyMediaError: string | undefined;
+  if (surfaceMode !== "main" && chosen.some((channel) => storyService(String(channel.service)))) {
+    try {
+      let storyBytes = binary;
+      let storyContentType = image.type;
+      let storyExtension = extension;
+      if (env.IMAGES) {
+        const body = new Response(binary).body;
+        if (body) {
+          const transformed = await env.IMAGES.input(body).transform({ width: 1080, height: 1920, fit: "cover", gravity: "center" }).output({ format: "image/png", quality: 95 });
+          const storyResponse = transformed.response();
+          if (storyResponse.ok) { storyBytes = new Uint8Array(await storyResponse.arrayBuffer()); storyContentType = "image/png"; storyExtension = "png"; }
+        }
+      }
+      const storyKey = `brands/${brand.id}/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-story.${storyExtension}`;
+      await env.UPLOADS.put(storyKey, storyBytes, { httpMetadata: { contentType: storyContentType, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: image.name.slice(0, 200), brandId: brand.id, surface: "story" } });
+      storyImageUrl = `${new URL(request.url).origin}/i/${storyKey}`;
+    } catch (error) { storyMediaError = `Story media formatting failed: ${error instanceof Error ? error.message : "the vertical asset could not be stored"}`; }
+  }
 
-  const results = [];
+  const results: Array<Record<string, unknown>> = [];
   const manualCampaignId = `manual_${crypto.randomUUID()}`;
   for (const channel of chosen) {
     const text = refine ? await refinePost(env, caption, notes, String(channel.service)) : caption;
     const postId = `${manualCampaignId}-01`;
-    const jobId = `${postId}:${String(channel.id)}`;
-    const reserved = await reservePublishJob(env, { id: jobId, brandId: brand.id, campaignId: manualCampaignId, postId, destinationId: String(channel.id), scheduledTime: dueAt || mode, provider: publisher.id });
-    if (!reserved) { results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, service: channel.service, status: "DUPLICATE PREVENTED" }); continue; }
-    try {
-      const post = await publisher.createPost({ channelId: String(channel.id), service: String(channel.service), text, mediaUrl: imageUrl, mediaType: "image", mode, dueAt, aiAssisted: refine, typeHint: notes });
-      await finishPublishJob(env, jobId, "confirmed", post.id, null);
-      results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, service: channel.service, postId: post.id, status: "CONFIRMED" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Buffer rejected this post.";
-      await finishPublishJob(env, jobId, "failed", null, message);
-      throw error;
+    const assignments = expandSurfaceAssignments([{ post: { concept: "Manual publication", caption: text, imagePrompt: "", id: postId, itemIndex: 0, mediaType: "image", motionStyle: null, motionPrompt: null, duration: null, aspectRatio: "4:5" } as PlannedPost, channel, caption: text }], surfaceMode, notes);
+    for (const assignment of assignments) {
+      const { surface, surfaceId, surfaceLabel } = assignment;
+      const jobId = `${postId}:${String(channel.id)}:${surface}`;
+      const mediaUrl = surface === "story" ? storyImageUrl : imageUrl;
+      if (!mediaUrl) {
+        results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, channelId: String(channel.id), service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", error: `${storyMediaError || "Story media could not be prepared."} Main publication was preserved.` });
+        continue;
+      }
+      const reserved = await reservePublishJob(env, { id: jobId, brandId: brand.id, campaignId: manualCampaignId, postId, destinationId: `${String(channel.id)}#${surfaceId}`, scheduledTime: dueAt || mode, provider: publisher.id });
+      if (!reserved) { results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, channelId: String(channel.id), service: channel.service, surface, surfaceId, surfaceLabel, status: "DUPLICATE PREVENTED" }); continue; }
+      try {
+        const post = await publisher.createPost({ channelId: String(channel.id), service: String(channel.service), text, mediaUrl, mediaType: "image", surface, mode, dueAt, aiAssisted: refine });
+        await finishPublishJob(env, jobId, "confirmed", post.id, null);
+        results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, channelId: String(channel.id), service: channel.service, surface, surfaceId, surfaceLabel, postId: post.id, status: "CONFIRMED" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Buffer rejected this post.";
+        await finishPublishJob(env, jobId, "failed", null, message);
+        results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, channelId: String(channel.id), service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", error: message });
+      }
     }
   }
   const action = mode === "shareNow" ? "published" : mode === "customScheduled" ? "scheduled" : "added to the queue";
-  return json({ brandId: brand.id, campaignId: manualCampaignId, message: `${results.length} post${results.length === 1 ? "" : "s"} ${action} successfully.`, imageUrl, results }, 201);
+  const failed = results.filter((result) => result.status === "FAILED").length;
+  return json({ brandId: brand.id, campaignId: manualCampaignId, message: failed ? `${results.length - failed} publication${results.length - failed === 1 ? "" : "s"} ${action}; ${failed} failed and is shown separately.` : `${results.length} publication${results.length === 1 ? "" : "s"} ${action} successfully.`, imageUrl, storyImageUrl: storyImageUrl || null, results }, failed ? 207 : 201);
 }
 
 async function workspace(request: Request, env: Env) {
@@ -971,6 +1097,49 @@ async function amplifyLiveSubmissionRoute(request: Request, env: Env) {
   return json({ error: "Live advertising submission is disabled. Run a dry test instead. No advertisement was launched and no money was spent.", code: "amplify_live_submission_disabled" }, 403);
 }
 
+function requiredEchoContentBrand(request: Request, bodyBrandId?: unknown) {
+  const headerBrandId = request.headers.get("X-Brand-ID")?.trim() || "";
+  const suppliedBrandId = String(bodyBrandId || "").trim();
+  if (!headerBrandId) throw new Error("A valid brand is required for every ECHO content operation.");
+  if (suppliedBrandId && suppliedBrandId !== headerBrandId) throw new Error("The requested ECHO content brand does not match the authorized brand context.");
+  return headerBrandId;
+}
+
+async function echoContentWorkspaceRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This ECHO workspace is not authorized." }, 401);
+  const brandId = requiredEchoContentBrand(request);
+  return json(await loadEchoContentWorkspace(env, brandId));
+}
+
+async function echoContentCreateRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This ECHO workspace is not authorized." }, 401);
+  const body = await request.json() as Record<string, unknown>;
+  const brandId = requiredEchoContentBrand(request, body.brandId);
+  return json({ draft: await createEchoContentDraft(env, brandId, body) }, 201);
+}
+
+async function echoContentDraftRoute(request: Request, env: Env, draftId: string) {
+  if (!authorized(request, env)) return json({ error: "This ECHO workspace is not authorized." }, 401);
+  const brandId = requiredEchoContentBrand(request);
+  if (request.method === "DELETE") return json(await deleteEchoContentDraft(env, brandId, draftId));
+  const body = await request.json() as Record<string, unknown>;
+  if (request.method === "PATCH") return json({ draft: await updateEchoContentDraft(env, brandId, draftId, body) });
+  return json({ error: "Method not allowed." }, 405);
+}
+
+async function echoContentActionRoute(request: Request, env: Env, draftId: string, action: string) {
+  if (!authorized(request, env)) return json({ error: "This ECHO workspace is not authorized." }, 401);
+  if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const brandId = requiredEchoContentBrand(request, body.brandId);
+  if (action === "revise") return json({ draft: await reviseEchoContentSection(env, brandId, draftId, body) });
+  if (action === "undo") return json({ draft: await undoEchoContentRevision(env, brandId, draftId) });
+  if (action === "duplicate") return json({ draft: await duplicateEchoContentDraft(env, brandId, draftId) }, 201);
+  if (action === "repurpose") return json({ draft: await repurposeEchoContentDraft(env, brandId, draftId, body.targetType) }, 201);
+  if (action === "image") return json(await generateEchoFeaturedImage(request, env, brandId, draftId), 201);
+  return json({ error: "Unknown ECHO content action." }, 404);
+}
+
 async function serveImage(request: Request, env: Env, key: string) {
   const object = await env.UPLOADS.get(key);
   if (!object) return new Response("Image not found", { status: 404 });
@@ -989,6 +1158,27 @@ const worker = {
     if (url.pathname === "/api/upload") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       return upload(request, env);
+    }
+
+    if (url.pathname === "/api/echo/content/workspace") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      try { return await echoContentWorkspaceRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load ECHO content." }, statusFor(error, 400)); }
+    }
+
+    if (url.pathname === "/api/echo/content/drafts") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await echoContentCreateRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not create the content draft." }, statusFor(error, 400)); }
+    }
+
+    const echoContentMatch = url.pathname.match(/^\/api\/echo\/content\/drafts\/([^/]+)(?:\/([^/]+))?$/);
+    if (echoContentMatch) {
+      try {
+        const draftId = decodeURIComponent(echoContentMatch[1]);
+        const action = echoContentMatch[2] || "";
+        return action ? await echoContentActionRoute(request, env, draftId, action) : await echoContentDraftRoute(request, env, draftId);
+      } catch (error) { return json({ error: error instanceof Error ? error.message : "Could not update the content draft." }, statusFor(error, 400)); }
     }
 
     if (url.pathname === "/api/amplify/workspace") {
@@ -1100,11 +1290,13 @@ const worker = {
     }
 
     if (url.pathname === "/_vinext/image") {
+      if (!env.IMAGES) return json({ error: "Image optimization is unavailable." }, 503);
+      const images = env.IMAGES;
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       return handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
-          const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
+          const result = await images.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
       }, allowedWidths);
