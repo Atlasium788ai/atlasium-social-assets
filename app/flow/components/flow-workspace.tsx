@@ -26,7 +26,7 @@ export function FlowWorkspace({ activeSection }: { activeSection: FlowSection })
     {flow.access === "checking" && <section className="flow-access-card" aria-live="polite"><p>Preparing FLOW workspace…</p></section>}
 
     {flow.access === "missing" && <section className="flow-access-card">
-      <p className="eyebrow">PRIVATE WORKSPACE</p><h1>FLOW</h1><p>Open your private authenticated EchoFlow link in this browser to continue.</p>
+      <p className="eyebrow">PRIVATE WORKSPACE</p><h1>FLOW</h1><p>Sign in with the company email to continue.</p><a className="access-login-link" href="/signin-with-chatgpt?return_to=%2Fflow" target="_top">Sign in</a>
     </section>}
 
     {flow.access === "granted" && <>

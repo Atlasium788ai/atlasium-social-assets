@@ -63,10 +63,6 @@ export function useFlowWorkspace() {
       window.history.replaceState(null, "", `${location.pathname}${location.search}`);
     }
     const key = hashKey || localStorage.getItem("echoflow-access-key") || localStorage.getItem("atlasium-upload-key") || "";
-    if (!key && !localPreview) {
-      queueMicrotask(() => { if (active) setAccess("missing"); });
-      return () => { active = false; controller.abort(); };
-    }
     const brandRequest = localPreview ? Promise.resolve([...previewBrands]) : loadFlowBrands(key, controller.signal);
     brandRequest
       .then((loadedBrands) => {
@@ -83,7 +79,7 @@ export function useFlowWorkspace() {
           void loaded.then((snapshot) => { if (active) setData(snapshot); }).catch((error: Error) => { if (active && error.name !== "AbortError") setFlowError(error.message); }).finally(() => { if (active) setRefreshing(false); });
         }
       })
-      .catch((error: Error) => { if (active && error.name !== "AbortError") { setAccess("granted"); setFlowError(error.message); } });
+      .catch((error: Error) => { if (active && error.name !== "AbortError") { setAccess("missing"); setFlowError(error.message); } });
     return () => { active = false; controller.abort(); };
   }, []);
 

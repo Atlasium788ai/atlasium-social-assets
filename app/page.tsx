@@ -16,6 +16,7 @@ type Brand = {
 };
 type SurfaceMode = "main" | "story" | "main_and_story";
 type EchoContentMode = "social" | "blog" | "newsletter";
+type AccessState = "checking" | "granted" | "missing";
 type Result = { id: string; brandId?: string; concept: string; caption: string; imageUrl: string; hostedMediaUrl?: string; mediaType?: "image" | "video"; motionStyle?: string | null; motionError?: string | null; channel: string; service: string; surface?: string; surfaceId?: string; surfaceLabel?: string; status: string; bufferStatus?: string | null; requestedDueAt?: string | null; dueAt?: string | null; timeZone?: string; error?: string; externalLink?: string | null };
 type CampaignSummary = { id: string; brandId: string; prompt: string; status: string; timeZone: string; scheduleSummary?: string; createdAt: string; updatedAt: string };
 type WorkspaceData = { workspace: { id: string; name: string; role: string }; brands: Brand[]; connectedChannels: Channel[]; recentCampaigns?: CampaignSummary[]; publishingProviders: Array<{ id: string; name: string; status: string }>; migration: { legacyCampaignsPreserved: boolean } };
@@ -46,6 +47,7 @@ function EchoFlowIdentity({ full = false }: { full?: boolean }) {
 
 export default function Home() {
   const [key, setKey] = useState("");
+  const [access, setAccess] = useState<AccessState>("checking");
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [activeBrandId, setActiveBrandId] = useState("");
   const [brandSearch, setBrandSearch] = useState("");
@@ -83,7 +85,11 @@ export default function Home() {
   async function loadWorkspace(authKey = key, preferredBrandId?: string) {
     const response = await fetch("/api/workspace", { headers: { "X-Upload-Key": authKey } });
     const data = await response.json() as WorkspaceData & { error?: string };
-    if (!response.ok) throw new Error(data.error || "Could not load EchoFlow Social.");
+    if (!response.ok) {
+      if (response.status === 401) setAccess("missing");
+      throw new Error(data.error || "Could not load EchoFlow Social.");
+    }
+    setAccess("granted");
     setWorkspace(data);
     const remembered = preferredBrandId || localStorage.getItem("echoflow-active-brand") || "";
     const next = data.brands.find((brand) => brand.id === remembered) || data.brands[0];
@@ -104,8 +110,8 @@ export default function Home() {
     // Browser-held private access is intentionally restored after hydration.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setKey(authKey);
-    if (authKey) loadWorkspace(authKey).catch((error: Error) => setBrandStatus("system", { kind: "error", text: error.message }));
-    // Private access is restored once on hydration.
+    loadWorkspace(authKey).catch((error: Error) => setBrandStatus("system", { kind: "error", text: error.message }));
+    // Platform sign-in or legacy private access is restored once on hydration.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -119,7 +125,7 @@ export default function Home() {
 
   useEffect(() => {
     const entries = Object.entries(campaigns);
-    if (!key || !entries.length) return;
+    if (access !== "granted" || !entries.length) return;
     let stopped = false;
     const refresh = async () => {
       await Promise.all(entries.map(async ([brandId, id]) => {
@@ -143,19 +149,19 @@ export default function Home() {
     return () => { stopped = true; window.clearInterval(timer); };
     // Polling is intentionally keyed only by immutable campaign/brand pairs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaigns, key]);
+  }, [campaigns, key, access]);
 
   useEffect(() => {
-    if (!key || !activeBrandId) return;
+    if (access !== "granted" || !activeBrandId) return;
     if (draftTimer.current) window.clearTimeout(draftTimer.current);
     draftTimer.current = window.setTimeout(() => { void persistDraft(activeBrandId, { prompt, timing, selectedChannels: selected }, false); }, 900);
     return () => { if (draftTimer.current) window.clearTimeout(draftTimer.current); };
     // Draft values are the intended dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt, timing, selected, activeBrandId, key]);
+  }, [prompt, timing, selected, activeBrandId, key, access]);
 
   async function persistDraft(brandId: string, draft: Draft, announce = true) {
-    if (!key || !brandId) return;
+    if (access !== "granted" || !brandId) return;
     const response = await fetch(`/api/brands/${encodeURIComponent(brandId)}/draft`, { method: "PUT", headers: { ...authHeaders(brandId), "Content-Type": "application/json" }, body: JSON.stringify(draft) });
     if (!response.ok) return;
     setWorkspace((current) => current ? { ...current, brands: current.brands.map((brand) => brand.id === brandId ? { ...brand, draft } : brand) } : current);
@@ -176,7 +182,7 @@ export default function Home() {
 
   async function createAndPublish() {
     if (busy || !activeBrand) return;
-    if (!key) { setBrandStatus(activeBrand.id, { kind: "error", text: "Open your private EchoFlow link to enable publishing." }); return; }
+    if (access !== "granted") { setBrandStatus(activeBrand.id, { kind: "error", text: "Sign in to enable publishing." }); return; }
     if (!prompt.trim()) { setBrandStatus(activeBrand.id, { kind: "error", text: "Enter a campaign prompt first." }); return; }
     if (!channels.length) { setBrandStatus(activeBrand.id, { kind: "error", text: "Assign at least one social destination in Brand settings." }); return; }
     setBusy(true); setBrandStatus(activeBrand.id, null); setResultsByBrand((current) => ({ ...current, [activeBrand.id]: [] }));
@@ -217,7 +223,7 @@ export default function Home() {
   }
 
   async function submitBrand() {
-    if (!key || (wizardMode === "edit" && !activeBrand)) return;
+    if (access !== "granted" || (wizardMode === "edit" && !activeBrand)) return;
     setWizardBusy(true); setWizardError("");
     try {
       const form = new FormData(); form.set("profile", JSON.stringify(brandForm)); if (logoFile) form.set("logo", logoFile);
@@ -232,13 +238,15 @@ export default function Home() {
     finally { setWizardBusy(false); }
   }
 
-  if (!key) return <main className="welcome-shell">
+  if (access === "checking") return <main className="welcome-shell"><section className="welcome-card"><EchoFlowIdentity full /><ProductNavigation active="echo" /><p>Preparing your workspace…</p></section></main>;
+
+  if (access === "missing") return <main className="welcome-shell">
     <section className="welcome-card">
       <EchoFlowIdentity full />
       <ProductNavigation active="echo" />
       <p>One prompt. Every brand. One controlled publishing flow.</p>
-      <div className="access-warning">Open your private authenticated EchoFlow link in this browser to continue.</div>
-      <a href="https://www.echoflowsocial.ca" target="_blank" rel="noreferrer">echoflowsocial.ca</a>
+      <div className="access-warning">Sign in with the company email to continue.</div>
+      <a className="access-login-link" href="/signin-with-chatgpt?return_to=%2Fecho" target="_top">Sign in</a>
     </section>
   </main>;
 

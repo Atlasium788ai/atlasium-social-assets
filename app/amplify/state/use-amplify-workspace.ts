@@ -48,7 +48,10 @@ export function useAmplifyWorkspace() {
       setActiveBrandId(data.activeBrand.id);
       rememberActiveBrandId(data.activeBrand.id);
     } catch (caught) {
-      if (sequence === requestSequence.current) setError(caught instanceof Error ? caught.message : "Could not load this brand.");
+      if (sequence === requestSequence.current) {
+        if (!key && !preview) setAccess("missing");
+        setError(caught instanceof Error ? caught.message : "Could not load this brand.");
+      }
     } finally {
       if (sequence === requestSequence.current) setLoadingBrand(false);
     }
@@ -63,7 +66,6 @@ export function useAmplifyWorkspace() {
     }
     const key = hashKey || localStorage.getItem("echoflow-access-key") || localStorage.getItem("atlasium-upload-key") || "";
     const preview = location.hostname === "localhost" && new URLSearchParams(location.search).has("amplify-preview");
-    if (!key && !preview) { queueMicrotask(() => setAccess("missing")); return; }
     const remembered = readActiveBrandId() || previewBrands[0].id;
     queueMicrotask(() => { setAccessKey(key); setPreviewMode(preview); setAccess("granted"); void loadBrand(remembered, key, preview); });
     // Initial authorization and brand load run once after hydration.

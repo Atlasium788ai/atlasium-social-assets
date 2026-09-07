@@ -48,6 +48,7 @@ interface Env {
   DB?: D1Database;
   UPLOADS: R2Bucket;
   UPLOAD_KEY: string;
+  AUTHORIZED_USER_EMAILS?: string;
   BUFFER_API_KEY?: string;
   OPENAI_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
@@ -148,7 +149,12 @@ function statusFor(error: unknown, fallback: number) {
 }
 
 function authorized(request: Request, env: Env) {
-  return Boolean(env.UPLOAD_KEY && request.headers.get("X-Upload-Key") === env.UPLOAD_KEY);
+  const sharedKeyMatches = Boolean(env.UPLOAD_KEY && request.headers.get("X-Upload-Key") === env.UPLOAD_KEY);
+  const signedInUserId = request.headers.get("oai-authenticated-user-id")?.trim();
+  const signedInEmail = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
+  const allowedEmails = new Set((env.AUTHORIZED_USER_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
+  const signedInUser = Boolean(signedInUserId && signedInEmail && allowedEmails.has(signedInEmail));
+  return sharedKeyMatches || signedInUser;
 }
 
 function actorId(request: Request) {

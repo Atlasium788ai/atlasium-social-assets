@@ -49,7 +49,7 @@ test("renders the EchoFlow Social authenticated entry", async () => {
   const html = await response.text();
   assert.match(html, /<title>EchoFlow Social<\/title>/i);
   assert.match(html, /Powered by Atlasium 7\/88 AI/);
-  assert.match(html, /private authenticated EchoFlow link/);
+  assert.match(html, /Preparing your workspace/);
   assert.match(html, /\/echoflow-social\.png/);
   assert.match(html, /\/favicon\.svg/);
   assert.match(html, /noindex/i);
@@ -57,6 +57,29 @@ test("renders the EchoFlow Social authenticated entry", async () => {
   const robots = await worker.fetch(new Request("http://localhost/robots.txt"), { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) }, UPLOADS: { get: async () => null }, UPLOAD_KEY: "test-key" }, { waitUntil() {}, passThroughOnException() {} });
   assert.equal(robots.status, 200);
   assert.match(await robots.text(), /Disallow: \/api\//);
+});
+
+test("platform-authenticated visitors can use EchoFlow without the legacy shared link", async () => {
+  const worker = await loadWorker();
+  const env = {
+    ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+    UPLOADS: { get: async () => null },
+    UPLOAD_KEY: "test-key",
+    AUTHORIZED_USER_EMAILS: "statusx22@gmail.com,info@atlasium788.ca",
+  };
+  const context = { waitUntil() {}, passThroughOnException() {} };
+  const unauthorized = await worker.fetch(new Request("http://localhost/api/workspace"), env, context);
+  assert.equal(unauthorized.status, 401);
+  const authenticated = await worker.fetch(new Request("http://localhost/api/workspace", { headers: {
+    "oai-authenticated-user-id": "assistant-user",
+    "oai-authenticated-user-email": "info@atlasium788.ca",
+  } }), env, context);
+  assert.notEqual(authenticated.status, 401);
+  const wrongAccount = await worker.fetch(new Request("http://localhost/api/workspace", { headers: {
+    "oai-authenticated-user-id": "unknown-user",
+    "oai-authenticated-user-email": "not-allowed@example.com",
+  } }), env, context);
+  assert.equal(wrongAccount.status, 401);
 });
 
 test("serves refresh-safe ECHO, FLOW and AMPLIFY routes with clear top-level navigation", async () => {

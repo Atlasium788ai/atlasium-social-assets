@@ -29,7 +29,7 @@ export function AmplifyWorkspace({ activeSection }: { activeSection: AmplifySect
     <AmplifySectionNavigation active={activeSection} />
 
     {amplify.access === "checking" && <section className="amplify-access" aria-live="polite"><span className="spinner" /><p>Preparing AMPLIFY…</p></section>}
-    {amplify.access === "missing" && <section className="amplify-empty"><p className="eyebrow">PRIVATE WORKSPACE</p><h1>AMPLIFY</h1><p>Open your private authenticated EchoFlow link in this browser to continue.</p><p>ECHO and Buffer remain available through the same private authorization.</p></section>}
+    {amplify.access === "missing" && <section className="amplify-empty"><p className="eyebrow">PRIVATE WORKSPACE</p><h1>AMPLIFY</h1><p>Sign in with the company email to continue.</p><a className="access-login-link" href="/signin-with-chatgpt?return_to=%2Famplify" target="_top">Sign in</a></section>}
 
     {amplify.access === "granted" && workspace && <>
       <section className="amplify-brand-bar" aria-label="Active AMPLIFY brand">
