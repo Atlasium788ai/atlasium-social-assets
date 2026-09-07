@@ -204,7 +204,7 @@ export async function workspaceSnapshot(env: StoreEnv, connected: BufferDestinat
   return { workspace: { id: WORKSPACE_ID, name: "EchoFlow Social", role: "owner" }, brands, connectedChannels, recentCampaigns, publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: true } };
 }
 
-export async function createBrand(env: StoreEnv, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null, brandId?: string) {
+export async function createBrand(env: StoreEnv, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null, brandId?: string, actorId = OWNER_ID) {
   if (!env.DB) throw new Error("Brand storage is not available yet.");
   await ensureBrandSystem(env);
   const name = value(input.name).slice(0, 100);
@@ -229,11 +229,11 @@ export async function createBrand(env: StoreEnv, input: BrandProfileInput, conne
       .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, id, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, createdAt)),
     ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, id, logo.url, logo.r2Key, createdAt)] : []),
   ]);
-  await audit(env, id, "brand_created", { name, channelIds, logoUploaded: Boolean(logo) });
+  await audit(env, id, "brand_created", { name, channelIds, logoUploaded: Boolean(logo) }, actorId);
   return requireBrand(env, id);
 }
 
-export async function updateBrand(env: StoreEnv, brandId: string, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null) {
+export async function updateBrand(env: StoreEnv, brandId: string, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null, actorId = OWNER_ID) {
   if (!env.DB) throw new Error("Brand storage is not available yet.");
   await requireBrand(env, brandId);
   const name = value(input.name).slice(0, 100);
@@ -258,7 +258,7 @@ export async function updateBrand(env: StoreEnv, brandId: string, input: BrandPr
     ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, logo.url, logo.r2Key, updatedAt)] : []),
   ];
   await env.DB.batch(statements);
-  await audit(env, brandId, "brand_updated", { name, channelIds, logoUploaded: Boolean(logo) });
+  await audit(env, brandId, "brand_updated", { name, channelIds, logoUploaded: Boolean(logo) }, actorId);
   return requireBrand(env, brandId);
 }
 
@@ -317,18 +317,72 @@ export async function recordDelivery(env: StoreEnv, input: { publishJobId: strin
     .bind(`delivery_${input.publishJobId}`, WORKSPACE_ID, input.brandId, input.publishJobId, input.providerStatus || null, input.publicUrl || null, input.error || null, nowIso()).run();
 }
 
-export async function archiveBrand(env: StoreEnv, brandId: string) {
+export async function archiveBrand(env: StoreEnv, brandId: string, actorId = OWNER_ID) {
   if (!env.DB) throw new Error("Brand storage is not available yet.");
   if (brandId === ATLASIUM_BRAND_ID) throw new Error("The default Atlasium brand cannot be archived.");
   await requireBrand(env, brandId);
   await env.DB.prepare("UPDATE brands SET status = 'archived', updated_at = ? WHERE id = ? AND workspace_id = ?").bind(nowIso(), brandId, WORKSPACE_ID).run();
-  await audit(env, brandId, "brand_archived", { hardDelete: false });
+  await audit(env, brandId, "brand_archived", { hardDelete: false }, actorId);
 }
 
-export async function audit(env: StoreEnv, brandId: string | null, action: string, details: Record<string, unknown>) {
+export async function audit(env: StoreEnv, brandId: string | null, action: string, details: Record<string, unknown>, actorId = OWNER_ID) {
   if (!env.DB) return;
   await env.DB.prepare("INSERT INTO audit_logs (id, workspace_id, brand_id, actor_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(`audit_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, OWNER_ID, action, JSON.stringify(details), nowIso()).run();
+    .bind(`audit_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, actorId || OWNER_ID, action, JSON.stringify(details), nowIso()).run();
+}
+
+export async function pendingDeliveryJobs(env: StoreEnv, brandId: string, limit = 50) {
+  if (!env.DB) return [];
+  await requireBrand(env, brandId);
+  const result = await env.DB.prepare(`SELECT j.id, j.provider_post_id AS providerPostId
+    FROM publish_jobs j
+    LEFT JOIN delivery_statuses d ON d.publish_job_id = j.id
+    WHERE j.workspace_id = ? AND j.brand_id = ? AND j.provider = 'buffer'
+      AND j.provider_post_id IS NOT NULL AND j.status = 'confirmed'
+      AND (j.scheduled_time IN ('shareNow', 'addToQueue') OR j.scheduled_time <= ?)
+      AND (d.checked_at IS NULL OR d.checked_at < ?)
+    ORDER BY CASE WHEN d.checked_at IS NULL THEN 0 ELSE 1 END, COALESCE(d.checked_at, ''), j.scheduled_time
+    LIMIT ?`)
+    .bind(WORKSPACE_ID, brandId, nowIso(), new Date(Date.now() - 15 * 60_000).toISOString(), Math.max(1, Math.min(100, limit))).all<Record<string, unknown>>();
+  return rowList(result).map((row) => ({ id: value(row.id), providerPostId: value(row.providerPostId) }));
+}
+
+export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, connected: BufferDestination[]) {
+  if (!env.DB) throw new Error("FLOW storage is not available yet.");
+  const brand = await requireBrand(env, brandId);
+  const liveIds = new Set(connected.map((channel) => String(channel.id)));
+  const [channelResult, jobResult] = await Promise.all([
+    env.DB.prepare(`SELECT id, provider_channel_id AS providerChannelId, service, account_name AS accountName
+      FROM channel_connections WHERE workspace_id = ? AND brand_id = ? AND active = 1 ORDER BY service, account_name`)
+      .bind(WORKSPACE_ID, brand.id).all<Record<string, unknown>>(),
+    env.DB.prepare(`SELECT j.id, j.campaign_id AS campaignId, j.post_id AS postId, j.destination_id AS destinationId,
+        j.scheduled_time AS scheduledTime, j.provider, j.provider_post_id AS providerPostId, j.status, j.error,
+        j.created_at AS createdAt, j.updated_at AS updatedAt, p.concept,
+        c.service, c.account_name AS accountName,
+        d.provider_status AS providerStatus, d.public_url AS publicUrl, d.error AS deliveryError, d.checked_at AS checkedAt
+      FROM publish_jobs j
+      LEFT JOIN posts p ON p.id = j.post_id AND p.brand_id = j.brand_id
+      LEFT JOIN channel_connections c ON c.provider_channel_id = CASE
+        WHEN instr(j.destination_id, '#') > 0 THEN substr(j.destination_id, 1, instr(j.destination_id, '#') - 1)
+        ELSE j.destination_id END AND c.brand_id = j.brand_id
+      LEFT JOIN delivery_statuses d ON d.publish_job_id = j.id
+      WHERE j.workspace_id = ? AND j.brand_id = ?
+      ORDER BY j.created_at DESC LIMIT 100`)
+      .bind(WORKSPACE_ID, brand.id).all<Record<string, unknown>>(),
+  ]);
+  const channels = rowList(channelResult).map((row) => ({
+    id: value(row.id), brandId: brand.id, providerId: value(row.service), providerChannelId: value(row.providerChannelId),
+    accountName: value(row.accountName), accountType: "Buffer-managed channel", status: liveIds.has(value(row.providerChannelId)) ? "connected" : "needs_attention",
+  }));
+  const jobs = rowList(jobResult).map((row) => ({
+    id: value(row.id), campaignId: value(row.campaignId), postId: value(row.postId), destinationId: value(row.destinationId),
+    scheduledTime: value(row.scheduledTime), provider: value(row.provider), providerPostId: value(row.providerPostId),
+    status: value(row.status), error: value(row.error), concept: value(row.concept) || "Social publication",
+    service: value(row.service) || "social", accountName: value(row.accountName) || "Connected destination",
+    providerStatus: value(row.providerStatus), publicUrl: value(row.publicUrl), deliveryError: value(row.deliveryError),
+    checkedAt: value(row.checkedAt), createdAt: value(row.createdAt), updatedAt: value(row.updatedAt),
+  }));
+  return { brand: { id: brand.id, name: brand.name, logoUrl: brand.logoUrl, timezone: brand.timezone }, channels, jobs };
 }
 
 function providerFlags() {

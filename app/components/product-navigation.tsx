@@ -10,7 +10,7 @@ export function ProductNavigation({ active }: { active: ProductArea }) {
     </Link>
     <Link className={active === "flow" ? "product-tab active" : "product-tab"} href="/flow" aria-current={active === "flow" ? "page" : undefined}>
       <strong>FLOW</strong>
-      <span>Schedule &amp; publish</span>
+      <span>Schedule &amp; monitor</span>
     </Link>
     <Link className={active === "amplify" ? "product-tab active" : "product-tab"} href="/amplify" aria-current={active === "amplify" ? "page" : undefined}>
       <strong>AMPLIFY</strong>

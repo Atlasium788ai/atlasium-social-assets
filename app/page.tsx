@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProductNavigation } from "./components/product-navigation";
+import { AccessSessionAction } from "./components/access-session-action";
 import { EchoContentStudio } from "./echo/components/echo-content-studio";
 
 type Channel = { id: string; name?: string; displayName?: string; service: string; assignedBrandId?: string | null; assignedBrandName?: string | null };
@@ -242,7 +243,7 @@ export default function Home() {
   </main>;
 
   return <main className="app-shell">
-    <header className="app-header"><EchoFlowIdentity /><span className="powered">Powered by Atlasium 7/88 AI</span></header>
+    <header className="app-header"><EchoFlowIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88 AI</span><AccessSessionAction /></div></header>
     <ProductNavigation active="echo" />
 
     <nav className="brand-nav" aria-label="Brands">

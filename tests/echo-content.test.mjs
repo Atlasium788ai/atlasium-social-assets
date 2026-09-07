@@ -110,6 +110,7 @@ test("Blog and Newsletter generation return every required structured field and 
     assert.equal(newsletter.payload.subjectLines.length, 3);
     assert.match(newsletter.payload.html, /<article>/); assert.doesNotMatch(newsletter.payload.html, /script|iframe|onerror/i);
     assert.equal(openai.calls.length, 2);
+    assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'content_draft_created'").get().count, 2);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -132,6 +133,7 @@ test("draft saves preserve manual edits, sanitize HTML, revise only one section 
     const undoneResponse = await worker.fetch(request(`/api/echo/content/drafts/${blog.id}/undo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ brandId: BRAND_A }) }), env, { waitUntil() {}, passThroughOnException() {} });
     const undone = (await undoneResponse.json()).draft;
     assert.equal(undone.payload.title, manual.title); assert.equal(undone.payload.introduction, manual.introduction);
+    for (const action of ["content_draft_updated", "content_section_revised", "content_revision_undone"]) assert.ok(env.DB.database.prepare("SELECT 1 FROM audit_logs WHERE action = ?").get(action));
 
     const newsletter = await createDraft(worker, env, "newsletter");
     const unsafe = { ...newsletter.payload, html: '<article><h1>Hello</h1><script>alert(1)</script><img src=x onerror="alert(2)"><a href="javascript:alert(3)">Bad</a></article>' };

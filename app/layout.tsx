@@ -5,6 +5,8 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://www.echoflowsocial.ca"),
   title: "EchoFlow Social",
   description: "One prompt, every brand, one controlled social publishing flow. Powered by Atlasium 7/88 AI.",
+  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+  robots: { index: false, follow: false, nocache: true },
   openGraph: {
     title: "EchoFlow Social",
     description: "One prompt, every brand, one controlled publishing flow.",

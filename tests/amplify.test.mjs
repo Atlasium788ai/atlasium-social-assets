@@ -96,7 +96,7 @@ test("AMPLIFY routes render directly with three-section product navigation and f
   const responses = await Promise.all(routes.map((path) => worker.fetch(new Request(`http://localhost${path}`, { headers: { accept: "text/html" } }), env, { waitUntil() {}, passThroughOnException() {} })));
   for (const response of responses) assert.equal(response.status, 200);
   const html = (await Promise.all(responses.map((response) => response.text()))).join("\n");
-  for (const label of ["ECHO", "FLOW", "AMPLIFY", "Create content", "Schedule &amp; publish", "Run ads", "Create", "Campaigns", "Results", "Connections"]) assert.match(html, new RegExp(label));
+  for (const label of ["ECHO", "FLOW", "AMPLIFY", "Create content", "Schedule &amp; monitor", "Run ads", "Create", "Campaigns", "Results", "Connections"]) assert.match(html, new RegExp(label));
   assert.match(html, /Powered by Atlasium 7\/88 AI/);
 });
 
@@ -109,7 +109,7 @@ test("ECHO, FLOW, Buffer and existing organic publishing code remain outside AMP
     readFile(new URL("../app/amplify/services/amplify-ad-service.ts", import.meta.url), "utf8"),
   ]);
   assert.match(echo, /Create &amp; Publish/);
-  assert.match(flow, /Buffer remain/);
+  assert.match(flow, /Buffer connections are live/);
   assert.match(worker, /api\.buffer\.com/);
   assert.doesNotMatch(amplifyStore, /BUFFER_API_KEY|api\.buffer\.com|createBufferPost|publishJobs/);
   assert.doesNotMatch(amplifyClient, /\/api\/agent|\/api\/publish|\/api\/channels|Buffer/);

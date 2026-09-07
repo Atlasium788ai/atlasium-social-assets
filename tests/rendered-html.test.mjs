@@ -51,7 +51,12 @@ test("renders the EchoFlow Social authenticated entry", async () => {
   assert.match(html, /Powered by Atlasium 7\/88 AI/);
   assert.match(html, /private authenticated EchoFlow link/);
   assert.match(html, /\/echoflow-social\.png/);
+  assert.match(html, /\/favicon\.svg/);
+  assert.match(html, /noindex/i);
   assert.doesNotMatch(html, /codex-preview/);
+  const robots = await worker.fetch(new Request("http://localhost/robots.txt"), { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) }, UPLOADS: { get: async () => null }, UPLOAD_KEY: "test-key" }, { waitUntil() {}, passThroughOnException() {} });
+  assert.equal(robots.status, 200);
+  assert.match(await robots.text(), /Disallow: \/api\//);
 });
 
 test("serves refresh-safe ECHO, FLOW and AMPLIFY routes with clear top-level navigation", async () => {
@@ -71,7 +76,7 @@ test("serves refresh-safe ECHO, FLOW and AMPLIFY routes with clear top-level nav
   assert.match(echoHtml, /ECHO/);
   assert.match(echoHtml, /Create content/);
   assert.match(echoHtml, /FLOW/);
-  assert.match(flowHtml, /Schedule &amp; publish/);
+  assert.match(flowHtml, /Schedule &amp; monitor/);
   assert.match(flowHtml, /Channels/);
   assert.match(flowHtml, /Calendar/);
   assert.match(flowHtml, /Queue/);
@@ -114,10 +119,11 @@ test("client exposes brand tabs, four short setup steps, scoped draft saves, and
 });
 
 test("FLOW has isolated routes, state, components, connection services, adapters, and an error boundary", async () => {
-  const [echoRoute, flowPage, flowWorkspace, flowConnectionService, flowBrandService, providerCatalog, adapterRegistry, errorBoundary, navigation, styles] = await Promise.all([
+  const [echoRoute, flowPage, flowWorkspace, flowOperations, flowConnectionService, flowBrandService, providerCatalog, adapterRegistry, errorBoundary, navigation, styles] = await Promise.all([
     readFile(new URL("../app/echo/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/flow/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/flow/components/flow-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/components/flow-operations.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/flow/services/flow-connection-service.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/flow/services/flow-brand-service.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/flow/providers/provider-catalog.tsx", import.meta.url), "utf8"),
@@ -130,22 +136,25 @@ test("FLOW has isolated routes, state, components, connection services, adapters
   assert.match(flowPage, /FlowRoute/);
   assert.match(flowWorkspace, /useFlowWorkspace/);
   assert.match(flowWorkspace, /FlowChannels/);
+  assert.match(flowWorkspace, /FlowOperations/);
+  assert.match(flowOperations, /Refresh status/);
+  assert.match(flowOperations, /FLOW is read-only/);
   assert.match(flowConnectionService, /class FlowConnectionCoordinator/);
   assert.match(flowConnectionService, /codeVerifier/);
   assert.match(flowConnectionService, /codeChallenge/);
   assert.match(flowConnectionService, /authorizeBrand/);
   assert.match(flowConnectionService, /confirmation_required/);
-  assert.match(flowBrandService, /\/api\/workspace/);
+  assert.match(flowBrandService, /\/api\/flow\/workspace/);
   assert.match(flowBrandService, /X-Upload-Key/);
-  assert.doesNotMatch(flowBrandService, /connectedChannels/);
+  assert.match(flowBrandService, /X-Brand-ID/);
   assert.match(providerCatalog, /authorizationEnabled: false/g);
   assert.match(adapterRegistry, /createFlowProviderAdapterRegistry/);
   assert.match(adapterRegistry, /flowProviderAdapters = createFlowProviderAdapterRegistry\(\)/);
   assert.match(errorBoundary, /FlowErrorBoundary/);
-  assert.doesNotMatch(`${flowPage}\n${flowWorkspace}\n${flowConnectionService}\n${providerCatalog}`, /AMPLIFY|BUFFER_API_KEY|OPENAI_API_KEY/);
+  assert.doesNotMatch(`${flowPage}\n${flowWorkspace}\n${flowOperations}\n${flowConnectionService}\n${providerCatalog}`, /AMPLIFY|BUFFER_API_KEY|OPENAI_API_KEY/);
   assert.match(navigation, /aria-current/);
   assert.match(navigation, /Create content/);
-  assert.match(navigation, /Schedule &amp; publish/);
+  assert.match(navigation, /Schedule &amp; monitor/);
   assert.match(styles, /\.flow-platform-grid/);
   assert.match(styles, /@media\(max-width:600px\)[^\n]*\.flow-platform-grid\{grid-template-columns:1fr 1fr\}/);
 });
@@ -208,6 +217,53 @@ test("FLOW mock authorization validates brands, state, PKCE, expiry, permissions
   assert.deepEqual(await coordinator.disconnect(account, true), { disconnected: true, accountId: "account-a", brandId: "brand-a" });
   assert.equal(calls.revoked.length, 1);
   await assert.rejects(() => coordinator.complete({ brandId: "brand-a", providerId: "instagram", state: "unknown", code: "code" }), (error) => error instanceof FlowConnectionError && error.code === "invalid_state");
+});
+
+test("FLOW reconciles due Buffer jobs, records delivery and attributes the audit actor", async () => {
+  const worker = await loadWorker();
+  const DB = await memoryD1();
+  const env = {
+    ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+    DB,
+    UPLOADS: { async get() { return null; }, async list() { return { objects: [], truncated: false }; } },
+    UPLOAD_KEY: "test-key",
+    BUFFER_API_KEY: "mock-buffer",
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init = {}) => {
+    const body = JSON.parse(init.body);
+    if (body.query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org-1", name: "Atlasium" }] } } });
+    if (body.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "buffer-instagram", name: "Atlasium", displayName: "atlasium788ai", service: "instagram", avatar: "", isQueuePaused: false }] } });
+    if (body.query.includes("query PostStatuses")) {
+      const data = {};
+      for (const [key, input] of Object.entries(body.variables)) {
+        const index = key.replace("input", "");
+        data[`post${index}`] = { id: input.id, channelId: "buffer-instagram", status: "sent", dueAt: "2026-08-20T14:00:00.000Z", sentAt: "2026-08-20T14:00:03.000Z", externalLink: "https://social.example/post", error: null };
+      }
+      return Response.json({ data });
+    }
+    throw new Error(`Unexpected Buffer query: ${body.query}`);
+  };
+  try {
+    const headers = { "X-Upload-Key": "test-key", "X-Brand-ID": "brand_atlasium_788_ai", "oai-authenticated-user-id": "team-user-1" };
+    const initialized = await worker.fetch(new Request("http://localhost/api/workspace", { headers }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(initialized.status, 200);
+    DB.database.prepare("INSERT INTO posts (id, workspace_id, brand_id, campaign_id, concept, item_index, status, created_at, updated_at) VALUES ('flow-post', 'workspace_atlasium', 'brand_atlasium_788_ai', 'flow-campaign', 'Delivery reconciliation test', 0, 'scheduled', '2026-08-20T12:00:00.000Z', '2026-08-20T12:00:00.000Z')").run();
+    DB.database.prepare("INSERT INTO publish_jobs (id, workspace_id, brand_id, campaign_id, post_id, destination_id, scheduled_time, provider, provider_post_id, status, error, created_at, updated_at) VALUES ('flow-job', 'workspace_atlasium', 'brand_atlasium_788_ai', 'flow-campaign', 'flow-post', 'buffer-instagram#instagram:feed', '2026-08-20T14:00:00.000Z', 'buffer', 'buffer-post', 'confirmed', NULL, '2026-08-20T12:00:00.000Z', '2026-08-20T12:00:00.000Z')").run();
+    const response = await worker.fetch(new Request("http://localhost/api/flow/workspace", { headers }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.channels[0].status, "connected");
+    assert.equal(data.jobs[0].status, "sent");
+    assert.equal(data.jobs[0].providerStatus, "sent");
+    assert.equal(data.jobs[0].publicUrl, "https://social.example/post");
+    assert.deepEqual(data.reconciliation, { checked: 1, sent: 1, failed: 0, pending: 0 });
+    assert.equal(DB.database.prepare("SELECT COUNT(*) AS count FROM delivery_statuses WHERE publish_job_id = 'flow-job'").get().count, 1);
+    const audit = DB.database.prepare("SELECT actor_id FROM audit_logs WHERE action = 'delivery_reconciliation_completed'").get();
+    assert.equal(audit.actor_id, "team-user-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("rejects an agent run without the private key", async () => {

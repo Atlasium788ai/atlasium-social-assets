@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { ProductNavigation } from "@/app/components/product-navigation";
+import { AccessSessionAction } from "@/app/components/access-session-action";
 import { useAmplifyWorkspace } from "../state/use-amplify-workspace";
 import { AmplifyCampaigns } from "./amplify-campaigns";
 import { AmplifyConnections } from "./amplify-connections";
@@ -23,7 +24,7 @@ export function AmplifyWorkspace({ activeSection }: { activeSection: AmplifySect
   const amplify = useAmplifyWorkspace();
   const workspace = amplify.workspace;
   return <main className="app-shell amplify-shell">
-    <header className="app-header"><AmplifyIdentity /><span className="powered">Powered by Atlasium 7/88 AI</span></header>
+    <header className="app-header"><AmplifyIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88 AI</span><AccessSessionAction /></div></header>
     <ProductNavigation active="amplify" />
     <AmplifySectionNavigation active={activeSection} />
 

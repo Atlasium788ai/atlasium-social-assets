@@ -2,18 +2,14 @@
 
 import { useState } from "react";
 import type { FlowBrand } from "../services/flow-brand-service";
+import type { FlowChannel } from "../services/flow-brand-service";
 import type { FlowConnectedAccount } from "../services/flow-connection-service";
 import { FLOW_PROVIDER_TILES, FLOW_STATUS_LABELS } from "../providers/provider-catalog";
 import { FlowConnectedAccountCard } from "./flow-connected-account-card";
 
-const previewAccounts: readonly FlowConnectedAccount[] = Object.freeze([
-  { id: "preview-instagram", brandId: "brand_atlasium_788_ai", providerId: "instagram", accountName: "Atlasium 7/88 AI", handle: "@atlasium788ai", accountType: "Business account", status: "connected" },
-]);
-
-export function FlowChannels({ brand, previewMode }: { brand: FlowBrand; previewMode: boolean }) {
-  const [accounts, setAccounts] = useState<FlowConnectedAccount[]>(() => previewMode ? [...previewAccounts] : []);
+export function FlowChannels({ brand, previewMode, channels }: { brand: FlowBrand; previewMode: boolean; channels: FlowChannel[] }) {
   const [notice, setNotice] = useState("");
-  const brandAccounts = accounts.filter((account) => account.brandId === brand.id);
+  const brandAccounts = channels.filter((account) => account.brandId === brand.id) as FlowConnectedAccount[];
 
   function reconnect(account: FlowConnectedAccount) {
     if (!previewMode) return;
@@ -22,7 +18,6 @@ export function FlowChannels({ brand, previewMode }: { brand: FlowBrand; preview
 
   function disconnect(account: FlowConnectedAccount) {
     if (!previewMode) return;
-    setAccounts((current) => current.filter((item) => item.id !== account.id || item.brandId !== brand.id));
     setNotice(`${account.accountName} disconnected from ${brand.name}.`);
   }
 
@@ -35,7 +30,7 @@ export function FlowChannels({ brand, previewMode }: { brand: FlowBrand; preview
     {notice && <p className="message ok" role="status">✓ {notice}</p>}
 
     {brandAccounts.length > 0 && <div className="flow-connected-list" aria-label={`${brand.name} connected channels`}>
-      {brandAccounts.map((account) => <FlowConnectedAccountCard key={account.id} account={account} onReconnect={reconnect} onDisconnect={disconnect} />)}
+      {brandAccounts.map((account) => <FlowConnectedAccountCard key={account.id} account={account} onReconnect={reconnect} onDisconnect={disconnect} managedExternally={!previewMode} />)}
     </div>}
 
     <div className="flow-platform-grid" aria-label="Social platforms">
@@ -51,6 +46,6 @@ export function FlowChannels({ brand, previewMode }: { brand: FlowBrand; preview
       })}
     </div>
 
-    <aside className="flow-buffer-note"><span className="dot active" /><div><strong>Buffer remains active in ECHO</strong><small>FLOW direct publishing is not enabled.</small></div></aside>
+    <aside className="flow-buffer-note"><span className="dot active" /><div><strong>Buffer connections are live</strong><small>Create and schedule posts in ECHO. FLOW monitors the resulting queue and delivery state.</small></div></aside>
   </section>;
 }
