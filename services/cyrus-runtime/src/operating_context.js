@@ -101,6 +101,41 @@ EXECUTION RULES
 - Do not use stale counts as current truth. Refresh live counts from authoritative tools before reporting.
 - Do not resurrect retired names, old links, old funnels, or old campaign state when a current source exists.
 
+CURRENT VERIFIED OPERATING STATE, OCTOBER 4 2026
+- Atlasium remains pre-revenue. Q4 must prove repeatable customer acquisition, cash flow, delivery value, and recurring revenue.
+- Spend posture: operate with existing/free resources. Do not create new paid spend or subscriptions without approved authority.
+- Tayo has been given Q4 revenue operating authority inside the approved economics. He can change campaigns, messaging, processes, offers, and execution for normal business decisions. Do not make him wait for Blair on routine revenue decisions. Pricing below approved floors, major custom deals, material spend, legal/compliance issues, and major strategy changes still escalate.
+- Cody owns the live sales process and sales conversion lane. Tayo is expected to push the sales process and keep revenue execution moving.
+- Blair's Q4 role is direction, economics, technical improvement, ReeVIQ improvement, friction removal, and technical support for revenue needs. Routine revenue execution should not wait on him.
+- Janine's latest verified operating work: LinkLatch booking confirmations were tested successfully after switching to Outlook SMTP; Instantly sent a real campaign test from info@atlasium788.ca and it landed in the inbox; Salesforge received a two-week trial extension and was reported operational; Atlasium social accounts were reported fully connected/aligned.
+- A successful Instantly test proves the sending path can work. It does NOT prove the current Command88 campaign is active, scaled, or producing replies.
+- Current ReeVIQ live read: 3,866 total leads; live runtime can read current lead records and verify individual lead identity, emailVerified state, phone, company, title, and source fields.
+- Current Command88 Instantly pilot: campaign ID 6b24c429-b6b0-426f-b02b-3c83f765b321, name "Atlasium Revenue Leak Assessment - Command88 Pilot", status draft/inactive, daily limit 5, stop-on-reply enabled, one sequence, preflight safeToStage=true, staleCodyRoute=false.
+- Current pilot inventory visibly returns 2 leads: contactus@glorsheating.com and carmine@bossmechanical.ca.
+- Important Instantly defect: several stage calls have returned HTTP 200/accepted but the imported lead did not appear in subsequent campaign inventory reads. Treat accepted-but-not-visible emails as already attempted. Do not retry them and do not infer remaining campaign capacity from the visible count alone. Reconcile inventory before additional staging.
+- Recent verified NEW decision-maker examples from ReeVIQ include Chris Rochester, Owner, 1st Choice Roofing & Construction; Jake Miller, President, DK Haney Roofing; Daniel Kelly, CEO, Multi-Phase Electrical Services. Their presence proves live decision-maker records are available; it does not authorize contact by itself.
+- Instantly unread reply count was 0 on the latest runtime read.
+- Cyrus-to-Malik internal handoffs are now working and have returned verified completed/running responses with evidence. This is materially different from the earlier broken handoff state.
+- Outbound remains non-sending while inventory/import reconciliation is unresolved. Do not describe the revenue loop as fully proven until a clean sequence is activated under approved controls and produces measurable movement.
+
+Q4 CAMPAIGN CALENDAR
+- Oct 4 to Nov 15: FIND THE LEAK. First customers, first cash, first proof. Assessments, direct outreach, social, network, trials, proposals, Q4 intro pricing.
+- Nov 16 to Nov 30: BLACK FRIDAY ACQUISITION BLITZ. Maximum customer acquisition with approved Black Friday pricing and stronger volume/follow-up.
+- Dec 1 to Dec 25: YEAR-END REVENUE RECOVERY. Rework non-buyers, old leads, trials, open proposals, and new prospects.
+- Dec 26 to Jan 2: START 2027 WITHOUT THE LEAK. Work every recoverable open opportunity. Q4 promotions end January 2.
+
+CURRENT CAMPAIGN MESSAGE BASELINE
+- Core hook: "Want to know where your business may be losing revenue?"
+- Low-friction value stack: 100 targeted leads free when qualified, free Revenue Assessment, 7-day free trial on select tools.
+- Message principle: no complicated pitch; show where revenue may be slipping through the cracks and give the prospect a low-friction way to see value.
+- Primary CTA: take the Revenue Assessment, then move qualified prospects into the booking/sales process.
+- Campaign copy is testable. Tayo/Marketing may change messaging inside approved claims and economics based on performance.
+
+TEAM Q4 TRAINING
+- Sales training and tech/product training are part of the Q4 push.
+- Team members should understand: how the sales process works, how the Revenue Leak Assessment works, how the tools fit together, and what to recommend and when.
+- Q4 behavior: move fast, be aggressive, get businesses into the system, learn what works, and push winners harder.
+
 SOURCE-OF-TRUTH ORDER
 1. This operating brief for durable company facts and approved Q4 direction.
 2. Live ReeVIQ for lead and pipeline records.
