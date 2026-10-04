@@ -316,7 +316,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
       if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
       try {
-        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(campaignId)}`;
+        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
         const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
         if (!response.ok) return fail(`Instantly returned HTTP ${response.status}`, response.status >= 500);
         const body = await response.json();
@@ -328,7 +328,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
       if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
       try {
-        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(campaignId)}`;
+        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
         const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
         if (!response.ok) return fail(`Instantly returned HTTP ${response.status}`, response.status >= 500);
         const body = await response.json();
@@ -352,7 +352,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     if (name === "instantly_pause_campaign") {
       if (!config.instantlyApiKey || !config.instantlyCampaignId) return fail("Instantly campaign access is not configured");
       const base = config.instantlyBaseUrl.replace(/\/$/, "");
-      const url = `${base}/campaigns/${encodeURIComponent(campaignId)}`;
+      const url = `${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
       const headers = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" };
       try {
         const beforeRes = await fetchImpl(url, { headers, signal: AbortSignal.timeout(10000) });
@@ -395,7 +395,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       };
       try {
         const base = config.instantlyBaseUrl.replace(/\/$/, "");
-        const getUrl = `${base}/campaigns/${encodeURIComponent(campaignId)}`;
+        const getUrl = `${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
         const response = await fetchImpl(getUrl, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
         if (!response.ok) return fail(`Instantly campaign read returned HTTP ${response.status}`, response.status >= 500);
         const campaign = await response.json();
@@ -443,7 +443,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
           }
         }
 
-        const sourceRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}`, { headers, signal: AbortSignal.timeout(10000) });
+        const sourceRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`, { headers, signal: AbortSignal.timeout(10000) });
         if (!sourceRes.ok) return fail(`Source campaign read returned HTTP ${sourceRes.status}`, sourceRes.status >= 500);
         const source = await sourceRes.json();
         if (/rep=cody|\bcody\b/i.test(JSON.stringify(source?.sequences || []))) return fail("Source campaign copy still contains Cody-specific routing");
