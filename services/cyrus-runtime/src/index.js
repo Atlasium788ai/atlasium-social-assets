@@ -34,6 +34,8 @@ const server = http.createServer((request, response) => {
       slackAuthenticated: Boolean(slackAuth.ok),
       slackSocketEnabled: config.slackSocketEnabled,
       slackConnected,
+      slackDmLastPollAt: socket.lastPollAt,
+      slackDmLastPollError: socket.lastPollError,
       ...store.health(),
     }));
     return;
@@ -54,6 +56,11 @@ const followupTimer = setInterval(() => {
   socket.processDueFollowups().catch((error) => console.error(`${config.name} automatic follow-up failed`, { message: error.message }));
 }, config.followupPollMs);
 followupTimer.unref();
+const slackDmPollTimer = setInterval(() => {
+  socket.pollDirectMessages().catch((error) => console.error(`${config.name} Slack DM recovery failed`, { message: error.message }));
+}, config.slackDmPollMs);
+slackDmPollTimer.unref();
+socket.pollDirectMessages().catch((error) => console.error(`${config.name} initial Slack DM recovery failed`, { message: error.message }));
 
 const autonomyIntervalMs = Math.max(60_000, Number(process.env.CYRUS_AUTONOMY_INTERVAL_MS || 300_000));
 let autonomyBusy = false;
@@ -139,6 +146,7 @@ function shutdown(signal) {
   console.info(`${config.name} stopping on ${signal}`);
   clearInterval(outboxTimer);
   clearInterval(followupTimer);
+  clearInterval(slackDmPollTimer);
   if (relentlessTimer) clearInterval(relentlessTimer);
   clearInterval(autonomyTimer);
   socket.stop();

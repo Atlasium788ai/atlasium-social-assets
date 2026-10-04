@@ -31,6 +31,11 @@ export function shouldHandleMessage(event, config) {
   );
 }
 
+export function slackMessageSourceId(event) {
+  if (!event?.channel || !event?.ts) return null;
+  return `slack-message:${event.channel}:${event.ts}`;
+}
+
 export class SlackSocketRuntime {
   constructor({ config, store, agent, slackApi, WebSocketImpl = WebSocket, logger = console }) {
     this.config = config;
@@ -42,7 +47,11 @@ export class SlackSocketRuntime {
     this.stopped = false;
     this.reconnectMs = 1_000;
     this.flushPromise = null;
+    this.pollPromise = null;
     this.connected = false;
+    this.lastPollAt = null;
+    this.lastPollError = null;
+    this.dmChannelId = null;
   }
 
   async start() {
@@ -114,6 +123,63 @@ export class SlackSocketRuntime {
     }
   }
 
+  async processSlackMessage(event, fallbackSourceId = null) {
+    if (!shouldHandleMessage(event, this.config)) return false;
+    const sourceEventId = slackMessageSourceId(event) || fallbackSourceId;
+    if (!sourceEventId) return false;
+    const { task, created } = this.store.createTask({
+      sourceEventId,
+      requesterId: event.user,
+      channelId: event.channel,
+      requestText: event.text.trim(),
+    });
+    if (!created) return false;
+    const reply = await this.agent.handleTask(task);
+    this.store.queueReply(task.id, event.channel, reply);
+    await this.flushOutbox();
+    return true;
+  }
+
+  async pollDirectMessages() {
+    if (this.pollPromise) return this.pollPromise;
+    this.pollPromise = (async () => {
+      try {
+        if (!this.dmChannelId) {
+          const opened = await this.slackApi("conversations.open", { users: this.config.blairSlackUserId });
+          if (!opened.ok || !opened.channel?.id) throw new Error(opened.error || "Slack did not return the Blair DM channel");
+          this.dmChannelId = opened.channel.id;
+        }
+        const history = await this.slackApi("conversations.history", { channel: this.dmChannelId, limit: 50 });
+        if (!history.ok || !Array.isArray(history.messages)) throw new Error(history.error || "Slack did not return DM history");
+        const newestFirst = history.messages;
+        const latestBotReply = newestFirst.find((message) => message.bot_id || message.subtype === "bot_message");
+        const latestBotReplyTs = Number(latestBotReply?.ts || 0);
+        const unanswered = newestFirst
+          .filter((message) => Number(message.ts || 0) > latestBotReplyTs)
+          .filter((message) => shouldHandleMessage({ ...message, type: "message", channel: this.dmChannelId, channel_type: "im" }, this.config))
+          .sort((left, right) => Number(left.ts) - Number(right.ts));
+        let processed = 0;
+        for (const message of unanswered) {
+          const accepted = await this.processSlackMessage({ ...message, type: "message", channel: this.dmChannelId, channel_type: "im" });
+          if (accepted) processed += 1;
+        }
+        this.lastPollAt = new Date().toISOString();
+        this.lastPollError = null;
+        this.logger.info(JSON.stringify({ event: "slack_dm_poll", channel: this.dmChannelId, unanswered: unanswered.length, processed }));
+        return processed;
+      } catch (error) {
+        this.lastPollAt = new Date().toISOString();
+        this.lastPollError = error.message;
+        throw error;
+      }
+    })();
+    try {
+      return await this.pollPromise;
+    } finally {
+      this.pollPromise = null;
+    }
+  }
+
   stop() {
     this.stopped = true;
     this.connected = false;
@@ -142,17 +208,21 @@ export class SlackSocketRuntime {
     const eventId = envelope.payload?.event_id;
     const event = envelope.payload?.event;
     if (!eventId || !this.store.acceptSlackEvent(eventId, envelope.payload)) return;
-    if (!shouldHandleMessage(event, this.config)) return;
-
-    const { task, created } = this.store.createTask({
-      sourceEventId: eventId,
-      requesterId: event.user,
-      channelId: event.channel,
-      requestText: event.text.trim(),
-    });
-    if (!created) return;
-    const reply = await this.agent.handleTask(task);
-    this.store.queueReply(task.id, event.channel, reply);
-    await this.flushOutbox();
+    const accepted = shouldHandleMessage(event, this.config);
+    this.logger.info(JSON.stringify({
+      event: "slack_event_received",
+      eventId,
+      type: event?.type || null,
+      subtype: event?.subtype || null,
+      user: event?.user || null,
+      channel: event?.channel || null,
+      channelType: event?.channel_type || null,
+      botId: event?.bot_id || null,
+      appId: event?.app_id || null,
+      textLength: typeof event?.text === "string" ? event.text.length : 0,
+      accepted,
+    }));
+    if (!accepted) return;
+    await this.processSlackMessage(event, eventId);
   }
 }

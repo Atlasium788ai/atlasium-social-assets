@@ -42,6 +42,7 @@ export function loadConfig(env = process.env) {
     blairSlackUserId: required(env, "BLAIR_SLACK_USER_ID"),
     slackAllowedChannelIds: csv(env.SLACK_ALLOWED_CHANNEL_IDS),
     slackSocketEnabled: bool(env.BOT_SOCKET_ENABLED ?? env.CYRUS_SOCKET_ENABLED, true),
+    slackDmPollMs: Math.max(10_000, Number(env.SLACK_DM_POLL_MS || 15_000)),
     openAiApiKey: required(env, "OPENAI_API_KEY"),
     openAiModel: env.OPENAI_MODEL?.trim() || "gpt-6-luna",
     openAiBaseUrl: env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1",

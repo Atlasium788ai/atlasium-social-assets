@@ -205,6 +205,65 @@ test("restart recovery resumes a task and flushes its reply", async () => {
   store.close();
 });
 
+test("socket and DM polling use one canonical Slack message identity", async () => {
+  const { store } = tempStore();
+  let executions = 0;
+  const posts = [];
+  const runtime = new SlackSocketRuntime({
+    config: config(),
+    store,
+    agent: { handleTask: async () => { executions += 1; return "Handled once."; } },
+    slackApi: async (method, payload) => {
+      if (method === "conversations.open") return { ok: true, channel: { id: "D_BLAIR" } };
+      if (method === "conversations.history") return { ok: true, messages: [{ ts: "100.1", user: "U_BLAIR", text: "Same request" }] };
+      if (method === "chat.postMessage") { posts.push(payload); return { ok: true, ts: "100.2" }; }
+      return { ok: true };
+    },
+    WebSocketImpl: class {},
+    logger: { info() {}, error() {} },
+  });
+  const socket = { send() {} };
+  await runtime.onEnvelope(socket, JSON.stringify({
+    envelope_id: "env-1",
+    type: "events_api",
+    payload: { event_id: "Ev-socket", event: { type: "message", channel_type: "im", channel: "D_BLAIR", ts: "100.1", user: "U_BLAIR", text: "Same request" } },
+  }));
+  await runtime.pollDirectMessages();
+  assert.equal(executions, 1);
+  assert.equal(posts.length, 1);
+  assert.equal(store.getTaskBySourceEvent("slack-message:D_BLAIR:100.1").request_text, "Same request");
+  store.close();
+});
+
+test("DM polling processes distinct unanswered messages and ignores answered history", async () => {
+  const { store } = tempStore();
+  const handled = [];
+  const runtime = new SlackSocketRuntime({
+    config: config(),
+    store,
+    agent: { handleTask: async (current) => { handled.push(current.request_text); return `Handled ${current.request_text}`; } },
+    slackApi: async (method) => {
+      if (method === "conversations.open") return { ok: true, channel: { id: "D_BLAIR" } };
+      if (method === "conversations.history") return { ok: true, messages: [
+        { ts: "203.0", user: "U_BLAIR", text: "Repeat" },
+        { ts: "202.0", user: "U_BLAIR", text: "Repeat" },
+        { ts: "201.0", bot_id: "B_BOT", text: "Earlier answer" },
+        { ts: "200.0", user: "U_BLAIR", text: "Already answered" },
+      ] };
+      if (method === "chat.postMessage") return { ok: true, ts: "204.0" };
+      return { ok: true };
+    },
+    WebSocketImpl: class {},
+    logger: { info() {}, error() {} },
+  });
+  assert.equal(await runtime.pollDirectMessages(), 2);
+  assert.deepEqual(handled, ["Repeat", "Repeat"]);
+  assert.ok(store.getTaskBySourceEvent("slack-message:D_BLAIR:202.0"));
+  assert.ok(store.getTaskBySourceEvent("slack-message:D_BLAIR:203.0"));
+  assert.equal(store.getTaskBySourceEvent("slack-message:D_BLAIR:200.0"), undefined);
+  store.close();
+});
+
 test("operational work items cannot complete without task evidence", () => {
   const { store } = tempStore();
   const current = task(store, "Ev-plan", "Break this objective into executable work");
