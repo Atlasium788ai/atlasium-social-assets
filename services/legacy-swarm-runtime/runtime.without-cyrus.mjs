@@ -464,8 +464,8 @@ const __m_health = (() => {
     const bots=Object.fromEntries(Object.entries(state.bots).map(([k,v])=>[k,{slackAuthenticated:Boolean(v.slackAuthenticated),socketConnected:Boolean(v.socketConnected)}]));
     const all=Object.values(bots);
     const allAuthenticated=all.length===7&&all.every(x=>x.slackAuthenticated);
-    const socketBots=Object.entries(bots).filter(([key])=>key!=="cyrus").map(([,value])=>value);
-    const allSockets=socketBots.length===6&&socketBots.every(x=>x.socketConnected);
+    const socketBots=Object.entries(bots).filter(([key])=>!["cyrus","malik"].includes(key)).map(([,value])=>value);
+    const allSockets=socketBots.length===5&&socketBots.every(x=>x.socketConnected);
     const activationState=state.activationState||"active";
     return {
       ok:(allAuthenticated&&allSockets) || (config.prewarmMode&&allAuthenticated&&activationState==="prewarmed"),
@@ -865,7 +865,7 @@ const __m_index = (() => {
     for(const key of ROLE_KEYS){ const c=new StaffController({role:roles[key],slack:slackByRole[key],model,state:store,executor,dispatcher,config,trainingMaintenance:key==="clara"?trainingMaintenance:null,logger}); controllers[key]=c; dispatcher.register(key,c); state.bots[key]={slackAuthenticated:false,socketConnected:false}; }
     const authEntries=await parallelByRole(ROLE_KEYS,async key=>controllers[key].initialize());
     for(const [key,auth] of authEntries) state.bots[key].slackAuthenticated=Boolean(auth.botUserId);
-    logger.info?.({event:"cyrus_socket_handoff",status:"disabled_in_shared_runtime",remainingSocketRoles:ROLE_KEYS.filter(key=>key!=="cyrus")});
+    logger.info?.({event:"executive_socket_handoff",status:"disabled_in_shared_runtime",disabledSocketRoles:["cyrus","malik"],remainingSocketRoles:ROLE_KEYS.filter(key=>!["cyrus","malik"].includes(key))});
     if(!persistenceProbeId){
       for(const task of store.openTasks()) if(task.kind==="persistence_probe") store.state.tasks[task.id]={...task,status:"completed",resultStatus:"persistence_verified",updatedAt:Date.now()};
       store.save(); await store.flush();
@@ -953,7 +953,7 @@ const __m_index = (() => {
       if(activated)return; if(activating)return activating;
       activating=(async()=>{
         state.activationState="activating";
-        const runnerEntries=await parallelByRole(ROLE_KEYS.filter(key=>key!=="cyrus"),async key=>{ const r=new SocketModeRunner({appToken:config.identities[key].appToken,controller:controllers[key],fetchImpl,WebSocketImpl,logger,onState:v=>{state.bots[key].socketConnected=v;}}); await r.start(); return r; });
+        const runnerEntries=await parallelByRole(ROLE_KEYS.filter(key=>!["cyrus","malik"].includes(key)),async key=>{ const r=new SocketModeRunner({appToken:config.identities[key].appToken,controller:controllers[key],fetchImpl,WebSocketImpl,logger,onState:v=>{state.bots[key].socketConnected=v;}}); await r.start(); return r; });
         runners.push(...runnerEntries.map(([,runner])=>runner));
         proactive.start(); activated=true; state.activationState="active";
       })();

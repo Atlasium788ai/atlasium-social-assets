@@ -5,10 +5,10 @@
 
 `3839354d979f1e8f69f41e08087a1974e6de9a6fc2ab1da4a11326dae829dca6`
 
-`runtime.without-cyrus.mjs` is the cutover build. It keeps the existing six
-department Slack sockets but deliberately does not open Cyrus's Socket Mode
-connection. Health ignores the intentionally absent Cyrus socket while still
-requiring all six remaining sockets. Set `PROACTIVE_MONITORING_ENABLED=false`
+`runtime.without-cyrus.mjs` is the cutover build. It keeps the existing five
+department Slack sockets but deliberately does not open Cyrus's or Malik's
+Socket Mode connection. Health ignores those intentionally absent sockets while
+still requiring all five remaining sockets. Set `PROACTIVE_MONITORING_ENABLED=false`
 for this build because the legacy proactive loop is Cyrus-specific.
 
 Do not deploy the recovered file as the isolated Cyrus runtime. The isolated,

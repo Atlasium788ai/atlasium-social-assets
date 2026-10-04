@@ -15,20 +15,38 @@ function bool(value, fallback = false) {
   return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
 }
 
+function jsonObject(value, name) {
+  if (!value?.trim()) return {};
+  let parsed;
+  try { parsed = JSON.parse(value); } catch { throw new Error(`${name} must be valid JSON`); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${name} must be a JSON object`);
+  return Object.fromEntries(Object.entries(parsed).map(([key, url]) => [key, String(url).replace(/\/$/, "")]));
+}
+
 export function loadConfig(env = process.env) {
-  const dataDir = env.CYRUS_DATA_DIR?.trim() || path.resolve(".data/cyrus");
+  const role = (env.BOT_ROLE?.trim() || "cyrus").toLowerCase();
+  const identities = { cyrus: "Cyrus", malik: "Malik" };
+  if (!identities[role]) throw new Error(`Unsupported BOT_ROLE: ${role}`);
+  const name = env.BOT_NAME?.trim() || identities[role];
+  const dataDir = env.BOT_DATA_DIR?.trim() || env.CYRUS_DATA_DIR?.trim() || path.resolve(`.data/${role}`);
   return {
+    role,
+    name,
+    serviceName: `${role}-runtime`,
     port: Number(env.PORT || 3000),
+    internalPort: Number(env.INTERNAL_PORT || 3001),
     dataDir,
-    databasePath: path.join(dataDir, "cyrus.sqlite"),
+    databasePath: path.join(dataDir, `${role}.sqlite`),
     slackAppToken: required(env, "SLACK_APP_TOKEN"),
     slackBotToken: required(env, "SLACK_BOT_TOKEN"),
     blairSlackUserId: required(env, "BLAIR_SLACK_USER_ID"),
     slackAllowedChannelIds: csv(env.SLACK_ALLOWED_CHANNEL_IDS),
-    slackSocketEnabled: bool(env.CYRUS_SOCKET_ENABLED, true),
+    slackSocketEnabled: bool(env.BOT_SOCKET_ENABLED ?? env.CYRUS_SOCKET_ENABLED, true),
     openAiApiKey: required(env, "OPENAI_API_KEY"),
     openAiModel: env.OPENAI_MODEL?.trim() || "gpt-6-luna",
     openAiBaseUrl: env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1",
     httpReadAllowlist: csv(env.HTTP_READ_ALLOWLIST),
+    agentPeers: jsonObject(env.AGENT_PEERS_JSON, "AGENT_PEERS_JSON"),
+    followupPollMs: Math.max(5_000, Number(env.FOLLOWUP_POLL_MS || 15_000)),
   };
 }

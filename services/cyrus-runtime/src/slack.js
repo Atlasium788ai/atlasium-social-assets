@@ -63,8 +63,29 @@ export class SlackSocketRuntime {
 
   async recover() {
     for (const task of this.store.pendingTasks()) {
+      if (this.store.hasPendingFollowup(task.id)) continue;
       const reply = await this.agent.handleTask(task);
       this.store.queueReply(task.id, task.channel_id, reply);
+    }
+    await this.flushOutbox();
+  }
+
+  async processDueFollowups() {
+    for (const followup of this.store.claimDueFollowups()) {
+      const task = this.store.getTask(followup.task_id);
+      if (!task || ["completed", "blocked", "failed"].includes(task.status)) {
+        this.store.completeFollowup(followup.id);
+        continue;
+      }
+      try {
+        const reply = await this.agent.handleTask(task, { followupReason: followup.reason });
+        this.store.completeFollowup(followup.id);
+        if (!task.channel_id.startsWith("internal:")) this.store.queueReply(task.id, task.channel_id, reply);
+      } catch (error) {
+        this.store.releaseFollowup(followup.id);
+        this.logger.error(`${this.config.name} follow-up failed`, { taskId: task.id, message: error.message });
+        throw error;
+      }
     }
     await this.flushOutbox();
   }
@@ -76,10 +97,10 @@ export class SlackSocketRuntime {
         const posted = await this.slackApi("chat.postMessage", {
           channel: reply.channel_id,
           text: reply.body,
-          client_msg_id: reply.task_id,
+          client_msg_id: reply.id,
         });
         if (!posted.ok) throw new Error(`Slack reply failed: ${posted.error || "unknown error"}`);
-        this.store.markReplySent(reply.task_id, posted.ts);
+        this.store.markReplySent(reply.id, posted.ts);
       }
     })();
     try {
@@ -102,7 +123,7 @@ export class SlackSocketRuntime {
       socket.addEventListener("open", () => {
         this.connected = true;
         this.reconnectMs = 1_000;
-        this.logger.info("Cyrus Slack socket connected");
+        this.logger.info(`${this.config.name} Slack socket connected`);
       });
       socket.addEventListener("message", (message) => this.onEnvelope(socket, message.data).catch((error) => this.logger.error("Envelope failed", { message: error.message })));
       socket.addEventListener("close", () => { this.connected = false; resolve(); });

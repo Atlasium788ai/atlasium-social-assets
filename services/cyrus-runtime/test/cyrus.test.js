@@ -15,9 +15,12 @@ function tempStore() {
 
 function config(overrides = {}) {
   return {
+    role: "cyrus",
+    name: "Cyrus",
     blairSlackUserId: "U_BLAIR",
     slackAllowedChannelIds: new Set(["C_TEAM"]),
     httpReadAllowlist: new Set(["https://status.example.com"]),
+    agentPeers: {},
     ...overrides,
   };
 }
@@ -161,13 +164,13 @@ test("reply outbox survives restart and marks a single Slack delivery", () => {
   const { dir, store } = tempStore();
   const db = path.join(dir, "cyrus.sqlite");
   const current = task(store, "Ev-outbox", "Check health");
-  store.queueReply(current.id, "D_BLAIR", "Verified healthy.");
+  const replyId = store.queueReply(current.id, "D_BLAIR", "Verified healthy.");
   store.close();
   const restarted = new CyrusStore(db);
   assert.equal(restarted.pendingReplies().length, 1);
-  restarted.markReplySent(current.id, "123.456");
+  restarted.markReplySent(replyId, "123.456");
   assert.equal(restarted.pendingReplies().length, 0);
-  const sent = restarted.db.prepare("SELECT status, slack_ts FROM reply_outbox WHERE task_id=?").get(current.id);
+  const sent = restarted.db.prepare("SELECT status, slack_ts FROM reply_outbox_messages WHERE id=?").get(replyId);
   assert.deepEqual({ ...sent }, { status: "sent", slack_ts: "123.456" });
   restarted.close();
 });
@@ -196,7 +199,94 @@ test("restart recovery resumes a task and flushes its reply", async () => {
   await runtime.recover();
   assert.equal(store.getTask(current.id).status, "completed");
   assert.equal(posts.length, 1);
-  assert.equal(posts[0].payload.client_msg_id, current.id);
+  assert.notEqual(posts[0].payload.client_msg_id, current.id);
+  assert.equal(typeof posts[0].payload.client_msg_id, "string");
   assert.equal(store.pendingReplies().length, 0);
+  store.close();
+});
+
+test("operational work items cannot complete without task evidence", () => {
+  const { store } = tempStore();
+  const current = task(store, "Ev-plan", "Break this objective into executable work");
+  store.createWorkPlan(current.id, [{ id: "inspect", title: "Inspect runtime", owner: "malik" }]);
+  assert.throws(() => store.updateWorkItem(current.id, "inspect", { status: "completed" }), /evidence_id/);
+  const evidence = store.addEvidence(current.id, { source: "runtime", claim: "Runtime inspected", detail: { ok: true } });
+  const item = store.updateWorkItem(current.id, "inspect", { status: "completed", evidenceId: evidence.id });
+  assert.equal(item.status, "completed");
+  assert.equal(store.openWorkItems(current.id).length, 0);
+  store.close();
+});
+
+test("automatic follow-up survives restart and becomes due once", () => {
+  const { dir, store } = tempStore();
+  const db = path.join(dir, "cyrus.sqlite");
+  const current = task(store, "Ev-follow", "Follow up automatically");
+  store.setTaskStatus(current.id, "running");
+  store.scheduleFollowup(current.id, { dueAt: new Date(Date.now() - 1_000).toISOString(), reason: "Verify the next step" });
+  store.close();
+
+  const restarted = new CyrusStore(db);
+  assert.equal(restarted.recoverInterruptedTasks(), 0);
+  assert.equal(restarted.getTask(current.id).status, "running");
+  const due = restarted.claimDueFollowups();
+  assert.equal(due.length, 1);
+  assert.equal(restarted.claimDueFollowups().length, 0);
+  restarted.completeFollowup(due[0].id);
+  restarted.close();
+});
+
+test("an automatic follow-up cannot reschedule the same wait loop", async () => {
+  const { store } = tempStore();
+  const current = task(store, "Ev-follow-loop", "Reassess once and finish");
+  const toolbox = createToolbox({ store, config: config(), slackApi: async () => ({ ok: true }), fetchImpl: fetch });
+  const result = await toolbox.execute(
+    "schedule_followup",
+    { seconds: 20, reason: "Repeat the same check" },
+    { taskId: current.id, requiresEvidence: true, isFollowup: true },
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.error, /do not schedule the same follow-up again/i);
+  assert.equal(store.hasPendingFollowup(current.id), false);
+  store.close();
+});
+
+test("restart recovery does not rerun a task that is waiting for its follow-up", async () => {
+  const { store } = tempStore();
+  const current = task(store, "Ev-follow-recover", "Wait and reassess");
+  store.setTaskStatus(current.id, "running");
+  store.scheduleFollowup(current.id, { dueAt: new Date(Date.now() + 60_000).toISOString(), reason: "Reassess later" });
+  let executions = 0;
+  const runtime = new SlackSocketRuntime({
+    config: config(),
+    store,
+    agent: { handleTask: async () => { executions += 1; return "should not run"; } },
+    slackApi: async () => ({ ok: true }),
+    WebSocketImpl: class {},
+    logger: { info() {}, error() {} },
+  });
+  await runtime.recover();
+  assert.equal(executions, 0);
+  assert.equal(store.getTask(current.id).status, "running");
+  assert.equal(store.hasPendingFollowup(current.id), true);
+  store.close();
+});
+
+test("connected agent handoff returns verifiable evidence", async () => {
+  const { store } = tempStore();
+  const cfg = config({ role: "malik", name: "Malik", agentPeers: { cyrus: "http://cyrus.internal:3001" } });
+  const toolbox = createToolbox({
+    store,
+    config: cfg,
+    slackApi: async () => ({ ok: true }),
+    fetchImpl: async () => new Response(JSON.stringify({ ok: true, status: "completed", evidenceCount: 1 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  });
+  const current = task(store, "Ev-handoff", "Escalate this objective to Cyrus");
+  const result = await toolbox.execute("delegate_to_agent", { agent: "cyrus", objective: "Resolve priority" }, { taskId: current.id, requiresEvidence: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.data.status, "completed");
+  assert.match(result.evidence.claim, /Verified handoff/);
   store.close();
 });
