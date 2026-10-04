@@ -65,7 +65,7 @@ export class SlackSocketRuntime {
     for (const task of this.store.pendingTasks()) {
       if (this.store.hasPendingFollowup(task.id)) continue;
       const reply = await this.agent.handleTask(task);
-      this.store.queueReply(task.id, task.channel_id, reply);
+      if (!task.channel_id.startsWith("internal:")) this.store.queueReply(task.id, task.channel_id, reply);
     }
     await this.flushOutbox();
   }
@@ -94,6 +94,10 @@ export class SlackSocketRuntime {
     if (this.flushPromise) return this.flushPromise;
     this.flushPromise = (async () => {
       for (const reply of this.store.pendingReplies()) {
+        if (String(reply.channel_id || "").startsWith("internal:")) {
+          this.store.markReplySent(reply.id, "internal-suppressed");
+          continue;
+        }
         const posted = await this.slackApi("chat.postMessage", {
           channel: reply.channel_id,
           text: reply.body,
