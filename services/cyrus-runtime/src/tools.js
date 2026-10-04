@@ -137,6 +137,30 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "instantly_preflight",
+      description: "Verify the configured Instantly campaign is safe for pre-send staging. Read-only. Checks campaign state and blocks stale Cody-specific routing.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      type: "function",
+      name: "instantly_stage_lead",
+      description: "Stage one lead into the configured Instantly campaign without activating or sending. Refuses active campaigns and stale Cody-specific routing, uses duplicate protection, and requests verification on import.",
+      parameters: {
+        type: "object",
+        properties: {
+          email: { type: "string" },
+          first_name: { type: "string" },
+          last_name: { type: "string" },
+          company_name: { type: "string" },
+          website: { type: "string" },
+          personalization: { type: "string" }
+        },
+        required: ["email"],
+        additionalProperties: false
+      },
+    },
+    {
+      type: "function",
       name: "instantly_unread_count",
       description: "Read the current Instantly unread reply count. Read-only.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -145,7 +169,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       type: "function",
       name: "reeviq_lead",
       description: "Read one ReeVIQ lead and its current qualification/meeting state. Read-only.",
-      parameters: { type: "object", properties: { lead_id: { type: "string" } }, required: ["lead_id"], additionalProperties: false },
+      parameters: { type: "object", properties: { lead_id: { type: "string" }, expected_email: { type: "string" }, expected_name: { type: "string" } }, required: ["lead_id"], additionalProperties: false },
     },
     {
       type: "function",
@@ -275,6 +299,83 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         return ok(data, { source: "instantly:campaign", claim: "Read configured Instantly campaign", detail: data });
       } catch (error) { return fail(`Instantly campaign read failed: ${error.message}`, true); }
     }
+    if (name === "instantly_preflight") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
+      try {
+        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+        const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+        if (!response.ok) return fail(`Instantly returned HTTP ${response.status}`, response.status >= 500);
+        const body = await response.json();
+        const serialized = JSON.stringify(body);
+        const status = Number(body.status);
+        const staleCodyRoute = /rep=cody|\bcody\b/i.test(serialized);
+        const sequenceCount = Array.isArray(body.sequences) ? body.sequences.length : Array.isArray(body.sequence) ? body.sequence.length : null;
+        const safeInactive = [0, 2, 3].includes(status);
+        const data = {
+          id: body.id || config.instantlyCampaignId,
+          name: body.name || null,
+          status,
+          statusLabel: ({0:"draft",1:"active",2:"paused",3:"completed",4:"running_subsequences"})[status] || `status_${status}`,
+          staleCodyRoute,
+          sequenceCount,
+          safeToStage: safeInactive && !staleCodyRoute
+        };
+        return ok(data, { source: "instantly:preflight", claim: `Instantly preflight: ${data.name || data.id} is ${data.statusLabel}; safeToStage=${data.safeToStage}; staleCodyRoute=${staleCodyRoute}`, detail: data });
+      } catch (error) { return fail(`Instantly preflight failed: ${error.message}`, true); }
+    }
+    if (name === "instantly_stage_lead") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
+      const email = String(args.email || "").trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail("A valid lead email is required");
+      try {
+        const base = config.instantlyBaseUrl.replace(/\/$/, "");
+        const campaignResponse = await fetchImpl(`${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`, {
+          headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" },
+          signal: AbortSignal.timeout(10_000)
+        });
+        if (!campaignResponse.ok) return fail(`Instantly campaign preflight returned HTTP ${campaignResponse.status}`, campaignResponse.status >= 500);
+        const campaign = await campaignResponse.json();
+        const status = Number(campaign.status);
+        if (status === 1 || status === 4) return fail(`Refusing to stage into a campaign that can send now (status ${status})`);
+        if (!Array.isArray([0,2,3]) || ![0,2,3].includes(status)) return fail(`Refusing unknown campaign status ${status}`);
+        if (/rep=cody|\bcody\b/i.test(JSON.stringify(campaign))) return fail("Refusing to stage: campaign still contains Cody-specific routing");
+        const payload = {
+          campaign: config.instantlyCampaignId,
+          email,
+          first_name: String(args.first_name || "").trim() || undefined,
+          last_name: String(args.last_name || "").trim() || undefined,
+          company_name: String(args.company_name || "").trim() || undefined,
+          website: String(args.website || "").trim() || undefined,
+          personalization: String(args.personalization || "").trim() || undefined,
+          skip_if_in_workspace: true,
+          skip_if_in_campaign: true,
+          verify_leads_on_import: true
+        };
+        Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
+        const response = await fetchImpl(`${base}/leads`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15_000)
+        });
+        const textBody = await response.text();
+        let body = {};
+        try { body = textBody ? JSON.parse(textBody) : {}; } catch { body = { raw: textBody.slice(0, 500) }; }
+        if (!response.ok) return fail(`Instantly lead staging returned HTTP ${response.status}: ${String(body?.message || body?.error || textBody).slice(0, 300)}`, response.status >= 500 || response.status === 429);
+        const data = {
+          accepted: true,
+          httpStatus: response.status,
+          email,
+          campaignId: config.instantlyCampaignId,
+          leadId: body?.id || body?.data?.id || null,
+          backgroundJobId: body?.job_id || body?.background_job_id || body?.data?.job_id || null,
+          campaignStatusAtStage: status
+        };
+        return ok(data, { source: "instantly:lead_stage", claim: `Staged ${email} into inactive Instantly campaign without activating or sending`, detail: data });
+      } catch (error) { return fail(`Instantly lead staging failed: ${error.message}`, true); }
+    }
     if (name === "instantly_unread_count") {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
       try {
@@ -307,8 +408,14 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
           const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.results) ? data.results : Array.isArray(body?.items) ? body.items : [];
           const lead = items[0]?.lead ?? items[0];
           if (!lead) return fail(`ReeVIQ lead ${leadId} was not found`);
-          const receipt = { id: lead?.id || leadId, status: lead?.status || null, firstName: lead?.firstName || null, lastName: lead?.lastName || null, email: lead?.email || null, phone: lead?.phone || null, companyName: lead?.companyName || null, jobTitle: lead?.jobTitle || null, industry: lead?.industry || null, location: lead?.location || null, emailVerified: lead?.emailVerified ?? null, phoneVerified: lead?.phoneVerified ?? null };
-          return ok(receipt, { source: "reeviq:lead", claim: `Read ReeVIQ lead ${receipt.id}`, detail: receipt });
+          const receipt = { id: lead?.id || leadId, status: lead?.status || null, firstName: lead?.firstName || null, lastName: lead?.lastName || null, email: lead?.email || null, phone: lead?.phone || null, companyName: lead?.companyName || null, jobTitle: lead?.jobTitle || null, industry: lead?.industry || null, location: lead?.location || null, website: lead?.website || null, emailVerified: lead?.emailVerified ?? null, phoneVerified: lead?.phoneVerified ?? null };
+          if (String(receipt.id) !== leadId) return fail(`ReeVIQ identity mismatch: requested ${leadId}, received ${receipt.id}`);
+          const expectedEmail = String(args.expected_email || "").trim().toLowerCase();
+          if (expectedEmail && String(receipt.email || "").trim().toLowerCase() !== expectedEmail) return fail(`ReeVIQ identity mismatch for ${leadId}: email does not match expected record`);
+          const expectedName = String(args.expected_name || "").trim().toLowerCase();
+          const actualName = `${receipt.firstName || ""} ${receipt.lastName || ""}`.trim().toLowerCase();
+          if (expectedName && actualName !== expectedName) return fail(`ReeVIQ identity mismatch for ${leadId}: name does not match expected record`);
+          return ok(receipt, { source: "reeviq:lead", claim: `Verified ReeVIQ lead identity ${receipt.id}`, detail: receipt });
         }
         return fail("ReeVIQ authorization failed");
       } catch (error) { return fail(`ReeVIQ read failed: ${error.message}`, true); }
@@ -340,6 +447,6 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
 
   const roleDefinitions = config.role === "malik"
     ? definitions
-    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_unread_count"].includes(tool.name));
+    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_preflight", "instantly_stage_lead", "instantly_unread_count"].includes(tool.name));
   return { definitions: roleDefinitions, execute };
 }
