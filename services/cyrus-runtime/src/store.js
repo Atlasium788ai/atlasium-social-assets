@@ -222,11 +222,13 @@ export class CyrusStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const item of items.slice(0, 20)) {
+        const requestedId = item.id?.trim() || randomUUID();
+        const requestedDependency = item.depends_on?.trim() || null;
         const row = {
-          id: item.id?.trim() || randomUUID(),
+          id: `${taskId}:${requestedId}`,
           title: item.title.trim(),
           owner: item.owner.trim(),
-          dependsOn: item.depends_on?.trim() || null,
+          dependsOn: requestedDependency ? `${taskId}:${requestedDependency}` : null,
           nextActionAt: item.next_action_at?.trim() || null,
         };
         insert.run(row.id, taskId, row.title, row.owner, row.dependsOn, row.nextActionAt, now, now);
