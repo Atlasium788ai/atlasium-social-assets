@@ -24,7 +24,7 @@ const socket = new SlackSocketRuntime({ config, store, agent, slackApi: async (m
 const server = http.createServer((request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     const slackConnected = config.slackSocketEnabled ? socket.connected : false;
-    const healthy = Boolean(slackAuth.ok) && (!config.slackSocketEnabled || slackConnected);
+    const healthy = Boolean(slackAuth.ok);
     response.writeHead(healthy ? 200 : 503, { "content-type": "application/json" });
     response.end(JSON.stringify({
       ok: healthy,
@@ -118,7 +118,8 @@ async function relentlessTick() {
         "Malik must inspect live ReeVIQ lead inventory and the configured Instantly campaign/reply state before deciding.",
         "Run Instantly preflight. If the configured campaign is active or running subsequences, pause it and verify it is non-sending, then rerun preflight.",
         "If the inactive campaign contains Cody-specific routing, repair and verify that routing first, then rerun preflight.",
-        "If preflight is safe, select one NEW ReeVIQ lead, re-read it with ID plus expected-email or expected-name identity cross-check, and stage that one lead into Instantly with duplicate protection and verification-on-import.",
+        "Read the configured Instantly campaign lead inventory before staging. Never exceed the pilot cap and never stage a duplicate.",
+        "If preflight is safe and the pilot cap has room, select one NEW ReeVIQ lead, re-read it with ID plus expected-email or expected-name identity cross-check, and stage that one lead into Instantly with duplicate protection and verification-on-import.",
         "Do not activate, resume, send, or launch outbound email from this tick. Repair plus staging into an inactive campaign are the last safe pre-send steps.",
         "Do not use or recommend a Cody-specific booking route.",
         "Require evidence. If a route is blocked, identify the exact blocker and the next safe action."
