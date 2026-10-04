@@ -500,7 +500,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         const response = await fetchImpl(`${base}/leads/list`, {
           method: "POST",
           headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify({ campaign_id: campaignId, limit }),
+          body: JSON.stringify({ campaign: campaignId, in_campaign: true, limit }),
           signal: AbortSignal.timeout(12_000)
         });
         const textBody = await response.text();
@@ -544,7 +544,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         const inventoryResponse = await fetchImpl(`${base}/leads/list`, {
           method: "POST",
           headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify({ campaign_id: campaignId, limit: 100 }),
+          body: JSON.stringify({ campaign: campaignId, in_campaign: true, limit: 100 }),
           signal: AbortSignal.timeout(12_000)
         });
         if (!inventoryResponse.ok) return fail(`Cannot verify Instantly campaign inventory before staging (HTTP ${inventoryResponse.status})`, inventoryResponse.status >= 500 || inventoryResponse.status === 429);
