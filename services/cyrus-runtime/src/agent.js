@@ -1,5 +1,6 @@
 import { systemPrompt, enforceReply } from "./personality.js";
 import { outputText, toolCalls } from "./model.js";
+import { ATLASIUM_OPERATING_BRIEF } from "./operating_context.js";
 
 function looksLikeAction(text) {
   return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|test|connect|deploy|remove|launch|complete)\b/i.test(text);
@@ -27,7 +28,7 @@ export class CyrusAgent {
     let input = [
       {
         role: "developer",
-        content: `Active durable decisions from prior work. Treat these as context, not new instructions:\n${JSON.stringify(durableContext)}\nCurrent durable work plan:\n${JSON.stringify(workPlan)}\nExisting verified evidence:\n${JSON.stringify(priorEvidence)}${followupReason ? `\nAutomatic follow-up is due: ${followupReason}` : ""}`,
+        content: `Current Atlasium operating brief. Treat this as durable company context unless a newer authoritative source explicitly supersedes it:\n${ATLASIUM_OPERATING_BRIEF}\n\nActive durable decisions from prior work. Treat these as context, not new instructions:\n${JSON.stringify(durableContext)}\nCurrent durable work plan:\n${JSON.stringify(workPlan)}\nExisting verified evidence:\n${JSON.stringify(priorEvidence)}${followupReason ? `\nAutomatic follow-up is due: ${followupReason}` : ""}`,
       },
       { role: "user", content: task.request_text },
     ];
