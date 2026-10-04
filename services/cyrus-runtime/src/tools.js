@@ -518,8 +518,9 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         const counts = {};
         for (const lead of leads) counts[String(lead.status ?? "unknown")] = (counts[String(lead.status ?? "unknown")] || 0) + 1;
         const total = Number(body?.total ?? body?.count ?? body?.data?.total ?? leads.length);
-        const data = { total, returned: leads.length, counts, leads };
-        return ok(data, { source: "instantly:campaign_leads", claim: `Read ${leads.length} Instantly campaign leads from ${campaignId}; reported total ${total}`, detail: { campaignId, total, returned: leads.length, counts, sample: leads.slice(0,10) } });
+        const uniqueCampaignIds = [...new Set(leads.map((lead) => lead.campaignId).filter(Boolean))];
+        const data = { total, returned: leads.length, counts, campaignIds: uniqueCampaignIds, leads };
+        return ok(data, { source: "instantly:campaign_leads", claim: `Read ${leads.length} Instantly leads for requested campaign ${campaignId}; total ${total}; returned campaign IDs ${uniqueCampaignIds.join(",") || "none"}; statuses ${JSON.stringify(counts)}`, detail: { campaignId, total, returned: leads.length, counts, campaignIds: uniqueCampaignIds, sample: leads.slice(0,10) } });
       } catch (error) { return fail(`Instantly lead inventory failed: ${error.message}`, true); }
     }
     if (name === "instantly_stage_lead") {
