@@ -16,6 +16,25 @@ if (!slackAuth.ok) throw new Error(`Cyrus Slack authentication failed: ${slackAu
 const model = createOpenAiModel({ apiKey: config.openAiApiKey, model: config.openAiModel, baseUrl: config.openAiBaseUrl });
 const toolbox = createToolbox({ store, config, slackApi });
 const agent = new CyrusAgent({ store, model, toolbox, config });
+
+if (config.role === "malik" && process.env.COMMAND88_PREPARE_PILOT_ON_START === "true") {
+  try {
+    const result = await toolbox.execute("instantly_create_fresh_pilot", {}, { taskId: "system:pilot-bootstrap" });
+    console.info(JSON.stringify({
+      event: "command88_pilot_bootstrap",
+      ok: Boolean(result.ok),
+      campaignId: result.data?.id || null,
+      campaignName: result.data?.name || null,
+      status: result.data?.status ?? null,
+      reused: result.data?.reused ?? null,
+      evidenceClaim: result.evidence?.claim || null,
+      error: result.ok ? null : result.error || null,
+    }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: "command88_pilot_bootstrap", ok: false, error: error.message }));
+  }
+}
+
 const socket = new SlackSocketRuntime({ config, store, agent, slackApi: async (method, payload) => {
   const token = method === "apps.connections.open" ? config.slackAppToken : config.slackBotToken;
   return createSlackApi(token)(method, payload);
