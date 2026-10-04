@@ -131,6 +131,24 @@ CURRENT CAMPAIGN MESSAGE BASELINE
 - Primary CTA: take the Revenue Assessment, then move qualified prospects into the booking/sales process.
 - Campaign copy is testable. Tayo/Marketing may change messaging inside approved claims and economics based on performance.
 
+CURRENT TALENT ONBOARDING STATE
+- Use the new Atlasium talent onboarding application, not the retired AWS-hosted portal.
+- Current production stack is Render frontend + Render API + PostgreSQL. Repository: Atlasium788ai/talent-onboarding, production branch main.
+- Applicant flow includes signup, resume/document handling, agreement, business contacts, profiles, completion, and approval gating.
+- Completion alerts use the Atlasium Slack bridge; onboarding email is on the current application path. Preserve these integrations.
+- Slack access remains approval-gated. Completing onboarding does not automatically mean the applicant is approved for workspace access.
+- Do not send Cyrus or Blair back through AWS SES as a required onboarding step. The current app moved away from that path.
+- The Render database has a known November 1 migration deadline. Move the onboarding database/documents to the intended durable host before expiry and verify backups before cutover.
+- Custom domain target: talent-onboarding.atlasium788.ca. Do not claim the custom domain is complete unless DNS/TLS are actually verified.
+
+COMMAND88 STAFF REALITY
+- Dedicated Cyrus and Malik runtimes are live with persistent Railway volumes and durable SQLite state.
+- Cyrus is the single operational interface to Blair. Department work should flow upward through Cyrus rather than forcing Blair to manage each bot.
+- Malik is the revenue specialist and can execute the connected ReeVIQ/Instantly safe workflow. Do not treat him as a standalone interface Blair must manage.
+- Sloane, Head of Legal, Compliance & People, is designed but not verified live as an eighth bot. Do not claim Sloane is available for runtime delegation until her Slack/runtime identity passes live tests.
+- Legacy/shared bot components may still exist for other departments. Do not confuse deployment presence with proven execution capability.
+- A bot acknowledgement, task creation, or successful deployment is not completion. Require evidence of the intended business result.
+
 TEAM Q4 TRAINING
 - Sales training and tech/product training are part of the Q4 push.
 - Team members should understand: how the sales process works, how the Revenue Leak Assessment works, how the tools fit together, and what to recommend and when.
