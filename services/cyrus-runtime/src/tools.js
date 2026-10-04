@@ -150,13 +150,13 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     {
       type: "function",
       name: "instantly_campaign_leads",
-      description: "Read the configured Instantly campaign lead inventory for duplicate and pilot-cap checks. Read-only.",
-      parameters: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 100 } }, additionalProperties: false },
+      description: "Read an Instantly campaign lead inventory for duplicate and pilot-cap checks. Defaults to the configured campaign. Read-only.",
+      parameters: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 100 }, campaign_id: { type: "string" } }, additionalProperties: false },
     },
     {
       type: "function",
       name: "instantly_stage_lead",
-      description: "Stage one lead into the configured Instantly campaign without activating or sending. Refuses active campaigns and stale Cody-specific routing, uses duplicate protection, and requests verification on import.",
+      description: "Stage one lead into an inactive Instantly campaign without activating or sending. Defaults to the configured campaign; campaign_id may target a verified clean pilot. Refuses active campaigns and stale Cody-specific routing, uses duplicate protection, and requests verification on import.",
       parameters: {
         type: "object",
         properties: {
@@ -165,7 +165,8 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
           last_name: { type: "string" },
           company_name: { type: "string" },
           website: { type: "string" },
-          personalization: { type: "string" }
+          personalization: { type: "string" },
+          campaign_id: { type: "string" }
         },
         required: ["email"],
         additionalProperties: false
@@ -315,7 +316,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
       if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
       try {
-        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(campaignId)}`;
         const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
         if (!response.ok) return fail(`Instantly returned HTTP ${response.status}`, response.status >= 500);
         const body = await response.json();
@@ -327,7 +328,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
       if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
       try {
-        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(campaignId)}`;
         const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
         if (!response.ok) return fail(`Instantly returned HTTP ${response.status}`, response.status >= 500);
         const body = await response.json();
@@ -351,7 +352,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     if (name === "instantly_pause_campaign") {
       if (!config.instantlyApiKey || !config.instantlyCampaignId) return fail("Instantly campaign access is not configured");
       const base = config.instantlyBaseUrl.replace(/\/$/, "");
-      const url = `${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+      const url = `${base}/campaigns/${encodeURIComponent(campaignId)}`;
       const headers = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" };
       try {
         const beforeRes = await fetchImpl(url, { headers, signal: AbortSignal.timeout(10000) });
@@ -394,7 +395,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       };
       try {
         const base = config.instantlyBaseUrl.replace(/\/$/, "");
-        const getUrl = `${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+        const getUrl = `${base}/campaigns/${encodeURIComponent(campaignId)}`;
         const response = await fetchImpl(getUrl, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
         if (!response.ok) return fail(`Instantly campaign read returned HTTP ${response.status}`, response.status >= 500);
         const campaign = await response.json();
@@ -442,7 +443,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
           }
         }
 
-        const sourceRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`, { headers, signal: AbortSignal.timeout(10000) });
+        const sourceRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}`, { headers, signal: AbortSignal.timeout(10000) });
         if (!sourceRes.ok) return fail(`Source campaign read returned HTTP ${sourceRes.status}`, sourceRes.status >= 500);
         const source = await sourceRes.json();
         if (/rep=cody|\bcody\b/i.test(JSON.stringify(source?.sequences || []))) return fail("Source campaign copy still contains Cody-specific routing");
@@ -492,12 +493,14 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     if (name === "instantly_campaign_leads") {
       if (!config.instantlyApiKey || !config.instantlyCampaignId) return fail("Instantly campaign access is not configured");
       const limit = Math.max(1, Math.min(100, Number(args.limit || 100)));
+      const campaignId = String(args.campaign_id || config.instantlyCampaignId || "").trim();
+      if (!campaignId) return fail("Instantly campaign ID is not configured");
       try {
         const base = config.instantlyBaseUrl.replace(/\/$/, "");
         const response = await fetchImpl(`${base}/leads/list`, {
           method: "POST",
           headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify({ campaign_id: config.instantlyCampaignId, limit }),
+          body: JSON.stringify({ campaign_id: campaignId, limit }),
           signal: AbortSignal.timeout(12_000)
         });
         const textBody = await response.text();
@@ -516,17 +519,18 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         for (const lead of leads) counts[String(lead.status ?? "unknown")] = (counts[String(lead.status ?? "unknown")] || 0) + 1;
         const total = Number(body?.total ?? body?.count ?? body?.data?.total ?? leads.length);
         const data = { total, returned: leads.length, counts, leads };
-        return ok(data, { source: "instantly:campaign_leads", claim: `Read ${leads.length} Instantly campaign leads; reported total ${total}`, detail: { total, returned: leads.length, counts, sample: leads.slice(0,10) } });
+        return ok(data, { source: "instantly:campaign_leads", claim: `Read ${leads.length} Instantly campaign leads from ${campaignId}; reported total ${total}`, detail: { campaignId, total, returned: leads.length, counts, sample: leads.slice(0,10) } });
       } catch (error) { return fail(`Instantly lead inventory failed: ${error.message}`, true); }
     }
     if (name === "instantly_stage_lead") {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
-      if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
+      const campaignId = String(args.campaign_id || config.instantlyCampaignId || "").trim();
+      if (!campaignId) return fail("Instantly campaign ID is not configured");
       const email = String(args.email || "").trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail("A valid lead email is required");
       try {
         const base = config.instantlyBaseUrl.replace(/\/$/, "");
-        const campaignResponse = await fetchImpl(`${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`, {
+        const campaignResponse = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}`, {
           headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" },
           signal: AbortSignal.timeout(10_000)
         });
@@ -539,7 +543,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         const inventoryResponse = await fetchImpl(`${base}/leads/list`, {
           method: "POST",
           headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify({ campaign_id: config.instantlyCampaignId, limit: 100 }),
+          body: JSON.stringify({ campaign_id: campaignId, limit: 100 }),
           signal: AbortSignal.timeout(12_000)
         });
         if (!inventoryResponse.ok) return fail(`Cannot verify Instantly campaign inventory before staging (HTTP ${inventoryResponse.status})`, inventoryResponse.status >= 500 || inventoryResponse.status === 429);
@@ -547,14 +551,14 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         const existingItems = Array.isArray(inventoryBody) ? inventoryBody : Array.isArray(inventoryBody?.items) ? inventoryBody.items : Array.isArray(inventoryBody?.data) ? inventoryBody.data : Array.isArray(inventoryBody?.leads) ? inventoryBody.leads : Array.isArray(inventoryBody?.data?.items) ? inventoryBody.data.items : [];
         const duplicate = existingItems.find((lead) => String(lead?.email || "").trim().toLowerCase() === email);
         if (duplicate) {
-          const data = { accepted: false, duplicate: true, email, existingLeadId: duplicate?.id || null, campaignId: config.instantlyCampaignId };
+          const data = { accepted: false, duplicate: true, email, existingLeadId: duplicate?.id || null, campaignId };
           return ok(data, { source: "instantly:lead_stage", claim: `Skipped duplicate ${email}; lead already exists in configured campaign`, detail: data });
         }
         const pilotCap = Math.max(1, Number(process.env.INSTANTLY_PILOT_CAP || 8));
         const reportedTotal = Number(inventoryBody?.total ?? inventoryBody?.count ?? inventoryBody?.data?.total ?? existingItems.length);
         if (reportedTotal >= pilotCap || existingItems.length >= pilotCap) return fail(`Pilot cap reached: campaign already has at least ${Math.max(reportedTotal, existingItems.length)} leads (cap ${pilotCap})`);
         const payload = {
-          campaign: config.instantlyCampaignId,
+          campaign: campaignId,
           email,
           first_name: String(args.first_name || "").trim() || undefined,
           last_name: String(args.last_name || "").trim() || undefined,
@@ -580,12 +584,12 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
           accepted: true,
           httpStatus: response.status,
           email,
-          campaignId: config.instantlyCampaignId,
+          campaignId,
           leadId: body?.id || body?.data?.id || null,
           backgroundJobId: body?.job_id || body?.background_job_id || body?.data?.job_id || null,
           campaignStatusAtStage: status
         };
-        return ok(data, { source: "instantly:lead_stage", claim: `Staged ${email} into inactive Instantly campaign without activating or sending`, detail: data });
+        return ok(data, { source: "instantly:lead_stage", claim: `Staged ${email} into inactive Instantly campaign ${campaignId} without activating or sending`, detail: data });
       } catch (error) { return fail(`Instantly lead staging failed: ${error.message}`, true); }
     }
     if (name === "instantly_unread_count") {
