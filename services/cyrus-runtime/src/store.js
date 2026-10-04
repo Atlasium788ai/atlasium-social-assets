@@ -156,6 +156,33 @@ export class CyrusStore {
       now,
       now
     );
+    seedOperatingItem.run(
+      "instantly-import-reconciliation",
+      "Resolve Command88 Instantly accepted-but-not-visible lead imports",
+      "Malik",
+      1,
+      "Reconcile the draft pilot inventory before further staging. Do not retry accepted-but-not-visible emails or infer capacity from the visible count alone.",
+      now,
+      now
+    );
+    seedOperatingItem.run(
+      "q4-revenue-leadership",
+      "Operate Q4 revenue without routine dependence on Blair",
+      "Tayo + Cody + Cyrus",
+      1,
+      "Tayo drives Q4 revenue execution inside approved economics; Cody owns live sales conversion; Cyrus keeps the operating system moving and escalates only true executive exceptions.",
+      now,
+      now
+    );
+    seedOperatingItem.run(
+      "q4-team-enablement",
+      "Complete sales and product training needed for aggressive Q4 execution",
+      "Cyrus + Clara + department owners",
+      3,
+      "Ensure the team understands the Revenue Leak Assessment, sales process, tools, offer-selection logic, and current Q4 campaign periods.",
+      now,
+      now
+    );
 
     const legacy = this.db.prepare("SELECT * FROM reply_outbox WHERE status='pending'").all();
     const migrateReply = this.db.prepare(`
