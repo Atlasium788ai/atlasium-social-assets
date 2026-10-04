@@ -54,12 +54,50 @@ const followupTimer = setInterval(() => {
   socket.processDueFollowups().catch((error) => console.error(`${config.name} automatic follow-up failed`, { message: error.message }));
 }, config.followupPollMs);
 followupTimer.unref();
+
+const autonomyIntervalMs = Math.max(60_000, Number(process.env.CYRUS_AUTONOMY_INTERVAL_MS || 300_000));
+let autonomyBusy = false;
+async function runAutonomyTick() {
+  if (config.role !== "cyrus" || autonomyBusy) return;
+  const health = store.health();
+  if (health.openTasks > 0) {
+    console.info(JSON.stringify({ event: "autonomy_tick_skipped", reason: "open_tasks", openTasks: health.openTasks }));
+    return;
+  }
+  autonomyBusy = true;
+  const bucket = Math.floor(Date.now() / autonomyIntervalMs);
+  const sourceEventId = `autonomy:${bucket}`;
+  try {
+    const existing = store.getTaskBySourceEvent(sourceEventId);
+    if (existing) return;
+    const { task } = store.createTask({
+      sourceEventId,
+      requesterId: "system:command88",
+      channelId: "internal:autonomy",
+      requestText: "Advance Atlasium revenue now. Choose the highest-value safe next action that can be verified with current tools. For revenue work, delegate a concrete objective to Malik and require evidence. Do not contact prospects, customers, or staff, launch campaigns, spend money, change pricing, sign contracts, delete data, or deploy production. If outbound is not explicitly safe and verified, work through the last safe pre-send step and record the exact blocker. Finish with evidence or a precise blocker, then identify the next action.",
+    });
+    console.info(JSON.stringify({ event: "autonomy_tick_start", taskId: task.id, intervalMs: autonomyIntervalMs }));
+    const reply = await agent.handleTask(task);
+    const settled = store.getTask(task.id);
+    const evidenceCount = store.getEvidence(task.id).length;
+    console.info(JSON.stringify({ event: "autonomy_tick_result", taskId: task.id, status: settled.status, evidenceCount, reply: String(reply || "").slice(0, 500) }));
+  } catch (error) {
+    console.error("Cyrus autonomy tick failed", { message: error.message });
+  } finally {
+    autonomyBusy = false;
+  }
+}
+const autonomyTimer = setInterval(() => void runAutonomyTick(), autonomyIntervalMs);
+autonomyTimer.unref();
+setTimeout(() => void runAutonomyTick(), 20_000).unref();
+
 if (config.slackSocketEnabled) socket.start();
 
 function shutdown(signal) {
   console.info(`${config.name} stopping on ${signal}`);
   clearInterval(outboxTimer);
   clearInterval(followupTimer);
+  clearInterval(autonomyTimer);
   socket.stop();
   let closed = 0;
   const onClose = () => { if (++closed === 2) { store.close(); process.exit(0); } };
