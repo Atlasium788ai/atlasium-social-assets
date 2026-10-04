@@ -65,6 +65,15 @@ export class CyrusAgent {
         try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
         let result = await this.toolbox.execute(call.name, args, context);
         this.store.addStep(task.id, { attempt, toolName: call.name, status: result.ok ? "ok" : "failed", detail: result });
+        console.info(JSON.stringify({
+          event: "tool_result",
+          role: this.config.role,
+          taskId: task.id,
+          tool: call.name,
+          ok: Boolean(result.ok),
+          evidenceSource: result.evidence?.source || null,
+          error: result.ok ? null : result.error || null,
+        }));
         if (!result.ok && result.retryable) {
           const firstFailure = result;
           result = await this.toolbox.execute(call.name, args, context);
