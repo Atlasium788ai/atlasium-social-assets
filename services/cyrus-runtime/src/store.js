@@ -224,11 +224,13 @@ export class CyrusStore {
       for (const item of items.slice(0, 20)) {
         const requestedId = item.id?.trim() || randomUUID();
         const requestedDependency = item.depends_on?.trim() || null;
+        const collision = this.db.prepare("SELECT 1 FROM work_items WHERE id=? LIMIT 1").get(requestedId);
+        const actualId = collision ? `${requestedId}:${randomUUID()}` : requestedId;
         const row = {
-          id: `${taskId}:${requestedId}`,
+          id: actualId,
           title: item.title.trim(),
           owner: item.owner.trim(),
-          dependsOn: requestedDependency ? `${taskId}:${requestedDependency}` : null,
+          dependsOn: requestedDependency,
           nextActionAt: item.next_action_at?.trim() || null,
         };
         insert.run(row.id, taskId, row.title, row.owner, row.dependsOn, row.nextActionAt, now, now);
