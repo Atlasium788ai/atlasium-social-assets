@@ -48,5 +48,10 @@ export function loadConfig(env = process.env) {
     httpReadAllowlist: csv(env.HTTP_READ_ALLOWLIST),
     agentPeers: jsonObject(env.AGENT_PEERS_JSON, "AGENT_PEERS_JSON"),
     followupPollMs: Math.max(5_000, Number(env.FOLLOWUP_POLL_MS || 15_000)),
+    reeviqBaseUrl: env.REEVIQ_BASE_URL?.trim() || "",
+    reeviqApiKeys: [env.REEVIQ_API_KEY?.trim() || "", env.REEVIQ_WRITE_API_KEY?.trim() || ""].filter((value, index, all) => value && all.indexOf(value) === index),
+    instantlyApiKey: env.INSTANTLY_API_KEY?.trim() || "",
+    instantlyBaseUrl: env.INSTANTLY_BASE_URL?.trim() || "https://api.instantly.ai/api/v2",
+    instantlyCampaignId: env.INSTANTLY_CAMPAIGN_ID?.trim() || "",
   };
 }
