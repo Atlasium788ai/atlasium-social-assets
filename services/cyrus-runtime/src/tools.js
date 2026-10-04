@@ -161,6 +161,12 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "instantly_pause_campaign",
+      description: "Put the configured Instantly campaign into a non-sending state and verify the result.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      type: "function",
       name: "instantly_repair_cody_route",
       description: "Repair stale Cody-specific routing inside the configured inactive Instantly campaign sequence. Removes rep=cody URL routing and replaces Cody references with team-neutral wording, then verifies the repair. Never activates or sends.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -329,6 +335,28 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         };
         return ok(data, { source: "instantly:preflight", claim: `Instantly preflight: ${data.name || data.id} is ${data.statusLabel}; safeToStage=${data.safeToStage}; staleCodyRoute=${staleCodyRoute}`, detail: data });
       } catch (error) { return fail(`Instantly preflight failed: ${error.message}`, true); }
+    }
+    if (name === "instantly_pause_campaign") {
+      if (!config.instantlyApiKey || !config.instantlyCampaignId) return fail("Instantly campaign access is not configured");
+      const base = config.instantlyBaseUrl.replace(/\/$/, "");
+      const url = `${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+      const headers = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" };
+      try {
+        const beforeRes = await fetchImpl(url, { headers, signal: AbortSignal.timeout(10000) });
+        if (!beforeRes.ok) return fail(`Instantly campaign read returned HTTP ${beforeRes.status}`);
+        const before = await beforeRes.json();
+        const beforeStatus = Number(before.status);
+        if ([0,2,3].includes(beforeStatus)) return ok({ beforeStatus, afterStatus: beforeStatus, changed: false }, { source: "instantly:campaign_pause", claim: `Campaign already non-sending at status ${beforeStatus}`, detail: { beforeStatus } });
+        if (![1,4].includes(beforeStatus)) return fail(`Unexpected campaign status ${beforeStatus}`);
+        const stopRes = await fetchImpl(`${url}/pause`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, signal: AbortSignal.timeout(12000) });
+        if (!stopRes.ok) return fail(`Instantly pause returned HTTP ${stopRes.status}`, stopRes.status >= 500 || stopRes.status === 429);
+        const verifyRes = await fetchImpl(url, { headers, signal: AbortSignal.timeout(10000) });
+        if (!verifyRes.ok) return fail(`Instantly pause verification returned HTTP ${verifyRes.status}`);
+        const after = await verifyRes.json();
+        const afterStatus = Number(after.status);
+        if ([1,4].includes(afterStatus)) return fail(`Campaign remained in sending state ${afterStatus}`);
+        return ok({ beforeStatus, afterStatus, changed: true }, { source: "instantly:campaign_pause", claim: `Campaign paused and verified non-sending at status ${afterStatus}`, detail: { beforeStatus, afterStatus } });
+      } catch (error) { return fail(`Instantly pause failed: ${error.message}`, true); }
     }
     if (name === "instantly_repair_cody_route") {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
@@ -517,6 +545,6 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
 
   const roleDefinitions = config.role === "malik"
     ? definitions
-    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_preflight", "instantly_repair_cody_route", "instantly_stage_lead", "instantly_unread_count"].includes(tool.name));
+    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_preflight", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_stage_lead", "instantly_unread_count"].includes(tool.name));
   return { definitions: roleDefinitions, execute };
 }
