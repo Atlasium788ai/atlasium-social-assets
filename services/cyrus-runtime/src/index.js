@@ -116,7 +116,8 @@ async function relentlessTick() {
         "Money first. Do not wait for Blair.",
         "Delegate the live revenue inspection and next safe executable revenue action to Malik now.",
         "Malik must inspect live ReeVIQ lead inventory and the configured Instantly campaign/reply state before deciding.",
-        "Do not send or launch outbound email from this tick. Inspect and prepare through the last safe pre-send step.",
+        "Run Instantly preflight. If the configured campaign is inactive and contains no Cody-specific routing, select one NEW ReeVIQ lead, re-read it with identity cross-check, and stage that one lead into Instantly with duplicate protection and verification-on-import.",
+        "Do not activate, resume, send, or launch outbound email from this tick. Staging into an inactive campaign is the last safe pre-send step.",
         "Do not use or recommend a Cody-specific booking route.",
         "Require evidence. If a route is blocked, identify the exact blocker and the next safe action."
       ].join(" "),
