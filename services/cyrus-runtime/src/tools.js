@@ -304,13 +304,13 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       if (!config.reeviqBaseUrl) return fail("ReeVIQ base URL is not configured");
       if (!config.reeviqApiKeys?.length) return fail("ReeVIQ API key is not configured");
       const isList = name === "reeviq_leads";
-      const url = isList
-        ? new URL("/v1/xipherx-lead/assigned", config.reeviqBaseUrl)
-        : new URL(`/v1/xipherx-lead/${encodeURIComponent(String(args.lead_id || ""))}`, config.reeviqBaseUrl);
+      const base = String(config.reeviqBaseUrl).replace(/\/$/, "");
+      let url;
       if (isList) {
-        url.searchParams.set("limit", String(Math.max(1, Math.min(100, Number(args.limit || 25)))));
-        if (args.status || args.status === "") url.searchParams.set("status", String(args.status || "NEW"));
-        else url.searchParams.set("status", "NEW");
+        const qs = new URLSearchParams({ limit: String(Math.max(1, Math.min(100, Number(args.limit || 25)))), status: String(args.status || "NEW") });
+        url = `${base}/v1/xipherx-lead/assigned?${qs.toString()}`;
+      } else {
+        url = `${base}/v1/xipherx-lead/${encodeURIComponent(String(args.lead_id || ""))}`;
       }
       let lastStatus = 0;
       try {
