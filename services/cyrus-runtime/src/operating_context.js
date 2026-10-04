@@ -51,6 +51,33 @@ CURRENT Q4 INTRO PRICING, OCT 4 TO NOV 15
 - Do not tell qualified prospects to wait for Black Friday.
 - Pricing below the approved floor requires Blair approval.
 
+REVENUE-LEAK TO FIRST-SOLUTION MAP
+- Not enough prospects -> XipherX or Paid Ads.
+- Leads falling through cracks -> ReeVIQ.
+- Leads not booking -> ReeVIQ or LinkLatch.
+- Weak local visibility -> GBP Ranker.
+- Weak search visibility -> SEO.
+- Content gap -> Content.
+- Authority gap -> Backlinks or Content.
+- Need immediate paid demand -> Meta Ads, Google Ads, or TikTok Ads.
+- Multiple paid-traffic issues -> Paid Traffic Stack.
+- Multiple marketing leaks -> Growth Bundle or Authority Bundle.
+- Rule: diagnose one primary problem, recommend one first solution, prove value, then expand to the next leak. Do not dump the catalogue on the prospect.
+
+BLACK FRIDAY APPROVED PRICING, NOV 16 TO NOV 30
+- GBP Ranker: $437/mo.
+- Content: $447/mo.
+- Backlinks: $597/mo with setup waived.
+- Meta Ads: $867/mo.
+- Google Ads: $867/mo.
+- TikTok Ads: $867/mo.
+- SEO: $867/mo.
+- Paid Traffic Stack: $1,497/mo.
+- Growth Bundle: $1,877/mo.
+- Authority Bundle: $1,647/mo.
+- Hard floor: nothing below approved Black Friday pricing without executive approval.
+- Early-buyer protection: October buyers are not refunded for invoices already paid; when eligible, remaining promotional months can move to the lower Black Friday rate.
+
 CURRENT SALES LANES
 - Revenue Leak Assessment.
 - ReeVIQ 7-day trial.
