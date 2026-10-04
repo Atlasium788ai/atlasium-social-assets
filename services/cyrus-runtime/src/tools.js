@@ -161,6 +161,12 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "instantly_repair_cody_route",
+      description: "Repair stale Cody-specific routing inside the configured inactive Instantly campaign sequence. Removes rep=cody URL routing and replaces Cody references with team-neutral wording, then verifies the repair. Never activates or sends.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      type: "function",
       name: "instantly_unread_count",
       description: "Read the current Instantly unread reply count. Read-only.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -324,6 +330,61 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         return ok(data, { source: "instantly:preflight", claim: `Instantly preflight: ${data.name || data.id} is ${data.statusLabel}; safeToStage=${data.safeToStage}; staleCodyRoute=${staleCodyRoute}`, detail: data });
       } catch (error) { return fail(`Instantly preflight failed: ${error.message}`, true); }
     }
+    if (name === "instantly_repair_cody_route") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
+      const cleanString = (value) => {
+        let out = String(value);
+        out = out
+          .replace(/([?&])rep=cody(?=(&|#|$))/gi, (match, sep, tail) => tail === "&" ? sep : "")
+          .replace(/\?&/g, "?")
+          .replace(/[?&]$/g, "");
+        out = out
+          .replace(/book(?:ing)?\s+(?:a\s+call\s+)?with\s+cody/gi, "book a time with our team")
+          .replace(/schedule(?:d|ing)?\s+(?:a\s+call\s+)?with\s+cody/gi, "schedule a time with our team")
+          .replace(/meet(?:ing)?\s+with\s+cody/gi, "meet with our team")
+          .replace(/\bcody\b/gi, "our team");
+        return out;
+      };
+      const transform = (value) => {
+        if (typeof value === "string") return cleanString(value);
+        if (Array.isArray(value)) return value.map(transform);
+        if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, transform(v)]));
+        return value;
+      };
+      try {
+        const base = config.instantlyBaseUrl.replace(/\/$/, "");
+        const getUrl = `${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+        const response = await fetchImpl(getUrl, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+        if (!response.ok) return fail(`Instantly campaign read returned HTTP ${response.status}`, response.status >= 500);
+        const campaign = await response.json();
+        const status = Number(campaign.status);
+        if (![0, 2, 3].includes(status)) return fail(`Refusing route repair while campaign can send or has unknown status ${status}`);
+        if (!Array.isArray(campaign.sequences) || !campaign.sequences.length) return fail("Campaign has no editable sequence payload");
+        const before = JSON.stringify(campaign.sequences);
+        if (!/rep=cody|\bcody\b/i.test(before)) {
+          return ok({ changed: false, verified: true, status }, { source: "instantly:route_repair", claim: "Instantly campaign already has no Cody-specific routing", detail: { changed: false, status } });
+        }
+        const sequences = transform(campaign.sequences);
+        const after = JSON.stringify(sequences);
+        if (/rep=cody|\bcody\b/i.test(after)) return fail("Route repair could not remove all Cody-specific references; refusing partial update");
+        const patchResponse = await fetchImpl(getUrl, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ sequences }),
+          signal: AbortSignal.timeout(15_000)
+        });
+        const patchText = await patchResponse.text();
+        if (!patchResponse.ok) return fail(`Instantly route repair returned HTTP ${patchResponse.status}: ${patchText.slice(0, 300)}`, patchResponse.status >= 500 || patchResponse.status === 429);
+        const verifyResponse = await fetchImpl(getUrl, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+        if (!verifyResponse.ok) return fail(`Instantly repair verification returned HTTP ${verifyResponse.status}`, verifyResponse.status >= 500);
+        const verifiedCampaign = await verifyResponse.json();
+        const remaining = /rep=cody|\bcody\b/i.test(JSON.stringify(verifiedCampaign.sequences || []));
+        if (remaining) return fail("Instantly route repair verification still found Cody-specific routing");
+        const data = { changed: true, verified: true, campaignId: config.instantlyCampaignId, status };
+        return ok(data, { source: "instantly:route_repair", claim: "Removed and verified stale Cody-specific routing from inactive Instantly campaign", detail: data });
+      } catch (error) { return fail(`Instantly route repair failed: ${error.message}`, true); }
+    }
     if (name === "instantly_stage_lead") {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
       if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
@@ -447,6 +508,6 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
 
   const roleDefinitions = config.role === "malik"
     ? definitions
-    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_preflight", "instantly_stage_lead", "instantly_unread_count"].includes(tool.name));
+    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_preflight", "instantly_repair_cody_route", "instantly_stage_lead", "instantly_unread_count"].includes(tool.name));
   return { definitions: roleDefinitions, execute };
 }
