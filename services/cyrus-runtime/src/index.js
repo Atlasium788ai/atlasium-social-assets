@@ -15,7 +15,7 @@ const slackAuth = await slackApi("auth.test");
 if (!slackAuth.ok) throw new Error(`Cyrus Slack authentication failed: ${slackAuth.error || "unknown error"}`);
 const model = createOpenAiModel({ apiKey: config.openAiApiKey, model: config.openAiModel, baseUrl: config.openAiBaseUrl });
 const toolbox = createToolbox({ store, config, slackApi });
-const agent = new CyrusAgent({ store, model, toolbox, config });
+const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: config.role === "malik" ? 16 : 10 });
 
 if (config.role === "malik" && process.env.COMMAND88_PREPARE_PILOT_ON_START === "true") {
   try {
@@ -139,7 +139,9 @@ async function relentlessTick() {
         "If the inactive campaign contains Cody-specific routing, repair and verify that routing first, then rerun preflight.",
         "Read the configured Instantly campaign lead inventory before staging. Never exceed the pilot cap and never stage a duplicate.",
         "If the configured campaign is already at or above the pilot cap, create or reuse the clean non-sending Command88 pilot campaign, then use that returned campaign ID as the target for inventory checks and staging. Do not add more leads to the full legacy campaign.",
-        "Select one NEW ReeVIQ lead, re-read it with ID plus expected-email or expected-name identity cross-check, then stage that one lead into the safe target campaign with duplicate protection and verification-on-import.",
+        "Select at most one NEW ReeVIQ lead, re-read it with ID plus expected-email identity cross-check, then stage only that one lead into the safe target campaign with duplicate protection and verification-on-import.",
+        "After one staging attempt, do not choose a second lead in the same tick. If Instantly accepted the staging but the lead is not yet visible in inventory, schedule a follow-up instead of staging another lead.",
+        "Do not spend turns on redundant reads. Once campaign safety and target inventory are known, move directly to one exact-email identity check and one staging attempt.",
         "Do not activate, resume, send, or launch outbound email from this tick. Repair plus staging into an inactive campaign are the last safe pre-send steps.",
         "Do not use or recommend a Cody-specific booking route.",
         "Require evidence. If a route is blocked, identify the exact blocker and the next safe action."
