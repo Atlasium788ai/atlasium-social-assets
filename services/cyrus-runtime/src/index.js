@@ -93,10 +93,53 @@ setTimeout(() => void runAutonomyTick(), 20_000).unref();
 
 if (config.slackSocketEnabled) socket.start();
 
+let relentlessRunning = false;
+async function relentlessTick() {
+  if (config.role !== "cyrus" || !config.proactiveEnabled || relentlessRunning) return;
+  relentlessRunning = true;
+  const bucket = Math.floor(Date.now() / config.relentlessIntervalMs);
+  const sourceEventId = `relentless:${bucket}`;
+  try {
+    const { task, created } = store.createTask({
+      sourceEventId,
+      requesterId: "system:relentless",
+      channelId: "internal:relentless",
+      requestText: [
+        "RELENTLESS REVENUE ENGINE TICK.",
+        "Money first. Do not wait for Blair.",
+        "Delegate the live revenue inspection and next safe executable revenue action to Malik now.",
+        "Malik must inspect live ReeVIQ lead inventory and the configured Instantly campaign/reply state before deciding.",
+        "Do not send or launch outbound email from this tick. Inspect and prepare through the last safe pre-send step.",
+        "Do not use or recommend a Cody-specific booking route.",
+        "Require evidence. If a route is blocked, identify the exact blocker and the next safe action."
+      ].join(" "),
+    });
+    if (!created) return;
+    console.info(JSON.stringify({ event: "relentless_engine_tick_start", taskId: task.id, sourceEventId, intervalMs: config.relentlessIntervalMs }));
+    const reply = await agent.handleTask(task);
+    const settled = store.getTask(task.id);
+    const evidenceCount = store.getEvidence(task.id).length;
+    console.info(JSON.stringify({ event: "relentless_engine_tick", taskId: task.id, sourceEventId, status: settled.status, evidenceCount, reply: String(reply || "").slice(0, 500) }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: "relentless_engine_tick_failed", sourceEventId, error: error.message }));
+  } finally {
+    relentlessRunning = false;
+  }
+}
+const relentlessTimer = config.role === "cyrus" && config.proactiveEnabled
+  ? setInterval(() => relentlessTick(), config.relentlessIntervalMs)
+  : null;
+relentlessTimer?.unref();
+if (relentlessTimer) {
+  console.info(JSON.stringify({ event: "relentless_engine_started", intervalMs: config.relentlessIntervalMs }));
+  relentlessTick();
+}
+
 function shutdown(signal) {
   console.info(`${config.name} stopping on ${signal}`);
   clearInterval(outboxTimer);
   clearInterval(followupTimer);
+  if (relentlessTimer) clearInterval(relentlessTimer);
   clearInterval(autonomyTimer);
   socket.stop();
   let closed = 0;
