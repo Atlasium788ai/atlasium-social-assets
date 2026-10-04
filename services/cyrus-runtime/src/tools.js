@@ -35,6 +35,32 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "list_operating_plan",
+      description: "Read the durable Atlasium company-level operating plan: active priorities, owners, blockers, next actions, and evidence summaries.",
+      parameters: { type: "object", properties: { include_completed: { type: "boolean" } }, additionalProperties: false },
+    },
+    {
+      type: "function",
+      name: "upsert_operating_item",
+      description: "Cyrus only: create or update one durable company-level priority/open loop when its owner, status, blocker, or next action materially changes.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          title: { type: "string" },
+          owner: { type: "string" },
+          status: { type: "string", enum: ["planned","running","blocked","completed"] },
+          priority: { type: "integer", minimum: 1, maximum: 5 },
+          next_action: { type: "string" },
+          next_action_at: { type: "string" },
+          evidence_summary: { type: "string" }
+        },
+        required: ["id","title","owner","status"],
+        additionalProperties: false
+      },
+    },
+    {
+      type: "function",
       name: "create_work_plan",
       description: "Break the current objective into ordered work items with explicit owners and dependencies.",
       parameters: {
@@ -219,6 +245,25 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     if (name === "system_health") {
       const health = store.health();
       return ok(health, { source: `${config.role}_runtime`, claim: "Durable store health check passed", detail: health });
+    }
+    if (name === "list_operating_plan") {
+      return ok(store.getOperatingItems({ includeCompleted: Boolean(args.include_completed) }));
+    }
+    if (name === "upsert_operating_item") {
+      if (config.role !== "cyrus") return fail("Only Cyrus can update the company operating plan");
+      if (!args.id?.trim() || !args.title?.trim() || !args.owner?.trim()) return fail("Operating item needs id, title, and owner");
+      const row = store.upsertOperatingItem({
+        id: args.id.trim(),
+        title: args.title.trim(),
+        owner: args.owner.trim(),
+        status: args.status || "running",
+        priority: Math.max(1, Math.min(5, Number(args.priority || 3))),
+        nextAction: args.next_action?.trim() || null,
+        nextActionAt: args.next_action_at?.trim() || null,
+        evidenceSummary: args.evidence_summary?.trim() || null,
+        sourceTaskId: context.taskId,
+      });
+      return ok(row, { source: "cyrus:operating_plan", claim: `Operating item updated: ${row.id} -> ${row.status}`, detail: row });
     }
     if (name === "http_read") {
       let url;
