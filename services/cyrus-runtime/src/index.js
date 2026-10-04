@@ -138,8 +138,8 @@ async function relentlessTick() {
         "Run Instantly preflight. If the configured campaign is active or running subsequences, pause it and verify it is non-sending, then rerun preflight.",
         "If the inactive campaign contains Cody-specific routing, repair and verify that routing first, then rerun preflight.",
         "Read the configured Instantly campaign lead inventory before staging. Never exceed the pilot cap and never stage a duplicate.",
-        "If the configured campaign is already at or above the pilot cap, create or reuse the clean non-sending Command88 pilot campaign and return its campaign ID as evidence. Do not add more leads to the full legacy campaign.",
-        "If the configured campaign has room and preflight is safe, select one NEW ReeVIQ lead, re-read it with ID plus expected-email or expected-name identity cross-check, and stage that one lead into Instantly with duplicate protection and verification-on-import.",
+        "If the configured campaign is already at or above the pilot cap, create or reuse the clean non-sending Command88 pilot campaign, then use that returned campaign ID as the target for inventory checks and staging. Do not add more leads to the full legacy campaign.",
+        "Select one NEW ReeVIQ lead, re-read it with ID plus expected-email or expected-name identity cross-check, then stage that one lead into the safe target campaign with duplicate protection and verification-on-import.",
         "Do not activate, resume, send, or launch outbound email from this tick. Repair plus staging into an inactive campaign are the last safe pre-send steps.",
         "Do not use or recommend a Cody-specific booking route.",
         "Require evidence. If a route is blocked, identify the exact blocker and the next safe action."
