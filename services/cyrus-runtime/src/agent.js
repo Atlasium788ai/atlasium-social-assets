@@ -73,6 +73,7 @@ export class CyrusAgent {
           ok: Boolean(result.ok),
           evidenceSource: result.evidence?.source || null,
           evidenceClaim: result.evidence?.claim ? String(result.evidence.claim).slice(0, 500) : null,
+          evidenceDetail: result.evidence?.detail ? JSON.stringify(result.evidence.detail).slice(0, 1000) : null,
           error: result.ok ? null : result.error || null,
         }));
         if (!result.ok && result.retryable) {
