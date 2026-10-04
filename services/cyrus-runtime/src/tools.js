@@ -125,6 +125,24 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "reeviq_leads",
+      description: "Read up to 100 ReeVIQ leads for verified revenue prioritization. Read-only.",
+      parameters: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 100 }, status: { type: "string" } }, additionalProperties: false },
+    },
+    {
+      type: "function",
+      name: "instantly_campaign",
+      description: "Read the configured Instantly campaign status and settings. Read-only. Never sends email.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      type: "function",
+      name: "instantly_unread_count",
+      description: "Read the current Instantly unread reply count. Read-only.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      type: "function",
       name: "complete_task",
       description: "Mark an action complete. Action requests require evidence from another tool first.",
       parameters: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"], additionalProperties: false },
@@ -206,6 +224,57 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       } catch (error) {
         return fail(`Handoff to ${target} failed: ${error.message}`, true);
       }
+    }
+    if (name === "reeviq_leads") {
+      if (!config.reeviqBaseUrl) return fail("ReeVIQ base URL is not configured");
+      if (!config.reeviqApiKeys.length) return fail("ReeVIQ API key is not configured");
+      const limit = Math.max(1, Math.min(100, Number(args.limit || 25)));
+      const status = String(args.status || "NEW").trim();
+      const qs = new URLSearchParams({ limit: String(limit) });
+      if (status) qs.set("status", status);
+      const url = `${config.reeviqBaseUrl.replace(/\/$/, "")}/v1/xipherx-lead/assigned?${qs}`;
+      let lastStatus = 0;
+      try {
+        for (const key of config.reeviqApiKeys) {
+          const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" }, signal: AbortSignal.timeout(12_000) });
+          lastStatus = response.status;
+          if ((response.status === 401 || response.status === 403) && key !== config.reeviqApiKeys.at(-1)) continue;
+          if (!response.ok) return fail(`ReeVIQ returned HTTP ${response.status}`, response.status >= 500);
+          const body = await response.json();
+          const data = body?.data ?? body;
+          const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.results) ? data.results : Array.isArray(body?.items) ? body.items : [];
+          const total = body?.total ?? data?.total ?? data?.pagination?.total ?? body?.pagination?.total ?? null;
+          const leads = items.slice(0, limit).map((x) => {
+            const lead = x?.lead ?? x;
+            return { id: lead?.id || null, status: lead?.status || x?.status || null, firstName: lead?.firstName || null, lastName: lead?.lastName || null, email: lead?.email || null, phone: lead?.phone || null, companyName: lead?.companyName || null, jobTitle: lead?.jobTitle || null, industry: lead?.industry || null, location: lead?.location || null, provider: lead?.provider || null, emailVerified: lead?.emailVerified ?? null, phoneVerified: lead?.phoneVerified ?? null };
+          });
+          return ok({ total, count: leads.length, leads }, { source: "reeviq:assigned-leads", claim: `Read ${leads.length} ReeVIQ ${status || "all"} leads`, detail: { total, count: leads.length, sampleIds: leads.slice(0, 10).map((lead) => lead.id) } });
+        }
+        return fail(`ReeVIQ authorization failed (HTTP ${lastStatus || "unknown"})`);
+      } catch (error) { return fail(`ReeVIQ read failed: ${error.message}`, true); }
+    }
+    if (name === "instantly_campaign") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
+      try {
+        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+        const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+        if (!response.ok) return fail(`Instantly returned HTTP ${response.status}`, response.status >= 500);
+        const body = await response.json();
+        const data = { id: body.id || null, name: body.name || null, status: body.status ?? null, dailyLimit: body.daily_limit ?? body.dailyLimit ?? null, emailListCount: body.email_list_count ?? body.emailListCount ?? null, stopOnReply: body.stop_on_reply ?? body.stopOnReply ?? null };
+        return ok(data, { source: "instantly:campaign", claim: "Read configured Instantly campaign", detail: data });
+      } catch (error) { return fail(`Instantly campaign read failed: ${error.message}`, true); }
+    }
+    if (name === "instantly_unread_count") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      try {
+        const url = `${config.instantlyBaseUrl.replace(/\/$/, "")}/emails/unread/count`;
+        const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+        if (!response.ok) return fail(`Instantly returned HTTP ${response.status}`, response.status >= 500);
+        const body = await response.json();
+        const unreadCount = body.count ?? body.unread_count ?? body.unreadCount ?? body;
+        return ok({ unreadCount }, { source: "instantly:unread", claim: "Read Instantly unread reply count", detail: { unreadCount } });
+      } catch (error) { return fail(`Instantly unread read failed: ${error.message}`, true); }
     }
     if (name === "schedule_followup") {
       if (context.isFollowup) {
