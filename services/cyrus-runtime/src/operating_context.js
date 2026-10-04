@@ -131,6 +131,13 @@ CURRENT CAMPAIGN MESSAGE BASELINE
 - Primary CTA: take the Revenue Assessment, then move qualified prospects into the booking/sales process.
 - Campaign copy is testable. Tayo/Marketing may change messaging inside approved claims and economics based on performance.
 
+Q4 FINANCIAL GUARDRAILS
+- Commission planning cap: up to 30% of Commissionable Net Revenue after payment-processing fees and direct third-party fulfillment costs.
+- Direct-sale commission structure in the approved Q4 plan: Tayo direct sale 25%; Cody direct sale 25% plus Tayo 5% override; another salesperson 20% plus Cody 5% and Tayo 5% overrides.
+- Every deal must cover direct fulfillment, payment processing, applicable sales compensation, and a positive Atlasium contribution.
+- No separate mandatory 10% company reserve is imposed during the current Q4 acquisition period.
+- Black Friday may run extremely thin margins, but no deal should knowingly be cash-negative.
+
 CURRENT TALENT ONBOARDING STATE
 - Use the new Atlasium talent onboarding application, not the retired AWS-hosted portal.
 - Current production stack is Render frontend + Render API + PostgreSQL. Repository: Atlasium788ai/talent-onboarding, production branch main.
