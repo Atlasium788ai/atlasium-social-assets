@@ -236,28 +236,31 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       if (!config.reeviqApiKeys.length) return fail("ReeVIQ API key is not configured");
       const limit = Math.max(1, Math.min(100, Number(args.limit || 25)));
       const status = String(args.status || "NEW").trim();
-      const qs = new URLSearchParams({ limit: String(limit) });
-      if (status) qs.set("status", status);
-      const url = `${config.reeviqBaseUrl.replace(/\/$/, "")}/v1/xipherx-lead/assigned?${qs}`;
+      const url = `${config.reeviqBaseUrl.replace(/\/$/, "")}/v1/xipherx-lead/fetch`;
       let lastStatus = 0;
       try {
         for (const key of config.reeviqApiKeys) {
-          const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" }, signal: AbortSignal.timeout(12_000) });
+          const response = await fetchImpl(url, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({ filter: status ? { status } : {}, limit, page: 1, sortBy: "createdAt", sortType: "desc" }),
+            signal: AbortSignal.timeout(12_000),
+          });
           lastStatus = response.status;
           if ((response.status === 401 || response.status === 403) && key !== config.reeviqApiKeys.at(-1)) continue;
-          if (response.status >= 500) { await new Promise((resolve) => setTimeout(resolve, 500)); continue; }
-          if (!response.ok) return fail(`ReeVIQ returned HTTP ${response.status}`, false);
+          if (response.status >= 500 && key !== config.reeviqApiKeys.at(-1)) continue;
+          if (!response.ok) return fail(`ReeVIQ returned HTTP ${response.status}`, response.status >= 500);
           const body = await response.json();
           const data = body?.data ?? body;
           const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.results) ? data.results : Array.isArray(body?.items) ? body.items : [];
-          const total = body?.total ?? data?.total ?? data?.pagination?.total ?? body?.pagination?.total ?? null;
+          const total = body?.total ?? body?.count ?? data?.total ?? data?.count ?? data?.pagination?.total ?? body?.pagination?.total ?? null;
           const leads = items.slice(0, limit).map((x) => {
             const lead = x?.lead ?? x;
             return { id: lead?.id || null, status: lead?.status || x?.status || null, firstName: lead?.firstName || null, lastName: lead?.lastName || null, email: lead?.email || null, phone: lead?.phone || null, companyName: lead?.companyName || null, jobTitle: lead?.jobTitle || null, industry: lead?.industry || null, location: lead?.location || null, provider: lead?.provider || null, emailVerified: lead?.emailVerified ?? null, phoneVerified: lead?.phoneVerified ?? null };
           });
-          return ok({ total, count: leads.length, leads }, { source: "reeviq:assigned-leads", claim: `Read ${leads.length} ReeVIQ ${status || "all"} leads`, detail: { total, count: leads.length, sampleIds: leads.slice(0, 10).map((lead) => lead.id) } });
+          return ok({ total, count: leads.length, leads }, { source: "reeviq:leads", claim: `Read ${leads.length} ReeVIQ ${status || "all"} leads`, detail: { total, count: leads.length, sampleIds: leads.slice(0, 10).map((lead) => lead.id) } });
         }
-        return fail(`ReeVIQ authorization failed (HTTP ${lastStatus || "unknown"})`);
+        return fail(`ReeVIQ request failed (HTTP ${lastStatus || "unknown"})`, lastStatus >= 500);
       } catch (error) { return fail(`ReeVIQ read failed: ${error.message}`, true); }
     }
     if (name === "instantly_campaign") {
@@ -286,17 +289,26 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     if (name === "reeviq_lead") {
       if (!config.reeviqBaseUrl) return fail("ReeVIQ base URL is not configured");
       if (!config.reeviqApiKeys?.length) return fail("ReeVIQ API key is not configured");
-      const url = `${String(config.reeviqBaseUrl).replace(/\/$/, "")}/v1/xipherx-lead/${encodeURIComponent(String(args.lead_id || ""))}`;
+      const leadId = String(args.lead_id || "").trim();
+      if (!leadId) return fail("ReeVIQ lead ID is required");
+      const url = `${String(config.reeviqBaseUrl).replace(/\/$/, "")}/v1/xipherx-lead/fetch`;
       try {
         for (const key of config.reeviqApiKeys) {
-          const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${key}`, Accept: "application/json" }, signal: AbortSignal.timeout(12_000) });
+          const response = await fetchImpl(url, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({ filter: { id: leadId }, limit: 1, page: 1 }),
+            signal: AbortSignal.timeout(12_000),
+          });
           if ((response.status === 401 || response.status === 403) && key !== config.reeviqApiKeys.at(-1)) continue;
           if (!response.ok) return fail(`ReeVIQ returned HTTP ${response.status}`, response.status >= 500);
           const body = await response.json();
           const data = body?.data ?? body;
-          const lead = data?.lead ?? data?.item ?? data;
-          const receipt = { id: lead?.id || null, status: lead?.status || null, firstName: lead?.firstName || null, lastName: lead?.lastName || null, email: lead?.email || null, phone: lead?.phone || null, companyName: lead?.companyName || null, jobTitle: lead?.jobTitle || null, industry: lead?.industry || null, location: lead?.location || null, emailVerified: lead?.emailVerified ?? null, phoneVerified: lead?.phoneVerified ?? null, qualification: data?.qualification || null, upcomingMeeting: data?.upcomingMeeting || null };
-          return ok(receipt, { source: "reeviq:lead", claim: `Read ReeVIQ lead ${receipt.id || args.lead_id}`, detail: receipt });
+          const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.results) ? data.results : Array.isArray(body?.items) ? body.items : [];
+          const lead = items[0]?.lead ?? items[0];
+          if (!lead) return fail(`ReeVIQ lead ${leadId} was not found`);
+          const receipt = { id: lead?.id || leadId, status: lead?.status || null, firstName: lead?.firstName || null, lastName: lead?.lastName || null, email: lead?.email || null, phone: lead?.phone || null, companyName: lead?.companyName || null, jobTitle: lead?.jobTitle || null, industry: lead?.industry || null, location: lead?.location || null, emailVerified: lead?.emailVerified ?? null, phoneVerified: lead?.phoneVerified ?? null };
+          return ok(receipt, { source: "reeviq:lead", claim: `Read ReeVIQ lead ${receipt.id}`, detail: receipt });
         }
         return fail("ReeVIQ authorization failed");
       } catch (error) { return fail(`ReeVIQ read failed: ${error.message}`, true); }
