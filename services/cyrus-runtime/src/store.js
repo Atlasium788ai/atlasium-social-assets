@@ -3,7 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export class CyrusStore {
   constructor(databasePath) {
@@ -103,13 +103,60 @@ export class CyrusStore {
         claimed_at TEXT,
         completed_at TEXT
       );
+      CREATE TABLE IF NOT EXISTS operating_items (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('planned','running','blocked','completed')),
+        priority INTEGER NOT NULL DEFAULT 3,
+        next_action TEXT,
+        next_action_at TEXT,
+        evidence_summary TEXT,
+        source_task_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS decisions_topic_idx ON decisions(topic, active, created_at);
       CREATE INDEX IF NOT EXISTS work_items_task_idx ON work_items(task_id, status, created_at);
       CREATE INDEX IF NOT EXISTS followups_due_idx ON followups(status, due_at);
       CREATE INDEX IF NOT EXISTS reply_outbox_messages_status_idx ON reply_outbox_messages(status, created_at);
+      CREATE INDEX IF NOT EXISTS operating_items_status_priority_idx ON operating_items(status, priority, updated_at);
       INSERT INTO schema_meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')
       ON CONFLICT(key) DO UPDATE SET value=excluded.value;
     `);
+    const now = new Date().toISOString();
+    const seedOperatingItem = this.db.prepare(`
+      INSERT OR IGNORE INTO operating_items(id, title, owner, status, priority, next_action, created_at, updated_at)
+      VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
+    `);
+    seedOperatingItem.run(
+      "q4-revenue-2026",
+      "Reach 25 paying customers by January 2, 2027",
+      "Cyrus + Malik",
+      1,
+      "Move Outreach -> Conversations -> Assessments -> Meetings -> Proposals -> Cash using live evidence.",
+      now,
+      now
+    );
+    seedOperatingItem.run(
+      "command88-safe-outbound",
+      "Prove and operate the current Command88 revenue loop end-to-end",
+      "Malik",
+      1,
+      "Maintain a clean verified pilot, confirm send readiness, then advance only within approved outbound controls.",
+      now,
+      now
+    );
+    seedOperatingItem.run(
+      "company-continuity",
+      "Maintain Atlasium company context, priorities, owners, metrics, and open loops",
+      "Cyrus",
+      1,
+      "Keep the operating brief, durable decisions, and operating plan current before asking Blair for recoverable information.",
+      now,
+      now
+    );
+
     const legacy = this.db.prepare("SELECT * FROM reply_outbox WHERE status='pending'").all();
     const migrateReply = this.db.prepare(`
       INSERT OR IGNORE INTO reply_outbox_messages(id, task_id, channel_id, body, status, created_at)
@@ -327,6 +374,31 @@ export class CyrusStore {
       FROM decisions WHERE active = 1
       ORDER BY created_at DESC LIMIT ?
     `).all(Math.min(limit, 20));
+  }
+
+  getOperatingItems({ includeCompleted = false, limit = 50 } = {}) {
+    const sql = includeCompleted
+      ? "SELECT * FROM operating_items ORDER BY priority ASC, updated_at DESC LIMIT ?"
+      : "SELECT * FROM operating_items WHERE status != 'completed' ORDER BY priority ASC, updated_at DESC LIMIT ?";
+    return this.db.prepare(sql).all(Math.min(Math.max(Number(limit) || 50, 1), 100));
+  }
+
+  upsertOperatingItem({ id, title, owner, status = "running", priority = 3, nextAction = null, nextActionAt = null, evidenceSummary = null, sourceTaskId = null }) {
+    const now = new Date().toISOString();
+    const existing = this.db.prepare("SELECT * FROM operating_items WHERE id = ?").get(id);
+    if (!existing) {
+      this.db.prepare(`
+        INSERT INTO operating_items(id, title, owner, status, priority, next_action, next_action_at, evidence_summary, source_task_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, title, owner, status, priority, nextAction, nextActionAt, evidenceSummary, sourceTaskId, now, now);
+    } else {
+      this.db.prepare(`
+        UPDATE operating_items
+        SET title=?, owner=?, status=?, priority=?, next_action=?, next_action_at=?, evidence_summary=?, source_task_id=?, updated_at=?
+        WHERE id=?
+      `).run(title, owner, status, priority, nextAction, nextActionAt, evidenceSummary, sourceTaskId, now, id);
+    }
+    return this.db.prepare("SELECT * FROM operating_items WHERE id = ?").get(id);
   }
 
   recoverInterruptedTasks() {
