@@ -456,10 +456,17 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       const url = `${String(config.reeviqBaseUrl).replace(/\/$/, "")}/v1/xipherx-lead/fetch`;
       try {
         for (const key of config.reeviqApiKeys) {
+          const expectedEmail = String(args.expected_email || "").trim().toLowerCase();
+          const expectedName = String(args.expected_name || "").trim();
+          const requestBody = expectedEmail
+            ? { searchKey: expectedEmail, limit: 10, page: 1 }
+            : expectedName
+              ? { searchKey: expectedName, limit: 10, page: 1 }
+              : { filter: { id: leadId }, limit: 10, page: 1 };
           const response = await fetchImpl(url, {
             method: "POST",
             headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ filter: { id: leadId }, limit: 1, page: 1 }),
+            body: JSON.stringify(requestBody),
             signal: AbortSignal.timeout(12_000),
           });
           if ((response.status === 401 || response.status === 403) && key !== config.reeviqApiKeys.at(-1)) continue;
@@ -467,16 +474,18 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
           const body = await response.json();
           const data = body?.data ?? body;
           const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.results) ? data.results : Array.isArray(body?.items) ? body.items : [];
-          const lead = items[0]?.lead ?? items[0];
+          const normalized = items.map((item) => item?.lead ?? item).filter(Boolean);
+          const lead = normalized.find((item) => String(item?.id || "") === leadId)
+            || (expectedEmail ? normalized.find((item) => String(item?.email || "").trim().toLowerCase() === expectedEmail) : null)
+            || normalized[0];
           if (!lead) return fail(`ReeVIQ lead ${leadId} was not found`);
           const receipt = { id: lead?.id || leadId, status: lead?.status || null, firstName: lead?.firstName || null, lastName: lead?.lastName || null, email: lead?.email || null, phone: lead?.phone || null, companyName: lead?.companyName || null, jobTitle: lead?.jobTitle || null, industry: lead?.industry || null, location: lead?.location || null, website: lead?.website || null, emailVerified: lead?.emailVerified ?? null, phoneVerified: lead?.phoneVerified ?? null };
           if (String(receipt.id) !== leadId) return fail(`ReeVIQ identity mismatch: requested ${leadId}, received ${receipt.id}`);
-          const expectedEmail = String(args.expected_email || "").trim().toLowerCase();
           if (expectedEmail && String(receipt.email || "").trim().toLowerCase() !== expectedEmail) return fail(`ReeVIQ identity mismatch for ${leadId}: email does not match expected record`);
-          const expectedName = String(args.expected_name || "").trim().toLowerCase();
+          const expectedNameLower = expectedName.toLowerCase();
           const actualName = `${receipt.firstName || ""} ${receipt.lastName || ""}`.trim().toLowerCase();
-          if (expectedName && actualName !== expectedName) return fail(`ReeVIQ identity mismatch for ${leadId}: name does not match expected record`);
-          return ok(receipt, { source: "reeviq:lead", claim: `Verified ReeVIQ lead identity ${receipt.id}`, detail: receipt });
+          if (expectedNameLower && actualName !== expectedNameLower) return fail(`ReeVIQ identity mismatch for ${leadId}: name does not match expected record`);
+          return ok(receipt, { source: "reeviq:lead", claim: `Verified ReeVIQ lead identity ${receipt.id} via ${expectedEmail ? "email search" : expectedName ? "name search" : "ID filter"}`, detail: receipt });
         }
         return fail("ReeVIQ authorization failed");
       } catch (error) { return fail(`ReeVIQ read failed: ${error.message}`, true); }
