@@ -106,6 +106,6 @@ export class CyrusAgent {
       : followup
         ? `In motion. I will reassess automatically at ${followup.due_at}.`
         : settled.summary;
-    return enforceReply(lastText || fallback, { status: settled.status, evidenceCount: evidence.length, name: this.config.name });
+    return enforceReply(lastText || fallback, { status: settled.status, evidenceCount: evidence.length, name: this.config.name, requiresEvidence: context.requiresEvidence });
   }
 }
