@@ -143,6 +143,12 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "instantly_create_fresh_pilot",
+      description: "Create or reuse a clean draft Command88 pilot campaign based on the configured campaign copy, schedule, and sender accounts. Never activates or sends.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      type: "function",
       name: "instantly_campaign_leads",
       description: "Read the configured Instantly campaign lead inventory for duplicate and pilot-cap checks. Read-only.",
       parameters: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 100 } }, additionalProperties: false },
@@ -419,6 +425,70 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         return ok(data, { source: "instantly:route_repair", claim: "Removed and verified stale Cody-specific routing from inactive Instantly campaign", detail: data });
       } catch (error) { return fail(`Instantly route repair failed: ${error.message}`, true); }
     }
+    if (name === "instantly_create_fresh_pilot") {
+      if (!config.instantlyApiKey || !config.instantlyCampaignId) return fail("Instantly campaign access is not configured");
+      const pilotName = "Atlasium Revenue Leak Assessment - Command88 Pilot";
+      const base = config.instantlyBaseUrl.replace(/\/$/, "");
+      const headers = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" };
+      try {
+        const listRes = await fetchImpl(`${base}/campaigns?limit=100&search=${encodeURIComponent(pilotName)}`, { headers, signal: AbortSignal.timeout(10000) });
+        if (listRes.ok) {
+          const listBody = await listRes.json();
+          const items = Array.isArray(listBody) ? listBody : Array.isArray(listBody?.items) ? listBody.items : Array.isArray(listBody?.data) ? listBody.data : [];
+          const existing = items.find((item) => String(item?.name || "").trim() === pilotName && [0,2].includes(Number(item?.status)));
+          if (existing?.id) {
+            const data = { id: existing.id, name: existing.name, status: Number(existing.status), reused: true };
+            return ok(data, { source: "instantly:fresh_pilot", claim: `Reused clean Command88 pilot campaign ${existing.id} in non-sending status ${existing.status}`, detail: data });
+          }
+        }
+
+        const sourceRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`, { headers, signal: AbortSignal.timeout(10000) });
+        if (!sourceRes.ok) return fail(`Source campaign read returned HTTP ${sourceRes.status}`, sourceRes.status >= 500);
+        const source = await sourceRes.json();
+        if (/rep=cody|\bcody\b/i.test(JSON.stringify(source?.sequences || []))) return fail("Source campaign copy still contains Cody-specific routing");
+        if (!source?.campaign_schedule?.schedules?.length) return fail("Source campaign has no reusable schedule");
+        if (!Array.isArray(source?.sequences) || !source.sequences.length) return fail("Source campaign has no reusable sequence");
+        if (!Array.isArray(source?.email_list) || !source.email_list.length) return fail("Source campaign has no sender accounts configured");
+
+        const payload = {
+          name: pilotName,
+          campaign_schedule: source.campaign_schedule,
+          sequences: source.sequences,
+          email_list: source.email_list,
+          stop_on_reply: true,
+          stop_on_auto_reply: source.stop_on_auto_reply ?? true,
+          stop_for_company: source.stop_for_company ?? false,
+          daily_limit: Math.max(1, Math.min(5, Number(source.daily_limit || 5))),
+          daily_max_leads: Math.max(1, Math.min(5, Number(source.daily_max_leads || 5))),
+          email_gap: Math.max(10, Number(source.email_gap || 10)),
+          open_tracking: source.open_tracking ?? false,
+          link_tracking: source.link_tracking ?? false,
+          text_only: source.text_only ?? false,
+          insert_unsubscribe_header: source.insert_unsubscribe_header ?? true,
+          allow_risky_contacts: false
+        };
+        const createRes = await fetchImpl(`${base}/campaigns`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15000)
+        });
+        const createText = await createRes.text();
+        let created = {};
+        try { created = createText ? JSON.parse(createText) : {}; } catch { created = { raw: createText.slice(0,500) }; }
+        if (!createRes.ok) return fail(`Fresh pilot creation returned HTTP ${createRes.status}: ${String(created?.message || created?.error || createText).slice(0,300)}`, createRes.status >= 500 || createRes.status === 429);
+        const id = created?.id || created?.data?.id;
+        if (!id) return fail("Fresh pilot campaign was created but no campaign ID was returned");
+        const verifyRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(id)}`, { headers, signal: AbortSignal.timeout(10000) });
+        if (!verifyRes.ok) return fail(`Fresh pilot verification returned HTTP ${verifyRes.status}`);
+        const verified = await verifyRes.json();
+        const status = Number(verified?.status);
+        if (![0,2].includes(status)) return fail(`Fresh pilot created in unexpected sending-capable status ${status}`);
+        if (/rep=cody|\bcody\b/i.test(JSON.stringify(verified?.sequences || []))) return fail("Fresh pilot verification found stale Cody routing");
+        const data = { id, name: verified?.name || pilotName, status, reused: false, dailyLimit: verified?.daily_limit ?? payload.daily_limit, senderCount: Array.isArray(verified?.email_list) ? verified.email_list.length : source.email_list.length };
+        return ok(data, { source: "instantly:fresh_pilot", claim: `Created clean draft Command88 pilot campaign ${id}; status ${status}; daily limit ${data.dailyLimit}; senders ${data.senderCount}`, detail: data });
+      } catch (error) { return fail(`Fresh pilot creation failed: ${error.message}`, true); }
+    }
     if (name === "instantly_campaign_leads") {
       if (!config.instantlyApiKey || !config.instantlyCampaignId) return fail("Instantly campaign access is not configured");
       const limit = Math.max(1, Math.min(100, Number(args.limit || 100)));
@@ -598,6 +668,6 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
 
   const roleDefinitions = config.role === "malik"
     ? definitions
-    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_preflight", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_stage_lead", "instantly_unread_count"].includes(tool.name));
+    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_stage_lead", "instantly_unread_count"].includes(tool.name));
   return { definitions: roleDefinitions, execute };
 }
