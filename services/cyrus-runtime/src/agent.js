@@ -3,7 +3,7 @@ import { outputText, toolCalls } from "./model.js";
 import { ATLASIUM_OPERATING_BRIEF } from "./operating_context.js";
 
 function looksLikeAction(text) {
-  return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|test|connect|deploy|remove|launch|complete)\b/i.test(text);
+  return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|connect|deploy|remove|launch|complete)\b/i.test(text);
 }
 
 export class CyrusAgent {
