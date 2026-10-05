@@ -307,6 +307,13 @@ export class CyrusStore {
       for (const item of items.slice(0, 20)) {
         const requestedId = item.id?.trim() || randomUUID();
         const requestedDependency = item.depends_on?.trim() || null;
+        const sameTask = this.db.prepare("SELECT * FROM work_items WHERE task_id=? AND id=? LIMIT 1").get(taskId, requestedId);
+        if (sameTask) {
+          this.db.prepare("UPDATE work_items SET title=?, owner=?, depends_on=?, next_action_at=?, updated_at=? WHERE task_id=? AND id=?")
+            .run(item.title.trim(), item.owner.trim(), requestedDependency, item.next_action_at?.trim() || sameTask.next_action_at || null, now, taskId, requestedId);
+          created.push({ id: requestedId, title: item.title.trim(), owner: item.owner.trim(), dependsOn: requestedDependency, nextActionAt: item.next_action_at?.trim() || sameTask.next_action_at || null, reused: true });
+          continue;
+        }
         const collision = this.db.prepare("SELECT 1 FROM work_items WHERE id=? LIMIT 1").get(requestedId);
         const actualId = collision ? `${requestedId}:${randomUUID()}` : requestedId;
         const row = {
@@ -439,14 +446,32 @@ export class CyrusStore {
 
   recoverInterruptedTasks() {
     this.db.prepare("UPDATE followups SET status='pending', claimed_at=NULL WHERE status='claimed'").run();
+    const nowMs = Date.now();
+    const cutoff = new Date(nowMs - 30 * 60 * 1000).toISOString();
+
+    const stale = this.db.prepare(`
+      SELECT id FROM tasks
+      WHERE status IN ('received','running')
+        AND created_at < ?
+        AND (source_event_id LIKE 'relentless:%' OR source_event_id LIKE 'handoff:%' OR channel_id LIKE 'internal:%')
+    `).all(cutoff);
+    const staleTask = this.db.prepare("UPDATE tasks SET status='failed', blocker='Superseded by a newer machine-generated execution cycle', updated_at=? WHERE id=?");
+    const staleItems = this.db.prepare("UPDATE work_items SET status='completed', updated_at=? WHERE task_id=? AND status!='completed'");
+    const staleFollowups = this.db.prepare("UPDATE followups SET status='completed', completed_at=? WHERE task_id=? AND status!='completed'");
+    const cleanupAt = new Date(nowMs).toISOString();
+    for (const row of stale) {
+      staleTask.run(cleanupAt, row.id);
+      staleItems.run(cleanupAt, row.id);
+      staleFollowups.run(cleanupAt, row.id);
+    }
+
     const rows = this.db.prepare(`
       SELECT t.id FROM tasks t WHERE t.status='running'
       AND NOT EXISTS (SELECT 1 FROM followups f WHERE f.task_id=t.id AND f.status='pending')
     `).all();
     const update = this.db.prepare("UPDATE tasks SET status='received', updated_at=? WHERE id=?");
-    const now = new Date().toISOString();
-    for (const row of rows) update.run(now, row.id);
-    return rows.length;
+    for (const row of rows) update.run(cleanupAt, row.id);
+    return rows.length + stale.length;
   }
 
   queueReply(taskId, channelId, body) {
