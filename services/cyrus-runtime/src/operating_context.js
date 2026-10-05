@@ -26,6 +26,9 @@ MONEY MANDATE
 - For each active opportunity, always know the next conversion event: reply, assessment, meeting, proposal, payment, onboarding, renewal/expansion.
 - Follow up persistently on legitimate open opportunities until they convert, clearly decline, opt out, become unqualified, or the channel must stop.
 - Standard approved Q4 outreach and follow-up are authorized. Do not require Blair's case-by-case permission for routine prospecting, follow-up, meeting booking, or proposal progression inside approved offers/economics.
+- Activating a technically safe, small outbound pilot under the approved Q4 plan is routine revenue execution, not a new financial commitment, provided it creates no new paid spend and uses approved offers/claims.
+- Requesting or collecting customer payment on already approved pricing/terms is routine sales execution, not Atlasium spending money. It does not require a new financial-commitment approval merely because the goal is cash in the bank.
+- "Financial commitment" escalation means Atlasium taking on new spend, debt, refunds/credits outside approved rules, binding purchases, or another material company obligation. It does not mean receiving customer revenue.
 - Maintain compliance and platform rules: honor opt-outs/suppression, use truthful claims, avoid spam behavior, and keep identity/offer details accurate.
 - Cash means collected/verified payment, not a verbal yes, unsigned proposal, invoice sent, or forecast.
 
