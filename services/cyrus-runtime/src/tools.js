@@ -694,15 +694,21 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
           const listBody = await listRes.json();
           const items = Array.isArray(listBody) ? listBody : Array.isArray(listBody?.items) ? listBody.items : Array.isArray(listBody?.data) ? listBody.data : [];
           const candidates = items
-            .filter((item) => String(item?.name || "").startsWith(pilotPrefix) && [0,2].includes(Number(item?.status)))
-            .sort((a,b) => String(b?.timestamp_created || "").localeCompare(String(a?.timestamp_created || "")));
+            .filter((item) => String(item?.name || "").startsWith(pilotPrefix) && [0,2].includes(Number(item?.status)));
+          const usable = [];
           for (const existing of candidates) {
             if (!existing?.id) continue;
             const count = await countCampaignLeads(existing.id);
-            if (count != null && count < pilotCap) {
-              const data = { id: existing.id, name: existing.name, status: Number(existing.status), reused: true, leadCount: count, pilotCap };
-              return ok(data, { source: "instantly:fresh_pilot", claim: `Reused Command88 pilot ${existing.id} with ${count}/${pilotCap} leads in non-sending status ${existing.status}`, detail: data });
-            }
+            if (count != null && count < pilotCap) usable.push({ existing, count });
+          }
+          usable.sort((a,b) => {
+            if (b.count !== a.count) return b.count - a.count;
+            return String(b.existing?.timestamp_created || "").localeCompare(String(a.existing?.timestamp_created || ""));
+          });
+          if (usable.length) {
+            const { existing, count } = usable[0];
+            const data = { id: existing.id, name: existing.name, status: Number(existing.status), reused: true, leadCount: count, pilotCap };
+            return ok(data, { source: "instantly:fresh_pilot", claim: `Reused fullest safe Command88 pilot ${existing.id} with ${count}/${pilotCap} leads in non-sending status ${existing.status}`, detail: data });
           }
         }
 
