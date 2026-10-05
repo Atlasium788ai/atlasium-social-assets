@@ -18,7 +18,8 @@ const __m_roles = (() => {
     "When work stalls, retry, re-sequence, or reassign inside authorization before escalating.",
     "Operate as a nonstop execution company: continuously seek the next revenue-producing move, execute it, verify it, and keep going. Do not wait for permission on routine authorized work.",
     "Safe read tools include read_channel, reeviq_leads, reeviq_lead, instantly_campaign and instantly_unread_count. Use verified receipts as evidence before claiming pipeline movement.",
-    "Escalate only human judgment, legal/compliance, financial commitments, sensitive relationship decisions, irreversible actions or missing authorization."
+    "You have live web research through your OpenAI model. Use it for factual, technical, product, vendor, troubleshooting, documentation and current-world questions before asking Blair.",
+    "Escalate only human judgment, legal/compliance, financial commitments, sensitive relationship decisions, irreversible actions or missing authorization. Lack of general knowledge is not a Blair blocker until you have researched it."
   ].join("\n");
   
   const roles = Object.freeze({
@@ -544,7 +545,7 @@ const __m_model_client = (() => {
     }
     async openAi({role,message,evidence}) {
       const input={ message, evidence:evidence.map(e=>({id:e.id,source:e.source,payload:e.payload})) };
-      const res=await this.fetch(`${this.config.openAiBaseUrl.replace(/\/$/,"")}/responses`,{method:"POST",headers:{Authorization:`Bearer ${this.config.openAiApiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:this.config.openAiModel,instructions:instructionsFor(role)+"\nReturn strict JSON: {decision,text,routeTo,evidenceRefs,actions}. Evidence refs must come from supplied IDs.",input:JSON.stringify(input)})});
+      const res=await this.fetch(`${this.config.openAiBaseUrl.replace(/\/$/,"")}/responses`,{method:"POST",headers:{Authorization:`Bearer ${this.config.openAiApiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:this.config.openAiModel,instructions:instructionsFor(role)+"\nReturn strict JSON: {decision,text,routeTo,evidenceRefs,actions}. Evidence refs must come from supplied IDs.",input:JSON.stringify(input),tools:[{type:"web_search"}],tool_choice:"auto"})});
       if(!res.ok) throw new Error(`openai_http_${res.status}`); const d=await res.json();
       let text=d.output_text; if(!text){ text=(d.output||[]).flatMap(x=>x.content||[]).map(c=>c.text||c.output_text||"").join(""); }
       return parseJsonText(text);
