@@ -139,6 +139,15 @@ export class CyrusStore {
       now
     );
     seedOperatingItem.run(
+      "meetings-and-cash-engine",
+      "Book meetings and put collected revenue in the bank",
+      "Cyrus + Malik + revenue team",
+      1,
+      "Prioritize live replies, meetings, proposals and payment. Use approved Q4 outbound and follow-up without waiting for Blair on routine execution; require evidence of movement.",
+      now,
+      now
+    );
+    seedOperatingItem.run(
       "command88-safe-outbound",
       "Prove and operate the current Command88 revenue loop end-to-end",
       "Malik",
