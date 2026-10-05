@@ -100,7 +100,7 @@ async function runAutonomyTick() {
       sourceEventId,
       requesterId: "system:command88",
       channelId: "internal:autonomy",
-      requestText: "Advance Atlasium revenue now. Choose the highest-value safe next action that can be verified with current tools. For revenue work, delegate a concrete objective to Malik and require evidence. Do not contact prospects, customers, or staff, launch campaigns, spend money, change pricing, sign contracts, delete data, or deploy production. If outbound is not explicitly safe and verified, work through the last safe pre-send step and record the exact blocker. Finish with evidence or a precise blocker, then identify the next action.",
+      requestText: "Advance Atlasium revenue now. The priority is verified conversations, meetings booked, proposals advanced, and collected revenue. Delegate concrete revenue execution to Malik and require evidence. Routine Q4 prospecting, follow-up, meeting booking, and standard outbound inside approved offers/economics are authorized after technical/contactability/opt-out preflight. Do not create new paid spend, change pricing below approved floors, sign contracts, delete data, or deploy production. If one route is blocked, research or use another authorized route rather than returning routine problems to Blair. Finish with evidence of movement or the precise blocker and next recovery action.",
     });
     console.info(JSON.stringify({ event: "autonomy_tick_start", taskId: task.id, intervalMs: autonomyIntervalMs }));
     const reply = await agent.handleTask(task);
@@ -132,20 +132,21 @@ async function relentlessTick() {
       channelId: "internal:relentless",
       requestText: [
         "RELENTLESS REVENUE ENGINE TICK.",
-        "Money first. Do not wait for Blair.",
-        "Delegate the live revenue inspection and next safe executable revenue action to Malik now.",
-        "Malik must inspect live ReeVIQ lead inventory and the configured Instantly campaign state before deciding. The pilot is draft, so do not waste a turn checking unread replies.",
-        "Run Instantly preflight. If the configured campaign is active or running subsequences, pause it and verify it is non-sending, then rerun preflight.",
-        "If the inactive campaign contains Cody-specific routing, repair and verify that routing first, then rerun preflight.",
-        "Read the configured Instantly campaign lead inventory before staging. Never exceed the pilot cap and never stage a duplicate.",
-        "If the configured campaign is already at or above the pilot cap, create or reuse the clean non-sending Command88 pilot campaign, then use that returned campaign ID as the target for inventory checks and staging. Do not add more leads to the full legacy campaign.",
-        "Select at most one NEW ReeVIQ lead whose ReeVIQ record explicitly shows emailVerified=true. Re-read it with ID plus expected-email identity cross-check. Never stage an email already present in target campaign inventory. Then call instantly_stage_lead with source_email_verified=true. The staging tool now uses Instantly's official bulk-add path, reconciles existing workspace leads, and verifies the exact target campaign before it can report success.",
-        "After one staging attempt, do not choose a second lead in the same tick. If staging returns verified=true, treat the import blocker as resolved for the new path and update the company operating plan. If it fails verification, record the exact API result and stop that tick.",
-        "Do not attempt b.aldridge@drhvac.ca again. Instantly already returned lead ID 01a10914-2e6a-7b29-b452-1b572c9d8983 for that contact, but it remains absent from the target pilot inventory.",
-        "Do not spend turns on redundant reads. Once campaign safety and target inventory are known, move directly to one exact-email identity check and one staging attempt.",
-        "Do not activate, resume, send, or launch outbound email from this tick. Repair plus staging into an inactive campaign are the last safe pre-send steps.",
-        "Do not use or recommend a Cody-specific booking route.",
-        "Require evidence. If a route is blocked, identify the exact blocker and the next safe action."
+        "North star: BOOK MEETINGS and PUT COLLECTED REVENUE IN THE BANK.",
+        "Do not wait for Blair on routine Q4 execution. Delegate live revenue execution to Malik and require evidence.",
+        "Priority order: live reply/buyer -> meeting -> proposal/deal -> payment -> verified outbound -> pipeline building.",
+        "First inspect live Instantly campaign state and received replies plus live ReeVIQ inventory. If a real reply exists, work that conversion path before adding more cold prospects.",
+        "Routine Q4 prospecting, follow-up, meeting booking, and standard outbound are authorized once contactability, suppression/opt-out, campaign copy, sender health, and campaign-state checks pass.",
+        "If the configured Command88 campaign is at or above the 5-lead pilot cap, call instantly_create_fresh_pilot. It must return a genuinely distinct inactive pilot below cap; use the returned campaign ID for all subsequent preflight, inventory, staging, and activation calls.",
+        "Run instantly_preflight on the exact target campaign ID. Do not proceed if stale Cody routing, retired branding, missing sequence, missing sender, risky-contact settings, or another preflight issue is present.",
+        "Build a small pilot deliberately. If target inventory is below 5, select one NEW ReeVIQ decision-maker with emailVerified=true, re-read by ID plus expected email, confirm absence from target inventory, and stage exactly one lead using instantly_stage_lead with source_email_verified=true.",
+        "Do not retry historical attempted addresses. Do not stage duplicates. Do not exceed 5 leads.",
+        "When the exact target campaign reaches 5 verified visible leads, call instantly_activate_campaign on that campaign ID. The activation tool must verify sender health, campaign safety, lead cap, and resulting active state.",
+        "Once active, stop pausing merely to add leads. Prioritize received replies, booked meetings, proposal progression, and cash. Use reply evidence to tell Cyrus what needs human closing attention.",
+        "If research or vendor documentation is needed to solve a blocker, use ask_chatgpt before escalating.",
+        "Do not create paid spend or pricing exceptions. Respect opt-outs, suppression, truthful claims, and platform rules.",
+        "A sent email is not the finish line. Measure movement through Conversation -> Assessment -> Meeting -> Proposal -> Cash.",
+        "Require evidence for every material claim. If blocked, identify root cause and the next safe recovery action."
       ].join(" "),
     });
     if (!created) return;
