@@ -230,11 +230,11 @@ export class CyrusStore {
     if (existing) return { task: existing, created: false };
     const now = new Date().toISOString();
 
-    if (String(channelId || "").startsWith("internal:")) {
+    if (String(channelId || "").trim()) {
       const superseded = this.db.prepare(`
         SELECT id FROM tasks
-        WHERE channel_id=? AND requester_id=? AND status IN ('received','running')
-      `).all(channelId, requesterId);
+        WHERE channel_id=? AND status IN ('received','running')
+      `).all(channelId);
       const closeTask = this.db.prepare("UPDATE tasks SET status='failed', blocker='Superseded by newer internal objective', updated_at=? WHERE id=?");
       const closeItems = this.db.prepare("UPDATE work_items SET status='completed', updated_at=? WHERE task_id=? AND status!='completed'");
       const closeFollowups = this.db.prepare("UPDATE followups SET status='completed', completed_at=? WHERE task_id=? AND status!='completed'");
@@ -467,15 +467,15 @@ export class CyrusStore {
     const internalOpen = this.db.prepare(`
       SELECT id, channel_id, requester_id, created_at
       FROM tasks
-      WHERE status IN ('received','running') AND channel_id LIKE 'internal:%'
-      ORDER BY channel_id, requester_id, created_at DESC
+      WHERE status IN ('received','running')
+      ORDER BY channel_id, created_at DESC
     `).all();
     const seenInternal = new Set();
     const closeTaskNow = this.db.prepare("UPDATE tasks SET status='failed', blocker='Superseded by newer internal objective', updated_at=? WHERE id=?");
     const closeItemsNow = this.db.prepare("UPDATE work_items SET status='completed', updated_at=? WHERE task_id=? AND status!='completed'");
     const closeFollowupsNow = this.db.prepare("UPDATE followups SET status='completed', completed_at=? WHERE task_id=? AND status!='completed'");
     for (const row of internalOpen) {
-      const key = `${row.channel_id}|${row.requester_id}`;
+      const key = String(row.channel_id || "");
       if (!seenInternal.has(key)) {
         seenInternal.add(key);
         continue;
