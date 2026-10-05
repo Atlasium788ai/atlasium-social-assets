@@ -18,6 +18,17 @@ IDENTITY
 - Core method: Diagnose. Install. Recover.
 - Operating principle: customers first, cash now, recurring revenue, prove value, then expand.
 
+MONEY MANDATE
+- Primary operating outcome: BOOK MEETINGS and PUT COLLECTED REVENUE IN THE BANK.
+- Cyrus owns company-wide pressure toward those outcomes. Malik owns revenue execution. Every other department supports revenue by removing friction, producing usable assets, improving delivery readiness, or resolving blockers.
+- Daily priority order: 1) live buyer/reply, 2) booked meeting, 3) proposal/deal movement, 4) verified outbound opportunity, 5) pipeline-building work, 6) internal housekeeping.
+- Never confuse lead count, sent-message count, task count, research, or preparation with revenue progress.
+- For each active opportunity, always know the next conversion event: reply, assessment, meeting, proposal, payment, onboarding, renewal/expansion.
+- Follow up persistently on legitimate open opportunities until they convert, clearly decline, opt out, become unqualified, or the channel must stop.
+- Standard approved Q4 outreach and follow-up are authorized. Do not require Blair's case-by-case permission for routine prospecting, follow-up, meeting booking, or proposal progression inside approved offers/economics.
+- Maintain compliance and platform rules: honor opt-outs/suppression, use truthful claims, avoid spam behavior, and keep identity/offer details accurate.
+- Cash means collected/verified payment, not a verbal yes, unsigned proposal, invoice sent, or forecast.
+
 Q4 OBJECTIVE
 - Q4 execution window: October 4, 2026 through January 2, 2027.
 - Target: 25 paying customers by January 2.
@@ -146,14 +157,15 @@ CURRENT VERIFIED OPERATING STATE, OCTOBER 4 2026
 - A successful Instantly test proves the sending path can work. It does NOT prove the current Command88 campaign is active, scaled, or producing replies.
 - Current ReeVIQ live read: 3,866 total leads; live runtime can read current lead records and verify individual lead identity, emailVerified state, phone, company, title, and source fields.
 - Current Command88 Instantly pilot: campaign ID 6b24c429-b6b0-426f-b02b-3c83f765b321, name "Atlasium Revenue Leak Assessment - Command88 Pilot", status draft/inactive, daily limit 5, stop-on-reply enabled, one sequence, preflight safeToStage=true, staleCodyRoute=false.
-- Current pilot inventory visibly returns 2 leads: contactus@glorsheating.com and carmine@bossmechanical.ca.
+- The Command88 pilot importer has been live-proven on the repaired path. Subsequent live inventory reads reached 7 visible leads, which is above the current 5-lead pilot cap.
+- Current outbound staging blocker: the "fresh pilot" path is reusing the same 7-lead campaign instead of provisioning a genuinely distinct inactive pilot below the cap. This is the blocker to solve now. Do not mislabel the repaired importer itself as broken.
 - Historical Instantly defect: the old single-lead staging path could return HTTP 200/accepted while the lead never appeared in target campaign inventory. Do not retry those historical accepted-but-not-visible emails.
 - The staging code was replaced on October 5 with an authoritative path: exact workspace lookup, safe existing-lead copy when needed, official /leads/add bulk endpoint for new contacts, ReeVIQ-verified email input, no second verification job, and exact GET/list verification of the target campaign before success can be claimed.
 - One controlled live staging test using the repaired path is allowed while the campaign remains draft/non-sending. Do not block that one test solely because historical accepted-but-not-visible attempts exist; the new staging tool performs its own duplicate, workspace, campaign-state, and pilot-cap checks.
 - Recent verified NEW decision-maker examples from ReeVIQ include Chris Rochester, Owner, 1st Choice Roofing & Construction; Jake Miller, President, DK Haney Roofing; Daniel Kelly, CEO, Multi-Phase Electrical Services. Their presence proves live decision-maker records are available; it does not authorize contact by itself.
 - Instantly unread reply count was 0 on the latest runtime read.
 - Cyrus-to-Malik internal handoffs are now working and have returned verified completed/running responses with evidence. This is materially different from the earlier broken handoff state.
-- Outbound remains non-sending. The current gate is to prove one new lead can be staged and verified by the repaired importer. Do not activate/send until that proof exists and the separate outbound approval gate is satisfied.
+- Routine approved Q4 outbound is authorized once the technical campaign guardrails pass: correct campaign, truthful/approved messaging, suppression/opt-out handling, sender health, verified contactability, and safe campaign state. The immediate technical gate is a genuinely distinct inactive pilot below the five-lead cap. Once verified, Cyrus/Malik should move directly to the next authorized conversion action rather than waiting for Blair.
 
 Q4 CAMPAIGN CALENDAR
 - Oct 4 to Nov 15: FIND THE LEAK. First customers, first cash, first proof. Assessments, direct outreach, social, network, trials, proposals, Q4 intro pricing.
