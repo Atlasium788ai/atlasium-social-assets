@@ -40,7 +40,7 @@ export class CyrusAgent {
       try {
         response = await this.model.respond({ instructions: systemPrompt(this.config.role), input, tools: this.toolbox.definitions });
       } catch (error) {
-        this.store.addStep(task.id, { attempt, status: "model_error", detail: { error: error.message } });
+        this.store.addStep(task.id, { attempt, status: "model_error", detail: { error: error.message } });\n        console.error(JSON.stringify({ event: "model_error", role: this.config.role, taskId: task.id, attempt, error: error.message }));
         if (attempt < 2) continue;
         this.store.setTaskStatus(task.id, "blocked", { blocker: `Model service unavailable: ${error.message}` });
         return "Blocked. The model service is unavailable after a retry.";
