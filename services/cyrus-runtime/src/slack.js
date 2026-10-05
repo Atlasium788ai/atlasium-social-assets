@@ -123,6 +123,22 @@ export class SlackSocketRuntime {
     }
   }
 
+  async setMessageReaction(event, name, add) {
+    if (!event?.channel || !event?.ts) return false;
+    const method = add ? "reactions.add" : "reactions.remove";
+    try {
+      const result = await this.slackApi(method, { channel: event.channel, timestamp: event.ts, name });
+      if (!result.ok && !(add && result.error === "already_reacted") && !(!add && result.error === "no_reaction")) {
+        this.logger.warn("Slack reaction update failed", { method, name, error: result.error || "unknown_error" });
+        return false;
+      }
+      return true;
+    } catch (error) {
+      this.logger.warn("Slack reaction update failed", { method, name, error: error.message });
+      return false;
+    }
+  }
+
   async processSlackMessage(event, fallbackSourceId = null) {
     if (!shouldHandleMessage(event, this.config)) return false;
     const sourceEventId = slackMessageSourceId(event) || fallbackSourceId;
@@ -134,10 +150,19 @@ export class SlackSocketRuntime {
       requestText: event.text.trim(),
     });
     if (!created) return false;
-    const reply = await this.agent.handleTask(task);
-    this.store.queueReply(task.id, event.channel, reply);
-    await this.flushOutbox();
-    return true;
+    await this.setMessageReaction(event, "eyes", true);
+    try {
+      const reply = await this.agent.handleTask(task);
+      this.store.queueReply(task.id, event.channel, reply);
+      await this.flushOutbox();
+      await this.setMessageReaction(event, "eyes", false);
+      await this.setMessageReaction(event, "white_check_mark", true);
+      return true;
+    } catch (error) {
+      await this.setMessageReaction(event, "eyes", false);
+      await this.setMessageReaction(event, "warning", true);
+      throw error;
+    }
   }
 
   async pollDirectMessages() {
