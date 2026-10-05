@@ -9,6 +9,7 @@ function fail(error, retryable = false) {
 }
 
 export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
+  let instantlyStageBusy = false;
   const definitions = [
     {
       type: "function",
@@ -799,6 +800,8 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       const email = String(args.email || "").trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail("A valid lead email is required");
       if (args.source_email_verified !== true) return fail("Refusing staging: source_email_verified must be true from a verified ReeVIQ record");
+      if (instantlyStageBusy) return fail("Another verified Instantly staging write is already in progress; retry after it finishes", true);
+      instantlyStageBusy = true;
 
       const headers = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" };
       const base = config.instantlyBaseUrl.replace(/\/$/, "");
@@ -987,6 +990,8 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         return ok(data, { source: "instantly:lead_stage", claim: `Verified ${email} staged in inactive Instantly campaign ${campaignId} via official bulk-add`, detail: data });
       } catch (error) {
         return fail(`Instantly lead staging failed: ${error.message}`, true);
+      } finally {
+        instantlyStageBusy = false;
       }
     }
     if (name === "instantly_received_emails") {
