@@ -36,3 +36,7 @@ node --test test/*.test.js
 
 The recovered shared runtime and its Cyrus-socket handoff build are kept in
 `../legacy-swarm-runtime`.
+
+## Research support
+
+All dedicated executive runtimes built from this template inherit the read-only `ask_chatgpt` tool. It can use OpenAI web search for current factual, technical, product, vendor, documentation, and troubleshooting questions and returns source URLs. Agents should use research before escalating general-knowledge questions to Blair. Public research never authorizes side effects, spending, prospect contact, legal commitments, or changes to live systems.
