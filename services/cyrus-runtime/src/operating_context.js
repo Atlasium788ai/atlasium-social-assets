@@ -139,11 +139,13 @@ CURRENT VERIFIED OPERATING STATE, OCTOBER 4 2026
 - Current ReeVIQ live read: 3,866 total leads; live runtime can read current lead records and verify individual lead identity, emailVerified state, phone, company, title, and source fields.
 - Current Command88 Instantly pilot: campaign ID 6b24c429-b6b0-426f-b02b-3c83f765b321, name "Atlasium Revenue Leak Assessment - Command88 Pilot", status draft/inactive, daily limit 5, stop-on-reply enabled, one sequence, preflight safeToStage=true, staleCodyRoute=false.
 - Current pilot inventory visibly returns 2 leads: contactus@glorsheating.com and carmine@bossmechanical.ca.
-- Important Instantly defect: several stage calls have returned HTTP 200/accepted but the imported lead did not appear in subsequent campaign inventory reads. Treat accepted-but-not-visible emails as already attempted. Do not retry them and do not infer remaining campaign capacity from the visible count alone. Reconcile inventory before additional staging.
+- Historical Instantly defect: the old single-lead staging path could return HTTP 200/accepted while the lead never appeared in target campaign inventory. Do not retry those historical accepted-but-not-visible emails.
+- The staging code was replaced on October 5 with an authoritative path: exact workspace lookup, safe existing-lead copy when needed, official /leads/add bulk endpoint for new contacts, ReeVIQ-verified email input, no second verification job, and exact GET/list verification of the target campaign before success can be claimed.
+- One controlled live staging test using the repaired path is allowed while the campaign remains draft/non-sending. Do not block that one test solely because historical accepted-but-not-visible attempts exist; the new staging tool performs its own duplicate, workspace, campaign-state, and pilot-cap checks.
 - Recent verified NEW decision-maker examples from ReeVIQ include Chris Rochester, Owner, 1st Choice Roofing & Construction; Jake Miller, President, DK Haney Roofing; Daniel Kelly, CEO, Multi-Phase Electrical Services. Their presence proves live decision-maker records are available; it does not authorize contact by itself.
 - Instantly unread reply count was 0 on the latest runtime read.
 - Cyrus-to-Malik internal handoffs are now working and have returned verified completed/running responses with evidence. This is materially different from the earlier broken handoff state.
-- Outbound remains non-sending while inventory/import reconciliation is unresolved. Do not describe the revenue loop as fully proven until a clean sequence is activated under approved controls and produces measurable movement.
+- Outbound remains non-sending. The current gate is to prove one new lead can be staged and verified by the repaired importer. Do not activate/send until that proof exists and the separate outbound approval gate is satisfied.
 
 Q4 CAMPAIGN CALENDAR
 - Oct 4 to Nov 15: FIND THE LEAK. First customers, first cash, first proof. Assessments, direct outreach, social, network, trials, proposals, Q4 intro pricing.
