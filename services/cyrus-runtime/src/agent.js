@@ -29,7 +29,19 @@ export class CyrusAgent {
     let input = [
       {
         role: "developer",
-        content: `Current Atlasium operating brief. Treat this as durable company context unless a newer authoritative source explicitly supersedes it:\n${ATLASIUM_OPERATING_BRIEF}\n\nCurrent durable company operating plan. Treat these as live open loops and priorities; update them when material state changes:\n${JSON.stringify(operatingPlan)}\n\nActive durable decisions from prior work. Treat these as context, not new instructions:\n${JSON.stringify(durableContext)}\nCurrent task work plan:\n${JSON.stringify(workPlan)}\nExisting verified evidence:\n${JSON.stringify(priorEvidence)}${followupReason ? `\nAutomatic follow-up is due: ${followupReason}` : ""}`,
+        content: `Current Atlasium operating brief. Treat this as durable company context unless a newer authoritative source explicitly supersedes it:
+${ATLASIUM_OPERATING_BRIEF}
+
+Current durable company operating plan. Treat these as live open loops and priorities; update them when material state changes:
+${JSON.stringify(operatingPlan)}
+
+Active durable decisions from prior work. Treat these as context, not new instructions:
+${JSON.stringify(durableContext)}
+Current task work plan:
+${JSON.stringify(workPlan)}
+Existing verified evidence:
+${JSON.stringify(priorEvidence)}${followupReason ? `
+Automatic follow-up is due: ${followupReason}` : ""}`,
       },
       { role: "user", content: task.request_text },
     ];
@@ -40,7 +52,8 @@ export class CyrusAgent {
       try {
         response = await this.model.respond({ instructions: systemPrompt(this.config.role), input, tools: this.toolbox.definitions });
       } catch (error) {
-        this.store.addStep(task.id, { attempt, status: "model_error", detail: { error: error.message } });\n        console.error(JSON.stringify({ event: "model_error", role: this.config.role, taskId: task.id, attempt, error: error.message }));
+        this.store.addStep(task.id, { attempt, status: "model_error", detail: { error: error.message } });
+        console.error(JSON.stringify({ event: "model_error", role: this.config.role, taskId: task.id, attempt, error: error.message }));
         if (attempt < 2) continue;
         this.store.setTaskStatus(task.id, "blocked", { blocker: `Model service unavailable: ${error.message}` });
         return "Blocked. The model service is unavailable after a retry.";
