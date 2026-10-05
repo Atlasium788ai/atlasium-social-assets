@@ -229,6 +229,21 @@ export class CyrusStore {
     const existing = this.db.prepare("SELECT * FROM tasks WHERE source_event_id = ?").get(sourceEventId);
     if (existing) return { task: existing, created: false };
     const now = new Date().toISOString();
+
+    if (String(channelId || "").startsWith("internal:")) {
+      const superseded = this.db.prepare(`
+        SELECT id FROM tasks
+        WHERE channel_id=? AND requester_id=? AND status IN ('received','running')
+      `).all(channelId, requesterId);
+      const closeTask = this.db.prepare("UPDATE tasks SET status='failed', blocker='Superseded by newer internal objective', updated_at=? WHERE id=?");
+      const closeItems = this.db.prepare("UPDATE work_items SET status='completed', updated_at=? WHERE task_id=? AND status!='completed'");
+      const closeFollowups = this.db.prepare("UPDATE followups SET status='completed', completed_at=? WHERE task_id=? AND status!='completed'");
+      for (const row of superseded) {
+        closeTask.run(now, row.id);
+        closeItems.run(now, row.id);
+        closeFollowups.run(now, row.id);
+      }
+    }
     const task = {
       id: randomUUID(),
       source_event_id: sourceEventId,
@@ -447,6 +462,29 @@ export class CyrusStore {
   recoverInterruptedTasks() {
     this.db.prepare("UPDATE followups SET status='pending', claimed_at=NULL WHERE status='claimed'").run();
     const nowMs = Date.now();
+    const cleanupAt = new Date(nowMs).toISOString();
+
+    const internalOpen = this.db.prepare(`
+      SELECT id, channel_id, requester_id, created_at
+      FROM tasks
+      WHERE status IN ('received','running') AND channel_id LIKE 'internal:%'
+      ORDER BY channel_id, requester_id, created_at DESC
+    `).all();
+    const seenInternal = new Set();
+    const closeTaskNow = this.db.prepare("UPDATE tasks SET status='failed', blocker='Superseded by newer internal objective', updated_at=? WHERE id=?");
+    const closeItemsNow = this.db.prepare("UPDATE work_items SET status='completed', updated_at=? WHERE task_id=? AND status!='completed'");
+    const closeFollowupsNow = this.db.prepare("UPDATE followups SET status='completed', completed_at=? WHERE task_id=? AND status!='completed'");
+    for (const row of internalOpen) {
+      const key = `${row.channel_id}|${row.requester_id}`;
+      if (!seenInternal.has(key)) {
+        seenInternal.add(key);
+        continue;
+      }
+      closeTaskNow.run(cleanupAt, row.id);
+      closeItemsNow.run(cleanupAt, row.id);
+      closeFollowupsNow.run(cleanupAt, row.id);
+    }
+
     const cutoff = new Date(nowMs - 30 * 60 * 1000).toISOString();
 
     const stale = this.db.prepare(`
@@ -458,7 +496,6 @@ export class CyrusStore {
     const staleTask = this.db.prepare("UPDATE tasks SET status='failed', blocker='Superseded by a newer machine-generated execution cycle', updated_at=? WHERE id=?");
     const staleItems = this.db.prepare("UPDATE work_items SET status='completed', updated_at=? WHERE task_id=? AND status!='completed'");
     const staleFollowups = this.db.prepare("UPDATE followups SET status='completed', completed_at=? WHERE task_id=? AND status!='completed'");
-    const cleanupAt = new Date(nowMs).toISOString();
     for (const row of stale) {
       staleTask.run(cleanupAt, row.id);
       staleItems.run(cleanupAt, row.id);
