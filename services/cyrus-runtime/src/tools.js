@@ -140,6 +140,21 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "ask_chatgpt",
+      description: "Ask the Atlasium research brain for a factual, technical, strategic, or troubleshooting answer. It can search the live public web when needed and returns source URLs. Use this before asking Blair for information that can be researched independently.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: { type: "string" },
+          context: { type: "string" },
+          must_search_web: { type: "boolean" }
+        },
+        required: ["question"],
+        additionalProperties: false
+      },
+    },
+    {
+      type: "function",
       name: "slack_channel_history",
       description: "Read recent evidence from an explicitly allowlisted non-DM Slack channel.",
       parameters: {
@@ -277,6 +292,66 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         return ok({ status: response.status, body }, { source: String(url), claim: `Read returned HTTP ${response.status}`, detail: { status: response.status, bodySample: body.slice(0, 500) } });
       } catch (error) {
         return fail(`GET failed: ${error.message}`, true);
+      }
+    }
+    if (name === "ask_chatgpt") {
+      const question = String(args.question || "").trim();
+      const contextText = String(args.context || "").trim();
+      if (!question) return fail("Research question is required");
+      if (question.length > 8_000 || contextText.length > 12_000) return fail("Research request is too large");
+      try {
+        const tools = [{ type: "web_search" }];
+        const body = {
+          model: config.openAiModel,
+          instructions: [
+            "You are the Atlasium internal research support brain.",
+            "Answer the question directly and accurately.",
+            "Use live web search for current, external, technical, product, vendor, legal/regulatory, pricing, documentation, or uncertain facts.",
+            "Prefer primary/official sources for technical and product facts.",
+            "Do not invent Atlasium-internal facts. Treat supplied context as internal context, not as public-source evidence.",
+            "Do not take actions, contact people, spend money, or make commitments. Research and explain only.",
+            "Return a concise answer suitable for another executive agent to act on."
+          ].join("\n"),
+          input: contextText ? `Context:\n${contextText}\n\nQuestion:\n${question}` : question,
+          tools,
+          tool_choice: args.must_search_web === false ? "auto" : "auto",
+          include: ["web_search_call.action.sources"]
+        };
+        const response = await fetchImpl(`${config.openAiBaseUrl.replace(/\/$/, "")}/responses`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${config.openAiApiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(90_000)
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) return fail(`Research service returned HTTP ${response.status}: ${String(result?.error?.message || "unknown error").slice(0,300)}`, response.status >= 500 || response.status === 429);
+        const answer = result.output_text || (result.output || [])
+          .filter((item) => item.type === "message")
+          .flatMap((item) => item.content || [])
+          .filter((part) => part.type === "output_text")
+          .map((part) => part.text || "")
+          .join("\n");
+        const citations = [];
+        for (const item of result.output || []) {
+          if (item.type === "message") {
+            for (const part of item.content || []) {
+              for (const ann of part.annotations || []) {
+                if (ann?.type === "url_citation" && ann.url) citations.push({ title: ann.title || ann.url, url: ann.url });
+              }
+            }
+          }
+          if (item.type === "web_search_call") {
+            for (const source of item.action?.sources || []) {
+              if (source?.url) citations.push({ title: source.title || source.url, url: source.url });
+            }
+          }
+        }
+        const uniqueSources = [...new Map(citations.map((s) => [s.url, s])).values()].slice(0, 12);
+        if (!answer.trim()) return fail("Research service returned no answer", true);
+        const data = { answer: answer.trim(), sources: uniqueSources, searchedWeb: (result.output || []).some((item) => item.type === "web_search_call") };
+        return ok(data, { source: "chatgpt:research", claim: `Research answer returned for: ${question.slice(0,160)}`, detail: { searchedWeb: data.searchedWeb, sources: uniqueSources.slice(0,6), answerSample: data.answer.slice(0,500) } });
+      } catch (error) {
+        return fail(`Research request failed: ${error.message}`, true);
       }
     }
     if (name === "slack_channel_history") {
