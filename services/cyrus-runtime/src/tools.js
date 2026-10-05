@@ -216,6 +216,17 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "instantly_activate_campaign",
+      description: "Activate a small verified Instantly pilot only after strict safety preflight. Checks campaign copy, lead cap, sender health, opt-out/suppression guardrails, and verifies the sending state after activation.",
+      parameters: {
+        type: "object",
+        properties: { campaign_id: { type: "string" } },
+        required: ["campaign_id"],
+        additionalProperties: false
+      },
+    },
+    {
+      type: "function",
       name: "instantly_pause_campaign",
       description: "Put the configured Instantly campaign into a non-sending state and verify the result.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -225,6 +236,20 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       name: "instantly_repair_cody_route",
       description: "Repair stale Cody-specific routing inside the configured inactive Instantly campaign sequence. Removes rep=cody URL routing and replaces Cody references with team-neutral wording, then verifies the repair. Never activates or sends.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      type: "function",
+      name: "instantly_received_emails",
+      description: "Read recent received Instantly emails/replies for live response triage. Read-only.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string" },
+          unread_only: { type: "boolean" },
+          limit: { type: "integer", minimum: 1, maximum: 50 }
+        },
+        additionalProperties: false
+      },
     },
     {
       type: "function",
@@ -477,6 +502,95 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         };
         return ok(data, { source: "instantly:preflight", claim: `Instantly preflight: ${data.name || data.id} is ${data.statusLabel}; safeToStage=${data.safeToStage}; staleCodyRoute=${staleCodyRoute}; retiredBrand=${retiredBrand}; senders=${senderCount}`, detail: data });
       } catch (error) { return fail(`Instantly preflight failed: ${error.message}`, true); }
+    }
+    if (name === "instantly_activate_campaign") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      const campaignId = String(args.campaign_id || "").trim();
+      if (!campaignId) return fail("campaign_id is required");
+      const base = config.instantlyBaseUrl.replace(/\/$/, "");
+      const readHeaders = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" };
+      const jsonHeaders = { ...readHeaders, "Content-Type": "application/json" };
+      try {
+        const campaignRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}`, { headers: readHeaders, signal: AbortSignal.timeout(10_000) });
+        if (!campaignRes.ok) return fail(`Campaign preflight returned HTTP ${campaignRes.status}`, campaignRes.status >= 500);
+        const campaign = await campaignRes.json();
+        const status = Number(campaign.status);
+        if (![0,2].includes(status)) return fail(`Refusing activation from campaign status ${status}; expected draft or paused`);
+
+        const seqText = JSON.stringify(campaign.sequences || []);
+        if (!Array.isArray(campaign.sequences) || !campaign.sequences.length) return fail("Refusing activation: campaign has no sequence");
+        if (/rep=cody|\/cody\/|\bcody\b/i.test(seqText)) return fail("Refusing activation: campaign contains stale Cody-specific routing");
+        if (/\bcoreiq\b|\bgojiberry\b/i.test(seqText)) return fail("Refusing activation: campaign contains retired Atlasium branding");
+        if (/our%20team|\/our team\//i.test(seqText)) return fail("Refusing activation: campaign may contain a malformed repaired booking URL");
+        if (!campaign?.campaign_schedule?.schedules?.length) return fail("Refusing activation: campaign has no sending schedule");
+        if (campaign.stop_on_reply !== true) return fail("Refusing activation: stop_on_reply is not enabled");
+        if (campaign.allow_risky_contacts === true) return fail("Refusing activation: risky contacts are enabled");
+        if (campaign.insert_unsubscribe_header === false) return fail("Refusing activation: unsubscribe header is disabled");
+
+        const leadRes = await fetchImpl(`${base}/leads/list`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ campaign: campaignId, in_campaign: true, limit: 100 }),
+          signal: AbortSignal.timeout(12_000)
+        });
+        if (!leadRes.ok) return fail(`Lead preflight returned HTTP ${leadRes.status}`, leadRes.status >= 500);
+        const leadBody = await leadRes.json().catch(() => ({}));
+        const rawLeads = Array.isArray(leadBody) ? leadBody : Array.isArray(leadBody?.items) ? leadBody.items : Array.isArray(leadBody?.data) ? leadBody.data : Array.isArray(leadBody?.leads) ? leadBody.leads : Array.isArray(leadBody?.data?.items) ? leadBody.data.items : [];
+        const leadCount = Number(leadBody?.total ?? leadBody?.count ?? leadBody?.data?.total ?? rawLeads.length);
+        const pilotCap = Math.max(1, Number(process.env.INSTANTLY_PILOT_CAP || 5));
+        if (leadCount < 1) return fail("Refusing activation: pilot has no leads");
+        if (leadCount > pilotCap) return fail(`Refusing activation: pilot has ${leadCount} leads above cap ${pilotCap}`);
+
+        const senders = (Array.isArray(campaign.email_list) ? campaign.email_list : [])
+          .map((item) => typeof item === "string" ? item : item?.email)
+          .filter(Boolean);
+        if (!senders.length) return fail("Refusing activation: no sending accounts configured");
+        const accountStates = [];
+        for (const email of senders) {
+          const accountRes = await fetchImpl(`${base}/accounts/${encodeURIComponent(email)}`, { headers: readHeaders, signal: AbortSignal.timeout(10_000) });
+          if (!accountRes.ok) return fail(`Sender preflight failed for ${email}: HTTP ${accountRes.status}`);
+          const account = await accountRes.json();
+          accountStates.push({ email, status: Number(account.status), warmupStatus: account.warmup_status ?? null });
+          if (Number(account.status) !== 1) return fail(`Refusing activation: sender ${email} is not active (status ${account.status})`);
+        }
+
+        const vitalsRes = await fetchImpl(`${base}/accounts/test/vitals`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ accounts: senders }),
+          signal: AbortSignal.timeout(15_000)
+        });
+        if (!vitalsRes.ok) return fail(`Sender vitals preflight returned HTTP ${vitalsRes.status}`, vitalsRes.status >= 500 || vitalsRes.status === 429);
+        const vitals = await vitalsRes.json();
+        const failures = Array.isArray(vitals?.failure_list) ? vitals.failure_list : [];
+        const successes = Array.isArray(vitals?.success_list) ? vitals.success_list : [];
+        if (failures.length) return fail(`Refusing activation: sender-domain vitals failed for ${failures.map((x)=>x.domain).filter(Boolean).join(", ") || failures.length + " domain(s)"}`);
+        if (successes.some((x) => x.allPass === false)) return fail("Refusing activation: one or more sender-domain vitals did not pass");
+
+        const activateRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}/activate`, {
+          method: "POST",
+          headers: jsonHeaders,
+          signal: AbortSignal.timeout(15_000)
+        });
+        const activateText = await activateRes.text();
+        let activateBody = {};
+        try { activateBody = activateText ? JSON.parse(activateText) : {}; } catch { activateBody = { raw: activateText.slice(0,500) }; }
+        if (!activateRes.ok) return fail(`Instantly activation returned HTTP ${activateRes.status}: ${String(activateBody?.message || activateBody?.error || activateText).slice(0,300)}`, activateRes.status >= 500 || activateRes.status === 429);
+
+        const verifyRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}`, { headers: readHeaders, signal: AbortSignal.timeout(10_000) });
+        if (!verifyRes.ok) return fail(`Activation verification returned HTTP ${verifyRes.status}`);
+        const verified = await verifyRes.json();
+        const afterStatus = Number(verified.status);
+        if (![1,4].includes(afterStatus)) return fail(`Campaign activation was not verified; resulting status ${afterStatus}`);
+
+        const sendingRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}/sending-status`, { headers: readHeaders, signal: AbortSignal.timeout(10_000) });
+        const sending = sendingRes.ok ? await sendingRes.json() : null;
+        const reason = sending?.diagnostics?.status ?? sending?.summary?.status ?? null;
+        const data = { campaignId, leadCount, pilotCap, senders: accountStates, status: afterStatus, sendingReason: reason };
+        return ok(data, { source: "instantly:campaign_activation", claim: `Activated verified Command88 pilot ${campaignId} with ${leadCount} lead(s); status ${afterStatus}; sending reason ${reason || "unknown"}`, detail: data });
+      } catch (error) {
+        return fail(`Instantly activation failed: ${error.message}`, true);
+      }
     }
     if (name === "instantly_pause_campaign") {
       if (!config.instantlyApiKey || !config.instantlyCampaignId) return fail("Instantly campaign access is not configured");
@@ -875,6 +989,37 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         return fail(`Instantly lead staging failed: ${error.message}`, true);
       }
     }
+    if (name === "instantly_received_emails") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      const limit = Math.max(1, Math.min(50, Number(args.limit || 20)));
+      const qs = new URLSearchParams({ email_type: "received", limit: String(limit), latest_of_thread: "true" });
+      if (args.unread_only !== false) qs.set("is_unread", "true");
+      if (args.campaign_id) qs.set("campaign_id", String(args.campaign_id));
+      try {
+        const response = await fetchImpl(`${config.instantlyBaseUrl.replace(/\/$/, "")}/emails?${qs.toString()}`, {
+          headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" },
+          signal: AbortSignal.timeout(12_000)
+        });
+        if (!response.ok) return fail(`Instantly received-email read returned HTTP ${response.status}`, response.status >= 500 || response.status === 429);
+        const body = await response.json();
+        const items = Array.isArray(body) ? body : Array.isArray(body?.items) ? body.items : Array.isArray(body?.data) ? body.data : [];
+        const emails = items.slice(0,limit).map((email)=>({
+          id: email?.id || null,
+          threadId: email?.thread_id || email?.threadId || null,
+          from: email?.from_address_email || email?.from_address || email?.from || null,
+          to: email?.to_address_email_list || email?.to_address || null,
+          subject: email?.subject || null,
+          timestamp: email?.timestamp_email || email?.timestamp_created || email?.created_at || null,
+          isUnread: email?.is_unread ?? null,
+          campaignId: email?.campaign_id || email?.campaign || null,
+          eaccount: email?.eaccount || email?.email_account || null,
+          preview: String(email?.body?.text || email?.text || email?.body?.html || email?.html || "").replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim().slice(0,700)
+        }));
+        return ok({ count: emails.length, emails }, { source: "instantly:received_emails", claim: `Read ${emails.length} recent received Instantly email(s)`, detail: { count: emails.length, sample: emails.slice(0,5) } });
+      } catch (error) {
+        return fail(`Instantly received-email read failed: ${error.message}`, true);
+      }
+    }
     if (name === "instantly_unread_count") {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
       try {
@@ -955,6 +1100,6 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
 
   const roleDefinitions = config.role === "malik"
     ? definitions
-    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_stage_lead", "instantly_unread_count"].includes(tool.name));
+    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"].includes(tool.name));
   return { definitions: roleDefinitions, execute };
 }
