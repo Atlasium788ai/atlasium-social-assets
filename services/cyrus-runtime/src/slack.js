@@ -150,17 +150,12 @@ export class SlackSocketRuntime {
       requestText: event.text.trim(),
     });
     if (!created) return false;
-    await this.setMessageReaction(event, "eyes", true);
-    try {
+    // Immediate acknowledgement so Blair knows the bot received the task.\n    // This uses chat.postMessage, which the bot already has permission to use.\n    const ack = await this.slackApi("chat.postMessage", {\n      channel: event.channel,\n      text: "Working on it.",\n    });\n    if (!ack.ok) this.logger.warn("Slack acknowledgement failed", { error: ack.error || "unknown_error" });\n    try {
       const reply = await this.agent.handleTask(task);
       this.store.queueReply(task.id, event.channel, reply);
       await this.flushOutbox();
-      await this.setMessageReaction(event, "eyes", false);
-      await this.setMessageReaction(event, "white_check_mark", true);
       return true;
     } catch (error) {
-      await this.setMessageReaction(event, "eyes", false);
-      await this.setMessageReaction(event, "warning", true);
       throw error;
     }
   }
