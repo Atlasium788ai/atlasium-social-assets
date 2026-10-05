@@ -182,7 +182,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     {
       type: "function",
       name: "instantly_stage_lead",
-      description: "Stage one lead into an inactive Instantly campaign without activating or sending. Defaults to the configured campaign; campaign_id may target a verified clean pilot. Refuses active campaigns and stale Cody-specific routing, uses duplicate protection, and requests verification on import.",
+      description: "Stage one already-verified ReeVIQ lead into an inactive Instantly campaign without activating or sending. Uses Instantly's official bulk-add path, reconciles existing workspace leads by copy/move when needed, and verifies the exact lead/campaign relationship before reporting success.",
       parameters: {
         type: "object",
         properties: {
@@ -192,9 +192,10 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
           company_name: { type: "string" },
           website: { type: "string" },
           personalization: { type: "string" },
-          campaign_id: { type: "string" }
+          campaign_id: { type: "string" },
+          source_email_verified: { type: "boolean" }
         },
-        required: ["email"],
+        required: ["email", "source_email_verified"],
         additionalProperties: false
       },
     },
@@ -574,8 +575,64 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
       if (!campaignId) return fail("Instantly campaign ID is not configured");
       const email = String(args.email || "").trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail("A valid lead email is required");
+      if (args.source_email_verified !== true) return fail("Refusing staging: source_email_verified must be true from a verified ReeVIQ record");
+
+      const headers = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" };
+      const base = config.instantlyBaseUrl.replace(/\/$/, "");
+      const parseJson = async (response) => {
+        const text = await response.text();
+        try { return text ? JSON.parse(text) : {}; } catch { return { raw: text.slice(0, 1000) }; }
+      };
+      const listExact = async (extra = {}) => {
+        const response = await fetchImpl(`${base}/leads/list`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ search: email, limit: 100, ...extra }),
+          signal: AbortSignal.timeout(12_000)
+        });
+        const body = await parseJson(response);
+        if (!response.ok) throw new Error(`Instantly exact lead lookup HTTP ${response.status}: ${String(body?.message || body?.error || body?.raw || "").slice(0,300)}`);
+        const items = Array.isArray(body) ? body : Array.isArray(body?.items) ? body.items : Array.isArray(body?.data) ? body.data : Array.isArray(body?.leads) ? body.leads : Array.isArray(body?.data?.items) ? body.data.items : [];
+        return items.filter((lead) => String(lead?.email || "").trim().toLowerCase() === email);
+      };
+      const verifyLead = async (leadId) => {
+        if (!leadId) return null;
+        const response = await fetchImpl(`${base}/leads/${encodeURIComponent(leadId)}`, {
+          headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" },
+          signal: AbortSignal.timeout(10_000)
+        });
+        if (!response.ok) return null;
+        const body = await response.json();
+        const lead = body?.data ?? body;
+        if (String(lead?.email || "").trim().toLowerCase() !== email) return null;
+        return lead;
+      };
+      const verifyTarget = async (leadId = null) => {
+        const direct = await verifyLead(leadId);
+        if (direct && String(direct?.campaign || "") === campaignId) return direct;
+        const exact = await listExact({ campaign: campaignId, in_campaign: true });
+        return exact.find((lead) => String(lead?.campaign || "") === campaignId) || null;
+      };
+      const waitForJob = async (jobId) => {
+        if (!jobId) return null;
+        let last = null;
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          if (attempt) await new Promise((resolve) => setTimeout(resolve, 1500));
+          const response = await fetchImpl(`${base}/background-jobs/${encodeURIComponent(jobId)}`, {
+            headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" },
+            signal: AbortSignal.timeout(10_000)
+          });
+          if (!response.ok) continue;
+          last = await response.json();
+          const status = String(last?.status || last?.data?.status || "").toLowerCase();
+          if (["success","completed"].includes(status)) return last;
+          if (["failed","error","cancelled"].includes(status)) throw new Error(`Instantly background job ${jobId} failed with status ${status}`);
+        }
+        return last;
+      };
+
       try {
-        const base = config.instantlyBaseUrl.replace(/\/$/, "");
+        // Campaign must remain incapable of sending while we stage/test.
         const campaignResponse = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}`, {
           headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" },
           signal: AbortSignal.timeout(10_000)
@@ -583,60 +640,131 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         if (!campaignResponse.ok) return fail(`Instantly campaign preflight returned HTTP ${campaignResponse.status}`, campaignResponse.status >= 500);
         const campaign = await campaignResponse.json();
         const status = Number(campaign.status);
-        if (status === 1 || status === 4) return fail(`Refusing to stage into a campaign that can send now (status ${status})`);
-        if (!Array.isArray([0,2,3]) || ![0,2,3].includes(status)) return fail(`Refusing unknown campaign status ${status}`);
+        if (![0,2,3].includes(status)) return fail(`Refusing to stage into a sending/unknown campaign state ${status}`);
         if (/rep=cody|\bcody\b/i.test(JSON.stringify(campaign))) return fail("Refusing to stage: campaign still contains Cody-specific routing");
+
+        // Exact target duplicate check first.
+        const targetMatches = await listExact({ campaign: campaignId, in_campaign: true });
+        const targetExisting = targetMatches.find((lead) => String(lead?.campaign || "") === campaignId);
+        if (targetExisting) {
+          const data = { accepted: false, duplicate: true, verified: true, email, campaignId, leadId: targetExisting.id || null, path: "already_in_target" };
+          return ok(data, { source: "instantly:lead_stage", claim: `Verified ${email} already exists in target campaign ${campaignId}`, detail: data });
+        }
+
+        // Respect pilot cap using authoritative target inventory before any write.
         const inventoryResponse = await fetchImpl(`${base}/leads/list`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ campaign: campaignId, in_campaign: true, limit: 100 }),
           signal: AbortSignal.timeout(12_000)
         });
+        const inventoryBody = await parseJson(inventoryResponse);
         if (!inventoryResponse.ok) return fail(`Cannot verify Instantly campaign inventory before staging (HTTP ${inventoryResponse.status})`, inventoryResponse.status >= 500 || inventoryResponse.status === 429);
-        const inventoryBody = await inventoryResponse.json();
-        const existingItems = Array.isArray(inventoryBody) ? inventoryBody : Array.isArray(inventoryBody?.items) ? inventoryBody.items : Array.isArray(inventoryBody?.data) ? inventoryBody.data : Array.isArray(inventoryBody?.leads) ? inventoryBody.leads : Array.isArray(inventoryBody?.data?.items) ? inventoryBody.data.items : [];
-        const duplicate = existingItems.find((lead) => String(lead?.email || "").trim().toLowerCase() === email);
-        if (duplicate) {
-          const data = { accepted: false, duplicate: true, email, existingLeadId: duplicate?.id || null, campaignId };
-          return ok(data, { source: "instantly:lead_stage", claim: `Skipped duplicate ${email}; lead already exists in configured campaign`, detail: data });
-        }
+        const inventoryItems = Array.isArray(inventoryBody) ? inventoryBody : Array.isArray(inventoryBody?.items) ? inventoryBody.items : Array.isArray(inventoryBody?.data) ? inventoryBody.data : Array.isArray(inventoryBody?.leads) ? inventoryBody.leads : Array.isArray(inventoryBody?.data?.items) ? inventoryBody.data.items : [];
         const pilotCap = Math.max(1, Number(process.env.INSTANTLY_PILOT_CAP || 8));
-        const reportedTotal = Number(inventoryBody?.total ?? inventoryBody?.count ?? inventoryBody?.data?.total ?? existingItems.length);
-        if (reportedTotal >= pilotCap || existingItems.length >= pilotCap) return fail(`Pilot cap reached: campaign already has at least ${Math.max(reportedTotal, existingItems.length)} leads (cap ${pilotCap})`);
-        const payload = {
-          campaign: campaignId,
+        if (inventoryItems.length >= pilotCap) return fail(`Pilot cap reached: target campaign has ${inventoryItems.length} visible leads (cap ${pilotCap})`);
+
+        // If this contact already exists elsewhere in the workspace, copy it into this clean pilot instead of
+        // silently skipping it with skip_if_in_workspace=true.
+        const workspaceMatches = await listExact();
+        const existingElsewhere = workspaceMatches.find((lead) => String(lead?.campaign || "") !== campaignId);
+        if (existingElsewhere?.id) {
+          const moveBody = {
+            ids: [existingElsewhere.id],
+            to_campaign_id: campaignId,
+            copy_leads: true,
+            check_duplicates: true,
+            reset_interest_status: true,
+            limit: 1
+          };
+          if (existingElsewhere.campaign) moveBody.campaign = existingElsewhere.campaign;
+          else if (existingElsewhere.list_id) moveBody.list_id = existingElsewhere.list_id;
+          else {
+            delete moveBody.ids;
+            moveBody.search = email;
+          }
+          const moveResponse = await fetchImpl(`${base}/leads/move`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(moveBody),
+            signal: AbortSignal.timeout(15_000)
+          });
+          const moveResult = await parseJson(moveResponse);
+          if (!moveResponse.ok) return fail(`Instantly existing-lead copy returned HTTP ${moveResponse.status}: ${String(moveResult?.message || moveResult?.error || moveResult?.raw || "").slice(0,300)}`, moveResponse.status >= 500 || moveResponse.status === 429);
+          const jobId = moveResult?.id || moveResult?.data?.id || moveResult?.job_id || null;
+          if (jobId) await waitForJob(jobId);
+          const verified = await verifyTarget();
+          if (!verified) return fail(`Instantly accepted existing-lead copy for ${email}, but exact target verification failed; do not retry automatically`, true);
+          const data = { accepted: true, verified: true, email, campaignId, leadId: verified.id || existingElsewhere.id, path: "copied_existing_workspace_lead", jobId };
+          return ok(data, { source: "instantly:lead_stage", claim: `Verified existing workspace lead ${email} copied into draft campaign ${campaignId}`, detail: data });
+        }
+
+        // New contact: use the official bulk-add endpoint. ReeVIQ already verified this email, so do not
+        // spawn Instantly's asynchronous verification job.
+        const lead = {
           email,
           first_name: String(args.first_name || "").trim() || undefined,
           last_name: String(args.last_name || "").trim() || undefined,
           company_name: String(args.company_name || "").trim() || undefined,
           website: String(args.website || "").trim() || undefined,
-          personalization: String(args.personalization || "").trim() || undefined,
-          skip_if_in_workspace: true,
-          skip_if_in_campaign: true,
-          verify_leads_on_import: true
+          personalization: String(args.personalization || "").trim() || undefined
         };
-        Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
-        const response = await fetchImpl(`${base}/leads`, {
+        Object.keys(lead).forEach((key) => lead[key] === undefined && delete lead[key]);
+        const addResponse = await fetchImpl(`${base}/leads/add`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          headers,
+          body: JSON.stringify({
+            campaign_id: campaignId,
+            leads: [lead],
+            verify_leads_on_import: false,
+            skip_if_in_workspace: true,
+            skip_if_in_campaign: true,
+            skip_if_in_list: false
+          }),
           signal: AbortSignal.timeout(15_000)
         });
-        const textBody = await response.text();
-        let body = {};
-        try { body = textBody ? JSON.parse(textBody) : {}; } catch { body = { raw: textBody.slice(0, 500) }; }
-        if (!response.ok) return fail(`Instantly lead staging returned HTTP ${response.status}: ${String(body?.message || body?.error || textBody).slice(0, 300)}`, response.status >= 500 || response.status === 429);
+        const addResult = await parseJson(addResponse);
+        if (!addResponse.ok) return fail(`Instantly bulk-add returned HTTP ${addResponse.status}: ${String(addResult?.message || addResult?.error || addResult?.raw || "").slice(0,300)}`, addResponse.status >= 500 || addResponse.status === 429);
+
+        const created = Array.isArray(addResult?.created_leads)
+          ? addResult.created_leads.find((item) => String(item?.email || "").trim().toLowerCase() === email) || addResult.created_leads[0]
+          : null;
+        const uploaded = Number(addResult?.leads_uploaded || 0);
+        if (uploaded !== 1 || !created?.id) {
+          const summary = {
+            status: addResult?.status || null,
+            totalSent: addResult?.total_sent ?? null,
+            uploaded,
+            skipped: addResult?.skipped_count ?? null,
+            duplicated: addResult?.duplicated_leads ?? null,
+            invalid: addResult?.invalid_email_count ?? null,
+            blocklisted: addResult?.in_blocklist ?? null
+          };
+          return fail(`Instantly did not create ${email} in the target campaign: ${JSON.stringify(summary)}`);
+        }
+
+        const verified = await verifyTarget(created.id);
+        if (!verified) return fail(`Instantly reported ${email} uploaded as lead ${created.id}, but exact target verification failed; do not stage another lead until reconciled`, true);
         const data = {
           accepted: true,
-          httpStatus: response.status,
+          verified: true,
           email,
           campaignId,
-          leadId: body?.id || body?.data?.id || null,
-          backgroundJobId: body?.job_id || body?.background_job_id || body?.data?.job_id || null,
-          campaignStatusAtStage: status
+          leadId: verified.id || created.id,
+          campaignStatusAtStage: status,
+          path: "bulk_add_verified",
+          uploadSummary: {
+            totalSent: addResult?.total_sent ?? 1,
+            uploaded,
+            skipped: addResult?.skipped_count ?? 0,
+            invalid: addResult?.invalid_email_count ?? 0,
+            blocklisted: addResult?.in_blocklist ?? 0
+          }
         };
-        return ok(data, { source: "instantly:lead_stage", claim: `Staged ${email} into inactive Instantly campaign ${campaignId} without activating or sending`, detail: data });
-      } catch (error) { return fail(`Instantly lead staging failed: ${error.message}`, true); }
+        return ok(data, { source: "instantly:lead_stage", claim: `Verified ${email} staged in inactive Instantly campaign ${campaignId} via official bulk-add`, detail: data });
+      } catch (error) {
+        return fail(`Instantly lead staging failed: ${error.message}`, true);
+      }
     }
     if (name === "instantly_unread_count") {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
