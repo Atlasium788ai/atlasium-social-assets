@@ -884,7 +884,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         const inventoryBody = await parseJson(inventoryResponse);
         if (!inventoryResponse.ok) return fail(`Cannot verify Instantly campaign inventory before staging (HTTP ${inventoryResponse.status})`, inventoryResponse.status >= 500 || inventoryResponse.status === 429);
         const inventoryItems = Array.isArray(inventoryBody) ? inventoryBody : Array.isArray(inventoryBody?.items) ? inventoryBody.items : Array.isArray(inventoryBody?.data) ? inventoryBody.data : Array.isArray(inventoryBody?.leads) ? inventoryBody.leads : Array.isArray(inventoryBody?.data?.items) ? inventoryBody.data.items : [];
-        const pilotCap = Math.max(1, Number(process.env.INSTANTLY_PILOT_CAP || 8));
+        const pilotCap = Math.max(1, Number(process.env.INSTANTLY_PILOT_CAP || 5));
         if (inventoryItems.length >= pilotCap) return fail(`Pilot cap reached: target campaign has ${inventoryItems.length} visible leads (cap ${pilotCap})`);
 
         // If this contact already exists elsewhere in the workspace, copy it into this clean pilot instead of
