@@ -150,7 +150,14 @@ export class SlackSocketRuntime {
       requestText: event.text.trim(),
     });
     if (!created) return false;
-    // Immediate acknowledgement so Blair knows the bot received the task.\n    // This uses chat.postMessage, which the bot already has permission to use.\n    const ack = await this.slackApi("chat.postMessage", {\n      channel: event.channel,\n      text: "Working on it.",\n    });\n    if (!ack.ok) this.logger.warn("Slack acknowledgement failed", { error: ack.error || "unknown_error" });\n    try {
+    // Immediate acknowledgement so Blair knows the bot received the task.
+    // This uses chat.postMessage, which the bot already has permission to use.
+    const ack = await this.slackApi("chat.postMessage", {
+      channel: event.channel,
+      text: "Working on it.",
+    });
+    if (!ack.ok) this.logger.warn("Slack acknowledgement failed", { error: ack.error || "unknown_error" });
+    try {
       const reply = await this.agent.handleTask(task);
       this.store.queueReply(task.id, event.channel, reply);
       await this.flushOutbox();
