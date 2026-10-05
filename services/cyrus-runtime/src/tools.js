@@ -197,6 +197,20 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     },
     {
       type: "function",
+      name: "instantly_workspace_presence",
+      description: "Read-only duplicate screen for up to 20 candidate emails. Returns which emails already exist anywhere in the Instantly workspace so Malik can choose a genuinely fresh contact before staging.",
+      parameters: {
+        type: "object",
+        properties: {
+          emails: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } },
+          campaign_id: { type: "string" }
+        },
+        required: ["emails"],
+        additionalProperties: false
+      },
+    },
+    {
+      type: "function",
       name: "instantly_stage_lead",
       description: "Stage one already-verified ReeVIQ lead into an inactive Instantly campaign without activating or sending. Uses Instantly's official bulk-add path, reconciles existing workspace leads by copy/move when needed, and verifies the exact lead/campaign relationship before reporting success.",
       parameters: {
@@ -799,6 +813,44 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         return ok(data, { source: "instantly:campaign_leads", claim: `Read ${leads.length} Instantly leads for requested campaign ${campaignId}; total ${total}; returned campaign IDs ${uniqueCampaignIds.join(",") || "none"}; statuses ${JSON.stringify(counts)}`, detail: { campaignId, total, returned: leads.length, counts, campaignIds: uniqueCampaignIds, sample: leads.slice(0,10) } });
       } catch (error) { return fail(`Instantly lead inventory failed: ${error.message}`, true); }
     }
+    if (name === "instantly_workspace_presence") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      const campaignId = String(args.campaign_id || config.instantlyCampaignId || "").trim();
+      const emails = [...new Set((args.emails || []).map((email) => String(email || "").trim().toLowerCase()).filter((email) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)))].slice(0,20);
+      if (!emails.length) return fail("At least one valid email is required");
+      const base = config.instantlyBaseUrl.replace(/\/$/, "");
+      const headers = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" };
+      try {
+        const present = [];
+        const absent = [];
+        for (const email of emails) {
+          const response = await fetchImpl(`${base}/leads/list`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ search: email, limit: 20 }),
+            signal: AbortSignal.timeout(12_000)
+          });
+          if (!response.ok) return fail(`Instantly duplicate screen returned HTTP ${response.status} for ${email}`, response.status >= 500 || response.status === 429);
+          const body = await response.json().catch(() => ({}));
+          const items = Array.isArray(body) ? body : Array.isArray(body?.items) ? body.items : Array.isArray(body?.data) ? body.data : Array.isArray(body?.leads) ? body.leads : Array.isArray(body?.data?.items) ? body.data.items : [];
+          const matches = items.filter((lead) => String(lead?.email || "").trim().toLowerCase() === email);
+          if (!matches.length) {
+            absent.push(email);
+            continue;
+          }
+          present.push({
+            email,
+            leadIds: matches.map((lead) => lead?.id).filter(Boolean),
+            campaignIds: [...new Set(matches.map((lead) => lead?.campaign || lead?.campaign_id).filter(Boolean))],
+            inTarget: Boolean(campaignId && matches.some((lead) => String(lead?.campaign || lead?.campaign_id || "") === campaignId))
+          });
+        }
+        const data = { checked: emails.length, campaignId: campaignId || null, absent, present };
+        return ok(data, { source: "instantly:workspace_presence", claim: `Screened ${emails.length} candidate email(s): ${absent.length} fresh, ${present.length} already in workspace`, detail: data });
+      } catch (error) {
+        return fail(`Instantly duplicate screen failed: ${error.message}`, true);
+      }
+    }
     if (name === "instantly_stage_lead") {
       if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
       const campaignId = String(args.campaign_id || config.instantlyCampaignId || "").trim();
@@ -896,39 +948,22 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
         const pilotCap = Math.max(1, Number(process.env.INSTANTLY_PILOT_CAP || 5));
         if (inventoryItems.length >= pilotCap) return fail(`Pilot cap reached: target campaign has ${inventoryItems.length} visible leads (cap ${pilotCap})`);
 
-        // If this contact already exists elsewhere in the workspace, copy it into this clean pilot instead of
-        // silently skipping it with skip_if_in_workspace=true.
+        // Existing workspace contacts are not copied between campaigns during pilot construction.
+        // Choose a genuinely fresh verified contact instead; this avoids async move/copy ambiguity.
         const workspaceMatches = await listExact();
         const existingElsewhere = workspaceMatches.find((lead) => String(lead?.campaign || "") !== campaignId);
         if (existingElsewhere?.id) {
-          const moveBody = {
-            ids: [existingElsewhere.id],
-            to_campaign_id: campaignId,
-            copy_leads: true,
-            check_duplicates: true,
-            reset_interest_status: true,
-            limit: 1
+          const data = {
+            accepted: false,
+            verified: true,
+            duplicateWorkspace: true,
+            chooseAnother: true,
+            email,
+            existingLeadId: existingElsewhere.id,
+            existingCampaignId: existingElsewhere?.campaign || existingElsewhere?.campaign_id || null,
+            campaignId
           };
-          if (existingElsewhere.campaign) moveBody.campaign = existingElsewhere.campaign;
-          else if (existingElsewhere.list_id) moveBody.list_id = existingElsewhere.list_id;
-          else {
-            delete moveBody.ids;
-            moveBody.search = email;
-          }
-          const moveResponse = await fetchImpl(`${base}/leads/move`, {
-            method: "POST",
-            headers,
-            body: JSON.stringify(moveBody),
-            signal: AbortSignal.timeout(15_000)
-          });
-          const moveResult = await parseJson(moveResponse);
-          if (!moveResponse.ok) return fail(`Instantly existing-lead copy returned HTTP ${moveResponse.status}: ${String(moveResult?.message || moveResult?.error || moveResult?.raw || "").slice(0,300)}`, moveResponse.status >= 500 || moveResponse.status === 429);
-          const jobId = moveResult?.id || moveResult?.data?.id || moveResult?.job_id || null;
-          if (jobId) await waitForJob(jobId);
-          const verified = await verifyTarget();
-          if (!verified) return fail(`Instantly accepted existing-lead copy for ${email}, but exact target verification failed; do not retry automatically`, true);
-          const data = { accepted: true, verified: true, email, campaignId, leadId: verified.id || existingElsewhere.id, path: "copied_existing_workspace_lead", jobId };
-          return ok(data, { source: "instantly:lead_stage", claim: `Verified existing workspace lead ${email} copied into draft campaign ${campaignId}`, detail: data });
+          return ok(data, { source: "instantly:lead_stage", claim: `Skipped ${email}: contact already exists elsewhere in Instantly; choose a fresh ReeVIQ contact`, detail: data });
         }
 
         // New contact: use the official bulk-add endpoint. ReeVIQ already verified this email, so do not
@@ -1111,6 +1146,6 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
 
   const roleDefinitions = config.role === "malik"
     ? definitions
-    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"].includes(tool.name));
+    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_workspace_presence", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"].includes(tool.name));
   return { definitions: roleDefinitions, execute };
 }
