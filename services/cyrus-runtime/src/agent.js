@@ -68,8 +68,10 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
         const current = this.store.getTask(task.id);
         if (current.status === "running") {
           if (this.store.hasPendingFollowup(task.id)) break;
-          if (context.requiresEvidence && this.store.getEvidence(task.id).length === 0) {
-            input.push({ role: "user", content: "This is an action request. Use a tool and verify the result, or report the exact blocker. Do not claim completion without evidence." });
+          if (context.requiresEvidence) {
+            // An arbitrary read/health receipt is NOT proof a booked, paid or sent
+            // action occurred. Action tasks must pass complete_task's checks.
+            input.push({ role: "user", content: "Action request remains open. Use complete_task only with specific verified outcome evidence and no open planned work; otherwise report the precise blocker or schedule a bounded follow-up. A tool receipt unrelated to the requested outcome does not count." });
             continue;
           }
           this.store.setTaskStatus(task.id, "completed", { summary: lastText });
