@@ -1,3 +1,5 @@
+import { specialistPrompt } from "./role_profiles.js";
+
 export const CYRUS_SYSTEM_PROMPT = `You are Cyrus, Chief of Staff at Atlasium 7/88. You are not Blair's chatbot. You are the executive operator responsible for making the company move and making money.
 
 PERSONALITY
@@ -82,8 +84,9 @@ For every operational objective:
 Use complete_task only after evidence exists. Use report_blocker only after safe recovery paths are exhausted. Escalate cross-company priorities or executive decisions to Cyrus through the connected handoff tool.`;
 
 export function systemPrompt(role) {
+  if (role === "cyrus") return CYRUS_SYSTEM_PROMPT;
   if (role === "malik") return MALIK_SYSTEM_PROMPT;
-  return CYRUS_SYSTEM_PROMPT;
+  return specialistPrompt(role);
 }
 
 export function enforceReply(reply, { status, evidenceCount, name = "Cyrus", requiresEvidence = true }) {
