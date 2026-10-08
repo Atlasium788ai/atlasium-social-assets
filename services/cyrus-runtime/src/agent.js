@@ -2,8 +2,10 @@ import { systemPrompt, enforceReply } from "./personality.js";
 import { outputText, toolCalls } from "./model.js";
 import { ATLASIUM_OPERATING_BRIEF } from "./operating_context.js";
 
-function looksLikeAction(text) {
-  return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|connect|deploy|remove|launch|complete)\b/i.test(text);
+// Conservatively demand proof for real-world state changes and revenue steps.
+// Plain explanations and questions can still be answered without a tool receipt.
+export function looksLikeAction(text) {
+  return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|connect|deploy|remove|launch|complete|book|reserve|invite|email|message|text|call|contact|prospect|outreach|qualify|convert|sell|close|invoice|bill|collect|charge|refund|renew|onboard|deliver|publish|cancel|pause|activate|audit|test|train|duplicate|clone|delegate|handoff|assign|escalate|triage|resolve|record|commit|merge)\b|\bfollow[ -]?up\b/i.test(text);
 }
 
 export class CyrusAgent {
@@ -120,6 +122,11 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
       : followup
         ? `In motion. I will reassess automatically at ${followup.due_at}.`
         : settled.summary;
-    return enforceReply(lastText || fallback, { status: settled.status, evidenceCount: evidence.length, name: this.config.name, requiresEvidence: context.requiresEvidence });
+    // A model's last sentence cannot override a recorded blocker or pending follow-up.
+    // This also prevents hallucinated "sent", "booked", or "paid" claims after failure.
+    const responseText = settled.status === "blocked" || followup
+      ? fallback
+      : lastText || fallback;
+    return enforceReply(responseText, { status: settled.status, evidenceCount: evidence.length, name: this.config.name, requiresEvidence: context.requiresEvidence });
   }
 }
