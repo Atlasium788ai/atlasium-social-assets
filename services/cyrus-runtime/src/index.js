@@ -49,6 +49,8 @@ const server = http.createServer((request, response) => {
       ok: healthy,
       service: config.serviceName,
       role: config.role,
+      title: config.title,
+      department: config.department,
       recovered,
       slackAuthenticated: Boolean(slackAuth.ok),
       slackSocketEnabled: config.slackSocketEnabled,

@@ -25,13 +25,18 @@ function jsonObject(value, name) {
 
 export function loadConfig(env = process.env) {
   const role = (env.BOT_ROLE?.trim() || "cyrus").toLowerCase();
-  const identities = { cyrus: "Cyrus", malik: "Malik" };
-  if (!identities[role]) throw new Error(`Unsupported BOT_ROLE: ${role}`);
-  const name = env.BOT_NAME?.trim() || identities[role];
+  const profiles = {
+    cyrus: { name: "Cyrus", title: "Chief of Staff", department: "Executive" },
+    malik: { name: "Malik", title: "Chief Operating Officer", department: "Operations" },
+  };
+  if (!profiles[role]) throw new Error(`Unsupported BOT_ROLE: ${role}`);
+  const name = env.BOT_NAME?.trim() || profiles[role].name;
   const dataDir = env.BOT_DATA_DIR?.trim() || env.CYRUS_DATA_DIR?.trim() || path.resolve(`.data/${role}`);
   return {
     role,
     name,
+    title: env.BOT_TITLE?.trim() || profiles[role].title,
+    department: env.BOT_DEPARTMENT?.trim() || profiles[role].department,
     serviceName: `${role}-runtime`,
     port: Number(env.PORT || 3000),
     internalPort: Number(env.INTERNAL_PORT || 3001),

@@ -7,6 +7,7 @@ import { CyrusStore } from "../src/store.js";
 import { createToolbox } from "../src/tools.js";
 import { CyrusAgent } from "../src/agent.js";
 import { shouldHandleMessage, SlackSocketRuntime } from "../src/slack.js";
+import { systemPrompt } from "../src/personality.js";
 
 function tempStore() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cyrus-test-"));
@@ -41,6 +42,13 @@ function call(name, args, callId = "call_1") {
 test("direct Blair DM is accepted and staff DM is ignored", () => {
   assert.equal(shouldHandleMessage({ type: "message", channel_type: "im", user: "U_BLAIR", text: "Check health" }, config()), true);
   assert.equal(shouldHandleMessage({ type: "message", channel_type: "im", user: "U_STAFF", text: "Check health" }, config()), false);
+});
+
+test("Malik is configured as the Operations COO", () => {
+  const prompt = systemPrompt("malik");
+  assert.match(prompt, /Chief Operating Officer/);
+  assert.match(prompt, /department is Operations/);
+  assert.doesNotMatch(prompt, /Head of Revenue/);
 });
 
 test("deduplicates by Slack event id, not repeated request text", () => {
