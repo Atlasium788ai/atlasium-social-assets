@@ -44,11 +44,11 @@ test("direct Blair DM is accepted and staff DM is ignored", () => {
   assert.equal(shouldHandleMessage({ type: "message", channel_type: "im", user: "U_STAFF", text: "Check health" }, config()), false);
 });
 
-test("Malik is configured as the Operations COO", () => {
+test("Malik is configured as Head of Revenue", () => {
   const prompt = systemPrompt("malik");
-  assert.match(prompt, /Chief Operating Officer/);
-  assert.match(prompt, /department is Operations/);
-  assert.doesNotMatch(prompt, /Head of Revenue/);
+  assert.match(prompt, /Head of Revenue/);
+  assert.match(prompt, /department is Sales/);
+  assert.doesNotMatch(prompt, /Chief Operating Officer/);
 });
 
 test("deduplicates by Slack event id, not repeated request text", () => {
