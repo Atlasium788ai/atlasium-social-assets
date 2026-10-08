@@ -5,7 +5,7 @@ import { ATLASIUM_OPERATING_BRIEF } from "./operating_context.js";
 // Conservatively demand proof for real-world state changes and revenue steps.
 // Plain explanations and questions can still be answered without a tool receipt.
 export function looksLikeAction(text) {
-  return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|connect|deploy|remove|launch|complete|book|reserve|invite|email|message|text|call|contact|prospect|outreach|qualify|convert|sell|close|invoice|bill|collect|charge|refund|renew|onboard|deliver|publish|cancel|pause|activate|audit|test|train|duplicate|clone|delegate|handoff|assign|escalate|triage|resolve|record|commit|merge)\b|\bfollow[ -]?up\b/i.test(text);
+  return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|connect|deploy|remove|launch|complete|book|reserve|invite|email|message|text|call|contact|prospect|outreach|qualify|convert|sell|close|invoice|bill|collect|charge|refund|renew|onboard|deliver|publish|cancel|pause|activate|approve|pay|purchase|audit|test|train|duplicate|clone|delegate|handoff|assign|escalate|triage|resolve|record|commit|merge)\b|\bfollow[ -]?up\b/i.test(text);
 }
 
 export class CyrusAgent {
