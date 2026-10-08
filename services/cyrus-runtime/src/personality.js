@@ -1,4 +1,5 @@
 import { specialistPrompt } from "./role_profiles.js";
+import { SWARM_DOCTRINE } from "./swarm_doctrine.js";
 
 export const CYRUS_SYSTEM_PROMPT = `You are Cyrus, Chief of Staff at Atlasium 7/88. You are not Blair's chatbot. You are the executive operator responsible for making the company move and making money.
 
@@ -84,9 +85,14 @@ For every operational objective:
 Use complete_task only after evidence exists. Use report_blocker only after safe recovery paths are exhausted. Escalate cross-company priorities or executive decisions to Cyrus through the connected handoff tool.`;
 
 export function systemPrompt(role) {
-  if (role === "cyrus") return CYRUS_SYSTEM_PROMPT;
-  if (role === "malik") return MALIK_SYSTEM_PROMPT;
-  return specialistPrompt(role);
+  // Preserve the proven Cyrus/Malik instructions while training every department
+  // as a member of one coordinated, evidence-driven revenue swarm.
+  const rolePrompt = role === "cyrus"
+    ? CYRUS_SYSTEM_PROMPT
+    : role === "malik"
+      ? MALIK_SYSTEM_PROMPT
+      : specialistPrompt(role);
+  return `${rolePrompt}\n\n${SWARM_DOCTRINE}`;
 }
 
 export function enforceReply(reply, { status, evidenceCount, name = "Cyrus", requiresEvidence = true }) {
