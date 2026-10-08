@@ -1,0 +1,28 @@
+name: GitHub Models official inference smoke check
+on:
+  push:
+    branches: [bot-runtime-clones-2026-10-08]
+    paths:
+      - ".github/workflows/ai-model-smoke.yml"
+permissions:
+  contents: read
+  models: read
+jobs:
+  real-inference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ask a real GitHub-hosted model for an unambiguous marker
+        id: ask
+        uses: actions/ai-inference@v2.0.8
+        with:
+          token: ${{ github.token }}
+          model: openai/gpt-4o-mini
+          prompt: "Return exactly the single string ATLASIUM_MODEL_RESPONSE_7F2A and nothing else."
+          system-prompt: "You output the exact requested single string."
+          max-completion-tokens: 120
+      - name: Validate result is actual model output
+        env:
+          MODEL_REPLY: ${{ steps.ask.outputs.response }}
+        run: |
+          node -e 'let s=process.env.MODEL_REPLY||""; console.log("MODEL_SMOKE_REPLY "+JSON.stringify(s.slice(0,350))); if(!s.includes("ATLASIUM_MODEL_RESPONSE_7F2A")) process.exit(1)'
