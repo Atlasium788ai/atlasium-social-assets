@@ -1,10 +1,5 @@
 name: Six-role local LLM behavior exam
 on:
-  push:
-    branches: [bot-runtime-clones-2026-10-08]
-    paths:
-      - "services/cyrus-runtime/test/live-model-eval.mjs"
-      - ".github/workflows/local-model-eval.yml"
   workflow_dispatch:
 permissions:
   contents: read
