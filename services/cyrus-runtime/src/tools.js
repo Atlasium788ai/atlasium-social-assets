@@ -8,6 +8,13 @@ function fail(error, retryable = false) {
   return { ok: false, error, retryable };
 }
 
+const MALIK_ONLY_TOOLS = new Set([
+  "reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads",
+  "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign",
+  "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_workspace_presence",
+  "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count",
+]);
+
 export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
   let instantlyStageBusy = false;
   const definitions = [
@@ -293,6 +300,10 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
   ];
 
   async function execute(name, args, context) {
+    // A forged or stale model tool call must not bypass the exposed role tool list.
+    if (config.role !== "malik" && MALIK_ONLY_TOOLS.has(name)) {
+      return fail(`Tool ${name} is restricted to Malik's revenue runtime`);
+    }
     if (name === "recall_memory") return ok(store.recallDecisions(args.query));
     if (name === "remember_decision") {
       const row = store.rememberDecision({ ...args, sourceTaskId: context.taskId });
@@ -1146,6 +1157,6 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
 
   const roleDefinitions = config.role === "malik"
     ? definitions
-    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_workspace_presence", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"].includes(tool.name));
+    : definitions.filter((tool) => !MALIK_ONLY_TOOLS.has(tool.name));
   return { definitions: roleDefinitions, execute };
 }
