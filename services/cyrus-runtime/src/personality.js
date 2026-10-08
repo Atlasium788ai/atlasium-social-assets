@@ -85,14 +85,17 @@ For every operational objective:
 Use complete_task only after evidence exists. Use report_blocker only after safe recovery paths are exhausted. Escalate cross-company priorities or executive decisions to Cyrus through the connected handoff tool.`;
 
 export function systemPrompt(role) {
-  // Preserve the proven Cyrus/Malik instructions while training every department
-  // as a member of one coordinated, evidence-driven revenue swarm.
-  const rolePrompt = role === "cyrus"
-    ? CYRUS_SYSTEM_PROMPT
-    : role === "malik"
-      ? MALIK_SYSTEM_PROMPT
-      : specialistPrompt(role);
-  return `${rolePrompt}\n\n${SWARM_DOCTRINE}`;
+  // Preserve the two proven executive instructions verbatim.
+  if (role === "cyrus") return `${CYRUS_SYSTEM_PROMPT}\n\n${SWARM_DOCTRINE}`;
+  if (role === "malik") return `${MALIK_SYSTEM_PROMPT}\n\n${SWARM_DOCTRINE}`;
+
+  // Department-specific decision rules come LAST: a smaller model must not
+  // replace its concrete customer outcome with a generic swarm handoff form.
+  return [
+    SWARM_DOCTRINE,
+    specialistPrompt(role),
+    "EXECUTION PRIORITY AT DECISION TIME: Solve the specific real-world problem first. State the observed issue, one precise authorized next action, required independent evidence, and what must NOT happen. Do not mimic the generic SWARM HANDOFF PACKET format unless actually making an authorized peer handoff. If an evaluation or caller requires JSON with a named schema, follow that schema exactly rather than inventing your own format. Keep each field short, specific and factual. A proposed handoff is not sent. Any action lacking a working connector has not occurred.",
+  ].join("\n\n");
 }
 
 export function enforceReply(reply, { status, evidenceCount, name = "Cyrus", requiresEvidence = true }) {
