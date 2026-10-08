@@ -1,0 +1,25 @@
+name: Live-model swarm behavior exam
+on:
+  push:
+    branches: [bot-runtime-clones-2026-10-08]
+    paths:
+      - "services/cyrus-runtime/test/live-model-eval.mjs"
+      - ".github/workflows/live-model-eval.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  models: read
+jobs:
+  specialist-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Evaluate six isolated role prompts with actual GitHub-hosted LLM inference
+        working-directory: services/cyrus-runtime
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node test/live-model-eval.mjs
