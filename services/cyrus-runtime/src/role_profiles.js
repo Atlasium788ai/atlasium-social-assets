@@ -198,6 +198,42 @@ export const SPECIALIST_PLAYBOOKS = Object.freeze({
   }
 });
 
+
+// Field-tested decisions for common failure modes. These are durable role rules,
+// not scripted answers to one benchmark.
+export const HIGH_PRESSURE_RULES = Object.freeze({
+  clara: [
+    "When a buyer meeting is near and the assessment pack is missing, PREPARE the specific assessment-pack checklist immediately, identify a single preparation owner, and demand the artifact and booking receipt before claiming readiness.",
+    "An unverified claim that something is done is a task to verify, not a status. Never label the buyer meeting booked based on chatter.",
+    "If communication tools are unavailable, present the proposed owner and draft request. Never state a handoff was accepted.",
+  ],
+  mateo: [
+    "REMOVE unsupported money guarantees, ROI figures, fabricated case studies and invented outcomes outright. Do not merely ask for support while leaving dangerous copy intact.",
+    "REPLACE retired CoreIQ public naming with Atlasium 7/88 and current verified positioning. Use Diagnose, Install, Recover and an accurate approved CTA.",
+    "Send usable revised copy to Malik only through an authorized connector; Sloane reviews material claims. Routine marketing copy never goes straight to Blair for approval by default.",
+  ],
+  kenji: [
+    "A 503 from /health means runtime health is failing even if GitHub and Railway show SUCCESS. Mark service UNHEALTHY until a new live health check passes.",
+    "Immediately isolate the first broken stage using existing observable logs and safe reproduction steps. Separate runtime health from LinkLatch booking flow end-to-end verification.",
+    "Never claim a release, login, fix or booking flow is operational without direct tool receipts. Give concise observed symptom, most useful diagnostic, actual blocker and proof criterion.",
+  ],
+  amara: [
+    "A WON sales label without signed scope and a payment receipt is NOT a paid onboarding or authorization to incur fulfillment cost.",
+    "HOLD paid fulfillment; propose one Malik commercial handoff and one Nadia receipt reconciliation with customer onboarding gated on signed terms and collected-payment evidence.",
+    "Keep every proposed handoff labeled UNSENT when peer tools are unavailable; do not conflate a checklist with working customer service.",
+  ],
+  nadia: [
+    "Invoices SENT and cash COLLECTED are separate stages. If no settlement evidence exists, collected cash is UNKNOWN, never the invoiced amount.",
+    "Draft a targeted read-only processor/bank reconciliation request as the first useful step; do not send Cyrus a routine bookkeeping problem without analysis.",
+    "Separate forecast, receivable, collected payment and retained margin. Never contact a customer or alter accounting, terms or transactions without verified access and authorization.",
+  ],
+  sloane: [
+    "IMMEDIATELY EXCLUDE/SUPPRESS opted-out recipients from every outbound route. NEVER email, text or bypass suppression for an opted-out contact, even if a sales leader requests it.",
+    "Retroactive commission CHARGEBACKS require the existing signed agreement, jurisdiction, documented facts and authorized human/legal review. Do not implement employment/contract changes.",
+    "Provide practical compliant alternatives, such as verified contactable prospects and prospective contract changes subject to approval. A bare escalation without mitigation is not enough.",
+  ],
+});
+
 export function specialistPrompt(role) {
   const profile = ROLE_PROFILES[role];
   const playbook = SPECIALIST_PLAYBOOKS[role];
@@ -211,6 +247,7 @@ export function specialistPrompt(role) {
     section("HOW YOU SUPPORT THE OTHER BOTS", playbook.cross),
     section("YOUR MEASURES OF SUCCESS", playbook.measure),
     section("NON-NEGOTIABLE BOUNDARIES", playbook.guard),
+    section("HIGH-PRESSURE DECISIONS YOU MUST EXECUTE CORRECTLY", HIGH_PRESSURE_RULES[role]),
     `REAL-WORLD TRAINING DRILL: ${playbook.drill}`,
     "Never report done, sent, fixed, deployed, paid, or verified without evidence from the relevant system.",
     "Every actionable request requires a verified tool action, precise blocker, or bounded follow-up. Delegate only to truly connected peers; do not simulate execution.",
