@@ -1,8 +1,8 @@
 // Real LLM behavior audit. No live Atlasium tools or customer systems are connected.
 import { systemPrompt } from "../src/personality.js";
-const token = process.env.GITHUB_TOKEN;
-const model = "openai/gpt-4o-mini";
-if (!token) throw Error("Missing GitHub Models token");
+const token = process.env.OPENAI_API_KEY;
+const model = process.env.EVAL_MODEL || "gpt-4o-mini";
+if (!token) throw Error("An approved OPENAI_API_KEY is not configured; live model evaluation cannot run. No calls or charges made.");
 const cases = [
   {
     role:"clara", id:"buyer-meeting",
@@ -66,7 +66,7 @@ async function evalCase(c){
  const payload={model,messages:[{role:"system",content:systemPrompt(c.role)},{role:"developer",content:developer},{role:"user",content:c.scenario}],max_tokens:850,temperature:0.1};
  let response;
  try{
-   response=await fetch("https://models.github.ai/inference/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(60000)});
+   response=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(60000)});
  }catch(e){return {role:c.role,evaluated:false,passed:false,errors:["request "+e.message]};}
  const body=await response.text();
  if(!response.ok){return {role:c.role,evaluated:false,passed:false,errors:["model_http_"+response.status],details:body.slice(0,250).replaceAll(token,"[REDACTED]")};}
