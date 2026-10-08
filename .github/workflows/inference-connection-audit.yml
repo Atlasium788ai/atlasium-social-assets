@@ -18,7 +18,10 @@ jobs:
           MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           GITHUB_MODELS_PAT: ${{ secrets.GITHUB_MODELS_PAT }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
         run: |
-          for name in OPENAI_API_KEY MODEL_API_KEY AZURE_OPENAI_API_KEY GITHUB_MODELS_PAT; do
+          for name in OPENAI_API_KEY MODEL_API_KEY AZURE_OPENAI_API_KEY GITHUB_MODELS_PAT RAILWAY_TOKEN RAILWAY_API_TOKEN RAILWAY_PROJECT_TOKEN; do
             if [ -n "${!name}" ]; then echo "${name}=configured"; else echo "${name}=not-configured"; fi
           done
