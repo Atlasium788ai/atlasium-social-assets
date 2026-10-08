@@ -208,7 +208,12 @@ export class CyrusStore {
   health() {
     const row = this.db.prepare("SELECT value FROM schema_meta WHERE key='schema_version'").get();
     const openTasks = this.db.prepare("SELECT count(*) AS count FROM tasks WHERE status IN ('received','running')").get();
-    const openWorkItems = this.db.prepare("SELECT count(*) AS count FROM work_items WHERE status != 'completed'").get();
+    const openWorkItems = this.db.prepare(`
+      SELECT count(*) AS count
+      FROM work_items w
+      JOIN tasks t ON t.id=w.task_id
+      WHERE w.status!='completed' AND t.status IN ('received','running')
+    `).get();
     const pendingFollowups = this.db.prepare("SELECT count(*) AS count FROM followups WHERE status = 'pending'").get();
     return {
       schemaVersion: Number(row.value),
@@ -463,6 +468,14 @@ export class CyrusStore {
     this.db.prepare("UPDATE followups SET status='pending', claimed_at=NULL WHERE status='claimed'").run();
     const nowMs = Date.now();
     const cleanupAt = new Date(nowMs).toISOString();
+
+    // Preserve historical work-plan rows, but do not leave them actionable
+    // after their parent task has reached a terminal state.
+    this.db.prepare(`
+      UPDATE work_items SET status='completed', updated_at=?
+      WHERE status!='completed'
+        AND task_id IN (SELECT id FROM tasks WHERE status IN ('blocked','completed','failed'))
+    `).run(cleanupAt);
 
     const internalOpen = this.db.prepare(`
       SELECT id, channel_id, requester_id, created_at

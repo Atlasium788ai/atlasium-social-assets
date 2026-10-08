@@ -230,7 +230,8 @@ test("socket and DM polling use one canonical Slack message identity", async () 
   }));
   await runtime.pollDirectMessages();
   assert.equal(executions, 1);
-  assert.equal(posts.length, 1);
+  assert.equal(posts.length, 2);
+  assert.equal(posts.filter((post) => post.client_msg_id).length, 1);
   assert.equal(store.getTaskBySourceEvent("slack-message:D_BLAIR:100.1").request_text, "Same request");
   store.close();
 });
@@ -274,6 +275,21 @@ test("operational work items cannot complete without task evidence", () => {
   assert.equal(item.status, "completed");
   assert.equal(store.openWorkItems(current.id).length, 0);
   store.close();
+});
+
+test("restart closes work items whose parent task is terminal", () => {
+  const { dir, store } = tempStore();
+  const db = path.join(dir, "cyrus.sqlite");
+  const current = task(store, "Ev-terminal-plan", "Build and finish a plan");
+  store.createWorkPlan(current.id, [{ id: "old-open-item", title: "Old step", owner: "malik" }]);
+  store.setTaskStatus(current.id, "completed", { summary: "Task settled" });
+  store.close();
+
+  const restarted = new CyrusStore(db);
+  restarted.recoverInterruptedTasks();
+  assert.equal(restarted.getWorkItems(current.id)[0].status, "completed");
+  assert.equal(restarted.health().openWorkItems, 0);
+  restarted.close();
 });
 
 test("automatic follow-up survives restart and becomes due once", () => {
