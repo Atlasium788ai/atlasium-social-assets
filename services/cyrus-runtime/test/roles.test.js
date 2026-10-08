@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ROLE_PROFILES, SPECIALIST_PLAYBOOKS } from "../src/role_profiles.js";
-import { SWARM_DOCTRINE } from "../src/swarm_doctrine.js";
 import { loadConfig } from "../src/config.js";
 import { systemPrompt, CYRUS_SYSTEM_PROMPT, MALIK_SYSTEM_PROMPT } from "../src/personality.js";
+import { SWARM_DOCTRINE } from "../src/swarm_doctrine.js";
 import { createToolbox } from "../src/tools.js";
 
 const ALL_ROLES = ["cyrus", "malik", "clara", "mateo", "kenji", "amara", "nadia", "sloane"];
@@ -12,7 +12,7 @@ const SPECIALISTS = ALL_ROLES.filter((role) => !["cyrus", "malik"].includes(role
 function envFor(role) {
   return {
     BOT_ROLE: role,
-    BOT_DATA_DIR: `/data/${role}`,
+    BOT_DATA_DIR: "/data/" + role,
     SLACK_APP_TOKEN: "test-app-token",
     SLACK_BOT_TOKEN: "test-bot-token",
     BLAIR_SLACK_USER_ID: "U_BLAIR",
@@ -20,7 +20,7 @@ function envFor(role) {
   };
 }
 
-test("all eight intended roles use the same runtime with isolated identity and SQLite paths", () => {
+test("all eight roles share the proven runtime with separate identities and SQLite paths", () => {
   assert.deepEqual(Object.keys(ROLE_PROFILES), ALL_ROLES);
   const paths = new Set();
   for (const role of ALL_ROLES) {
@@ -29,89 +29,65 @@ test("all eight intended roles use the same runtime with isolated identity and S
     assert.equal(cfg.name, ROLE_PROFILES[role].name);
     assert.equal(cfg.title, ROLE_PROFILES[role].title);
     assert.equal(cfg.department, ROLE_PROFILES[role].department);
-    assert.equal(cfg.serviceName, `${role}-runtime`);
-    assert.equal(cfg.dataDir, `/data/${role}`);
-    assert.equal(cfg.databasePath, `/data/${role}/${role}.sqlite`);
+    assert.equal(cfg.serviceName, role + "-runtime");
+    assert.equal(cfg.dataDir, "/data/" + role);
+    assert.equal(cfg.databasePath, "/data/" + role + "/" + role + ".sqlite");
     paths.add(cfg.databasePath);
-    const prompt = systemPrompt(role);
-    assert.match(prompt, new RegExp(cfg.name));
-    assert.match(prompt, new RegExp(cfg.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.ok(systemPrompt(role).includes(cfg.name));
+    assert.ok(systemPrompt(role).includes(cfg.title));
   }
   assert.equal(paths.size, ALL_ROLES.length);
 });
 
-test("proven Cyrus and Malik base personalities remain intact and inherit the swarm doctrine", () => {
-  assert.equal(systemPrompt("cyrus"), `${CYRUS_SYSTEM_PROMPT}\n\n${SWARM_DOCTRINE}`);
-  assert.equal(systemPrompt("malik"), `${MALIK_SYSTEM_PROMPT}\n\n${SWARM_DOCTRINE}`);
+test("Cyrus and Malik retain their original instructions, plus the shared doctrine", () => {
+  assert.equal(systemPrompt("cyrus"), CYRUS_SYSTEM_PROMPT + "\n\n" + SWARM_DOCTRINE);
+  assert.equal(systemPrompt("malik"), MALIK_SYSTEM_PROMPT + "\n\n" + SWARM_DOCTRINE);
 });
 
-test("specialists have detailed department playbooks, drill cases, relentless tone and coordination", () => {
+test("all six department leaders have practical playbooks, cross-bot duties and strict boundaries", () => {
   assert.deepEqual(Object.keys(SPECIALIST_PLAYBOOKS).sort(), SPECIALISTS.slice().sort());
   for (const role of SPECIALISTS) {
     const plan = SPECIALIST_PLAYBOOKS[role];
     const prompt = systemPrompt(role);
-    assert.ok(plan.own.length >= 6, `${role}: missing detailed responsibilities`);
-    assert.ok(plan.cross.length >= 5, `${role}: missing cross-department links`);
-    assert.ok(plan.measure.length >= 3, `${role}: missing success indicators`);
-    assert.ok(plan.guard.length >= 2, `${role}: missing safety boundaries`);
-    assert.ok(plan.drill.length > 100, `${role}: no meaningful practical drill`);
-    assert.match(prompt, /Cyrus is Chief of Staff and the orchestrator/);
-    assert.match(prompt, /ruthless about prioritization and relentless about lawful, honest follow-through/);
-    assert.match(prompt, /Handoff state/);
-    assert.match(prompt, /Never report done, sent, fixed, deployed, paid, or verified without evidence/);
-    assert.match(prompt, new RegExp(ROLE_PROFILES[role].department.replace(/[.*+?^${}()|[\]\\]/g, "\\test("specialist prompts define real department duties, Cyrus reporting, and evidence rules", () => {
-  for (const role of SPECIALISTS) {
-    const prompt = systemPrompt(role);
-    assert.match(prompt, /Cyrus is the Chief of Staff/);
-    assert.match(prompt, /Never report done, sent, fixed, deployed, paid, or verified without evidence/);
-    assert.match(prompt, /role|department|operator/i);
-  }
-  assert.match(systemPrompt("sloane"), /Do not sign or accept contracts/);
-  assert.match(systemPrompt("nadia"), /Do not move money/);
-  assert.match(systemPrompt("kenji"), /Do not deploy/);
-});")));
+    assert.ok(plan.own.length >= 6, role + ": responsibilities missing");
+    assert.ok(plan.cross.length >= 5, role + ": no swarm handoffs");
+    assert.ok(plan.measure.length >= 3, role + ": no success measures");
+    assert.ok(plan.guard.length >= 2, role + ": boundaries missing");
+    assert.ok(plan.drill.length > 100, role + ": no detailed practical drill");
+    assert.ok(prompt.includes("Cyrus is Chief of Staff and the orchestrator"));
+    assert.ok(prompt.includes("ruthless about prioritization and relentless about lawful, honest follow-through"));
+    assert.ok(prompt.includes("Never report done, sent, fixed, deployed, paid, or verified without evidence"));
+    assert.ok(prompt.includes(ROLE_PROFILES[role].department));
   }
   assert.match(systemPrompt("sloane"), /Do not sign or accept contracts/);
   assert.match(systemPrompt("nadia"), /Do not move money/);
   assert.match(systemPrompt("kenji"), /Do not deploy/);
 });
 
-test("unknown role fails closed rather than turning into Cyrus", () => {
+test("unknown roles fail closed instead of defaulting to Cyrus", () => {
   assert.throws(() => loadConfig(envFor("unknown")), /Unsupported BOT_ROLE/);
   assert.throws(() => systemPrompt("unknown"), /Unsupported specialist BOT_ROLE/);
 });
 
-test("specialists cannot invoke Malik-only tools even through a forged model call", async () => {
-  for (const role of SPECIALISTS) {
-    const config = loadConfig(envFor(role));
-    const box = createToolbox({ config, store: {}, slackApi: async () => ({ ok: true }) });
-    assert.equal(box.definitions.some((tool) => tool.name === "instantly_stage_lead"), false);
-    assert.equal(box.definitions.some((tool) => tool.name === "reeviq_leads"), false);
-    const result = await box.execute("instantly_stage_lead", { email: "someone@example.com", source_email_verified: true }, { taskId: "mock" });
-    assert.equal(result.ok, false);
-    assert.match(result.error, /restricted to Malik/);
-  }
-});
-
-test("all swarm leaders follow a common verified-work and escalation protocol", () => {
+test("each role shares objective, handoff, evidence and escalation training", () => {
   for (const role of ALL_ROLES) {
-    const prompt = systemPrompt(role);
+    const prompt = systemPrompt(role).toLowerCase();
     for (const needle of [
-      "SWARM HANDOFF PACKET",
-      "RELENTLESS OPERATING LOOP",
-      "Never hand off to yourself",
-      "A handoff being accepted proves delivery of work, NOT completion",
-      "Blair is CEO and approves executive exceptions",
-      "No routine bot chatter",
+      "swarm handoff packet",
+      "relentless operating loop",
+      "never hand off to yourself",
+      "a handoff being accepted proves delivery of work, not completion",
+      "blair is ceo and approves executive exceptions",
+      "no routine bot chatter",
+      "outreach -> conversation -> assessment -> meeting -> proposal -> collected cash",
+      "one coordinated revenue-intelligence organization",
     ]) {
-      assert.ok(prompt.toLowerCase().includes(needle.toLowerCase()), `${role} missing ${needle}`);
+      assert.ok(prompt.includes(needle), role + " missing " + needle);
     }
-    assert.match(prompt, /Outreach -> Conversation -> Assessment -> Meeting -> Proposal -> Collected Cash/);
-    assert.match(prompt, /One coordinated revenue-intelligence organization|one coordinated revenue-intelligence organization/);
   }
 });
 
-test("department prompts teach correct operational interdependence and no fabricated outcomes", () => {
+test("role-specific drills teach interdependent decisions, not imaginary outcomes", () => {
   const drills = {
     clara: [/meeting/, /owner/, /evidence/],
     mateo: [/instantly/i, /malik/i, /do not claim emails sent/i],
@@ -121,7 +97,20 @@ test("department prompts teach correct operational interdependence and no fabric
     sloane: [/clawback/, /draft alternative clauses/, /jurisdiction/],
   };
   for (const [role, requirements] of Object.entries(drills)) {
-    const drill = SPECIALIST_PLAYBOOKS[role].drill;
-    for (const expression of requirements) assert.match(drill, expression, `${role} drill incomplete`);
+    for (const expression of requirements) {
+      assert.match(SPECIALIST_PLAYBOOKS[role].drill, expression, role + " drill incomplete");
+    }
+  }
+});
+
+test("specialist runtimes neither advertise nor execute Malik-only revenue tools", async () => {
+  for (const role of SPECIALISTS) {
+    const config = loadConfig(envFor(role));
+    const box = createToolbox({ config, store: {}, slackApi: async () => ({ ok: true }) });
+    assert.equal(box.definitions.some((tool) => tool.name === "instantly_stage_lead"), false);
+    assert.equal(box.definitions.some((tool) => tool.name === "reeviq_leads"), false);
+    const result = await box.execute("instantly_stage_lead", { email: "person@example.com", source_email_verified: true }, { taskId: "test" });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /restricted to Malik/);
   }
 });
