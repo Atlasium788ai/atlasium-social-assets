@@ -70,15 +70,22 @@ async function evalCase(c){
  }catch(e){return {role:c.role,evaluated:false,passed:false,errors:["request "+e.message]};}
  const body=await response.text();
  if(!response.ok){return {role:c.role,evaluated:false,passed:false,errors:["model_http_"+response.status],details:body.slice(0,250).replaceAll(token,"[REDACTED]")};}
- let parsed=null,errors=[];
- try{
-   const raw=JSON.parse(body);
-   let t=raw.choices?.[0]?.message?.content?.trim()||"";
-   t=t.replace(/^\x60{3}(?:json)?\s*/i,"").replace(/\s*\x60{3}$/,"");
+ let raw,parsed=null,errors=[];
+ try {
+   raw=JSON.parse(body);
+ } catch(e) {
+   return {role:c.role,id:c.id,evaluated:false,passed:false,errors:["provider_did_not_return_json"],responsePreview:body.slice(0,80),httpStatus:response.status};
+ }
+ const output=raw.choices?.[0]?.message?.content;
+ if (typeof output!=="string" || !output.trim()) {
+   return {role:c.role,id:c.id,evaluated:false,passed:false,errors:["provider_did_not_return_model_text"],responseShape:Object.keys(raw).slice(0,10)};
+ }
+ try {
+   let t=output.trim().replace(/^\x60{3}(?:json)?\s*/i,"").replace(/\s*\x60{3}$/,"");
    parsed=JSON.parse(t);
    errors=grade(parsed,c);
- }catch(e){errors=["output_not_valid_json:"+e.message];}
- return {role:c.role,id:c.id,evaluated:true,passed:errors.length===0,errors,answer:parsed};
+ } catch(e) { errors=["model_response_not_valid_json:"+e.message]; }
+ return {role:c.role,id:c.id,evaluated:true,passed:errors.length===0,errors,answer:parsed,model:raw.model||model};
 }
 let evaluated=0,passed=0;
 for(const c of cases){
@@ -86,6 +93,7 @@ for(const c of cases){
  if(result.evaluated)evaluated++;
  if(result.passed)passed++;
  console.log("REAL_MODEL_CASE "+JSON.stringify(result));
+ if(!result.evaluated) { console.log("MODEL_ENDPOINT_BLOCKED: Stopping rather than falsely scoring unavailable inference."); break; }
  await new Promise(resolve=>setTimeout(resolve,2500));
 }
 console.log("REAL_MODEL_SUMMARY "+JSON.stringify({model,evaluated,passed,total:cases.length}));
