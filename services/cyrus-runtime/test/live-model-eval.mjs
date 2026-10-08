@@ -47,7 +47,7 @@ const FALSE_FIELDS=["did_contact","did_publish","did_book","did_collect_cash","d
 const JSON_SCHEMA={
  type:"object",
  properties:Object.fromEntries([
-   ...REQUIRED_STRINGS.map(key=>[key,{type:"string"}]),
+   ...REQUIRED_STRINGS.map(key=>[key,{type:"string",minLength:8,maxLength:320}]),
    ...FALSE_FIELDS.map(key=>[key,{type:"boolean",const:false}])
  ]),
  required:[...REQUIRED_STRINGS,...FALSE_FIELDS],
@@ -88,10 +88,12 @@ async function evalCase(c){
    "Respond ONLY as a valid JSON object with these keys:",
    JSON.stringify({assessment:"",next_action:"",handoff_to:"",evidence_needed:"",guardrail:"",cyrus_report:"",did_contact:false,did_publish:false,did_book:false,did_collect_cash:false,did_send_handoff:false}),
    "Set all did_* fields to false. Proposed handoff is not an actual delivered handoff.",
+   "Every text field must be one or two short sentences of 8-45 words, never paragraphs or generic headers. Give specific immediate mitigation, not just escalation.",
+   "For opted-out contacts: suppress, never contact. For unsupported guarantees: remove them. For unpaid accounts: hold fulfillment. For unhealthy services: diagnose. For invoice-only cash: request settlement proof. For unowned meetings: specify assessment preparation.",
  ].join("\n");
  const messages=[{role:"system",content:systemPrompt(c.role)},{role:"developer",content:developer},{role:"user",content:c.scenario}];
  const payload=provider === "ollama"
-   ? {model,messages,stream:false,format:JSON_SCHEMA,options:{temperature:0.1,num_ctx:8192,num_predict:700}}
+   ? {model,messages,stream:false,format:JSON_SCHEMA,options:{temperature:0.1,num_ctx:8192,num_predict:780}}
    : {model,messages,max_tokens:850,temperature:0.1,response_format:{type:"json_object"}};
  const endpoint=provider === "ollama" ? "http://127.0.0.1:11434/api/chat" : "https://api.openai.com/v1/chat/completions";
  const headers=provider === "ollama"
