@@ -1,4 +1,5 @@
 import path from "node:path";
+import { ROLE_PROFILES } from "./role_profiles.js";
 
 function required(env, name) {
   const value = env[name]?.trim();
@@ -25,10 +26,7 @@ function jsonObject(value, name) {
 
 export function loadConfig(env = process.env) {
   const role = (env.BOT_ROLE?.trim() || "cyrus").toLowerCase();
-  const profiles = {
-    cyrus: { name: "Cyrus", title: "Chief of Staff", department: "Executive" },
-    malik: { name: "Malik", title: "Head of Revenue", department: "Sales" },
-  };
+  const profiles = ROLE_PROFILES;
   if (!profiles[role]) throw new Error(`Unsupported BOT_ROLE: ${role}`);
   const name = env.BOT_NAME?.trim() || profiles[role].name;
   const dataDir = env.BOT_DATA_DIR?.trim() || env.CYRUS_DATA_DIR?.trim() || path.resolve(`.data/${role}`);
