@@ -17,7 +17,8 @@ jobs:
         uses: actions/ai-inference@v2.0.8
         with:
           token: ${{ github.token }}
-          model: openai/gpt-4o-mini
+          model: gpt-4o-mini
+          endpoint: https://models.inference.ai.azure.com
           prompt: "Return exactly the single string ATLASIUM_MODEL_RESPONSE_7F2A and nothing else."
           system-prompt: "You output the exact requested single string."
           max-completion-tokens: 120
