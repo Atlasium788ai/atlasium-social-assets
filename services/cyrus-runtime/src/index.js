@@ -12,7 +12,7 @@ const store = new CyrusStore(config.databasePath);
 const recovered = store.recoverInterruptedTasks();
 const slackApi = createSlackApi(config.slackBotToken);
 const slackAuth = await slackApi("auth.test");
-if (!slackAuth.ok) throw new Error(`Cyrus Slack authentication failed: ${slackAuth.error || "unknown error"}`);
+if (!slackAuth.ok) throw new Error(`${config.name} Slack authentication failed: ${slackAuth.error || "unknown error"}`);
 const model = createOpenAiModel({ apiKey: config.openAiApiKey, model: config.openAiModel, baseUrl: config.openAiBaseUrl });
 const toolbox = createToolbox({ store, config, slackApi });
 const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: config.role === "malik" ? 16 : 10 });
@@ -77,11 +77,13 @@ const followupTimer = setInterval(() => {
   socket.processDueFollowups().catch((error) => console.error(`${config.name} automatic follow-up failed`, { message: error.message }));
 }, config.followupPollMs);
 followupTimer.unref();
-const slackDmPollTimer = setInterval(() => {
+const slackDmPollTimer = config.slackSocketEnabled ? setInterval(() => {
   socket.pollDirectMessages().catch((error) => console.error(`${config.name} Slack DM recovery failed`, { message: error.message }));
-}, config.slackDmPollMs);
-slackDmPollTimer.unref();
-socket.pollDirectMessages().catch((error) => console.error(`${config.name} initial Slack DM recovery failed`, { message: error.message }));
+}, config.slackDmPollMs) : null;
+slackDmPollTimer?.unref();
+if (config.slackSocketEnabled) {
+  socket.pollDirectMessages().catch((error) => console.error(`${config.name} initial Slack DM recovery failed`, { message: error.message }));
+}
 
 const autonomyIntervalMs = Math.max(60_000, Number(process.env.CYRUS_AUTONOMY_INTERVAL_MS || 300_000));
 let autonomyBusy = false;
@@ -176,7 +178,7 @@ function shutdown(signal) {
   console.info(`${config.name} stopping on ${signal}`);
   clearInterval(outboxTimer);
   clearInterval(followupTimer);
-  clearInterval(slackDmPollTimer);
+  if (slackDmPollTimer) clearInterval(slackDmPollTimer);
   if (relentlessTimer) clearInterval(relentlessTimer);
   clearInterval(autonomyTimer);
   socket.stop();
