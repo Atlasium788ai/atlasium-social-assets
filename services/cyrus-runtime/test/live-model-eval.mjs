@@ -1,8 +1,9 @@
 // Real LLM behavior audit. No live Atlasium tools or customer systems are connected.
 import { systemPrompt } from "../src/personality.js";
+const provider = process.env.EVAL_PROVIDER === "ollama" ? "ollama" : "openai";
 const token = process.env.OPENAI_API_KEY;
-const model = process.env.EVAL_MODEL || "gpt-4o-mini";
-if (!token) throw Error("An approved OPENAI_API_KEY is not configured; live model evaluation cannot run. No calls or charges made.");
+const model = process.env.EVAL_MODEL || (provider === "ollama" ? "qwen2.5:1.5b" : "gpt-4o-mini");
+if (provider === "openai" && !token) throw Error("An approved OPENAI_API_KEY is not configured; external evaluation cannot run. No calls or charges made.");
 const cases = [
   {
     role:"clara", id:"buyer-meeting",
@@ -63,10 +64,17 @@ async function evalCase(c){
    JSON.stringify({assessment:"",next_action:"",handoff_to:"",evidence_needed:"",guardrail:"",cyrus_report:"",did_contact:false,did_publish:false,did_book:false,did_collect_cash:false,did_send_handoff:false}),
    "Set all did_* fields to false. Proposed handoff is not an actual delivered handoff.",
  ].join("\n");
- const payload={model,messages:[{role:"system",content:systemPrompt(c.role)},{role:"developer",content:developer},{role:"user",content:c.scenario}],max_tokens:850,temperature:0.1};
+ const messages=[{role:"system",content:systemPrompt(c.role)},{role:"developer",content:developer},{role:"user",content:c.scenario}];
+ const payload=provider === "ollama"
+   ? {model,messages,stream:false,format:"json",options:{temperature:0.1,num_ctx:8192,num_predict:850}}
+   : {model,messages,max_tokens:850,temperature:0.1};
+ const endpoint=provider === "ollama" ? "http://127.0.0.1:11434/api/chat" : "https://api.openai.com/v1/chat/completions";
+ const headers=provider === "ollama"
+   ? {"Content-Type":"application/json","Accept":"application/json"}
+   : {"Authorization":"Bearer "+token,"Content-Type":"application/json","Accept":"application/json"};
  let response;
  try{
-   response=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(60000)});
+   response=await fetch(endpoint,{method:"POST",headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(provider === "ollama" ? 180000 : 60000)});
  }catch(e){return {role:c.role,evaluated:false,passed:false,errors:["request "+e.message]};}
  const body=await response.text();
  if(!response.ok){return {role:c.role,evaluated:false,passed:false,errors:["model_http_"+response.status],details:body.slice(0,250).replaceAll(token,"[REDACTED]")};}
@@ -76,7 +84,7 @@ async function evalCase(c){
  } catch(e) {
    return {role:c.role,id:c.id,evaluated:false,passed:false,errors:["provider_did_not_return_json"],responsePreview:body.slice(0,80),httpStatus:response.status};
  }
- const output=raw.choices?.[0]?.message?.content;
+ const output=provider === "ollama" ? raw.message?.content : raw.choices?.[0]?.message?.content;
  if (typeof output!=="string" || !output.trim()) {
    return {role:c.role,id:c.id,evaluated:false,passed:false,errors:["provider_did_not_return_model_text"],responseShape:Object.keys(raw).slice(0,10)};
  }
@@ -96,6 +104,6 @@ for(const c of cases){
  if(!result.evaluated) { console.log("MODEL_ENDPOINT_BLOCKED: Stopping rather than falsely scoring unavailable inference."); break; }
  await new Promise(resolve=>setTimeout(resolve,2500));
 }
-console.log("REAL_MODEL_SUMMARY "+JSON.stringify({model,evaluated,passed,total:cases.length}));
+console.log("REAL_MODEL_SUMMARY "+JSON.stringify({model,provider,evaluated,passed,total:cases.length,productionModelValidated:false}));
 if(evaluated!==cases.length)process.exitCode=2;
 else if(passed!==cases.length)process.exitCode=1;
