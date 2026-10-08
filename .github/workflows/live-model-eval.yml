@@ -15,11 +15,13 @@ jobs:
       - name: Fail safely when model API is not configured
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then echo "::error::OPENAI_API_KEY unavailable. No live test or paid usage performed."; exit 2; fi
+          if [ -z "$OPENAI_API_KEY" ] || [ -z "$OPENAI_MODEL" ]; then echo "::error::Authorized OPENAI_API_KEY or runtime-matching OPENAI_MODEL unavailable. No inference attempted."; exit 2; fi
       - name: Evaluate six role prompts against a real model without any live business tools
         working-directory: services/cyrus-runtime
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          EVAL_MODEL: gpt-4o-mini
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
         run: node test/live-model-eval.mjs
