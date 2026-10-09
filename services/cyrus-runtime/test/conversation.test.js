@@ -89,7 +89,7 @@ test("conversational model errors do not trigger tool calls", async () => {
   }
 });
 
-test("Slack uses eyes reaction, never robotic placeholder, and cleans it up on success", async () => {
+test("Slack uses received, working, and completed reactions without robotic placeholder text", async () => {
   const f = fixture();
   try {
     const calls = [];
@@ -105,12 +105,53 @@ test("Slack uses eyes reaction, never robotic placeholder, and cleans it up on s
       logger: { info() {}, warn() {}, error() {} },
     });
     await runtime.processSlackMessage({ type: "message", channel_type: "im", user: "U_BLAIR", channel: "D_BLAIR", ts: "100.1", text: "Talk to me about results" });
-    assert.deepEqual(calls.map(item => item.method), ["reactions.add", "chat.postMessage", "reactions.remove"]);
+    assert.deepEqual(calls.map(item => item.method), [
+      "reactions.add",
+      "reactions.add",
+      "reactions.remove",
+      "chat.postMessage",
+      "reactions.remove",
+      "reactions.add",
+    ]);
     assert.equal(calls[0].payload.name, "eyes");
+    assert.equal(calls[1].payload.name, "hourglass_flowing_sand");
     assert.equal(calls[2].payload.name, "eyes");
+    assert.equal(calls[4].payload.name, "hourglass_flowing_sand");
+    assert.equal(calls[5].payload.name, "white_check_mark");
     assert.equal(calls[0].payload.timestamp, "100.1");
-    assert.equal(calls[1].payload.text, "I want sales, not another victory lap.");
+    assert.equal(calls[3].payload.text, "I want sales, not another victory lap.");
     assert.equal(calls.filter(x => /Working on it/i.test(x.payload.text || "")).length, 0);
+  } finally {
+    f.close();
+  }
+});
+
+test("Slack replaces working status with a warning when task handling fails", async () => {
+  const f = fixture();
+  try {
+    const calls = [];
+    const runtime = new SlackSocketRuntime({
+      config: { blairSlackUserId: "U_BLAIR", role: "cyrus", name: "Cyrus" },
+      store: f.store,
+      agent: { handleTask: async () => { throw new Error("diagnostic failed"); } },
+      slackApi: async (method, payload) => {
+        calls.push({ method, payload });
+        return { ok: true, ts: "102.2" };
+      },
+      WebSocketImpl: class {},
+      logger: { info() {}, warn() {}, error() {} },
+    });
+    await assert.rejects(
+      runtime.processSlackMessage({ type: "message", channel_type: "im", user: "U_BLAIR", channel: "D_BLAIR", ts: "102.1", text: "Run diagnostics" }),
+      /diagnostic failed/
+    );
+    assert.deepEqual(calls.map(item => [item.method, item.payload.name || null]), [
+      ["reactions.add", "eyes"],
+      ["reactions.add", "hourglass_flowing_sand"],
+      ["reactions.remove", "eyes"],
+      ["reactions.remove", "hourglass_flowing_sand"],
+      ["reactions.add", "warning"],
+    ]);
   } finally {
     f.close();
   }

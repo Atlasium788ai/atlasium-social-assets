@@ -165,16 +165,21 @@ export class SlackSocketRuntime {
       requestText: event.text.trim(),
     });
     if (!created) return false;
-    // Indicate receipt without posting a robotic placeholder message.
+    // Show a compact status lifecycle without posting robotic placeholder text.
     // Missing reactions:write permission is non-fatal; the actual answer still sends.
     await this.setMessageReaction(event, "eyes", true);
+    await this.setMessageReaction(event, "hourglass_flowing_sand", true);
+    await this.setMessageReaction(event, "eyes", false);
+    let completed = false;
     try {
       const reply = await this.agent.handleTask(task);
       this.store.queueReply(task.id, event.channel, reply);
       await this.flushOutbox();
+      completed = true;
       return true;
     } finally {
-      await this.setMessageReaction(event, "eyes", false);
+      await this.setMessageReaction(event, "hourglass_flowing_sand", false);
+      await this.setMessageReaction(event, completed ? "white_check_mark" : "warning", true);
     }
   }
 
