@@ -16,6 +16,11 @@ test("all eight executives retain distinct voices and a natural business dialogu
     assert.match(prompt, /COMMUNICATION ACROSS COMMAND88/);
     assert.match(prompt, /talk as a real colleague would/i);
     assert.match(prompt, /structured update/i);
+    assert.match(prompt, /Solve cross-department problems inside Command88 before involving Blair/i);
+    assert.match(prompt, /Be relentless with real-world friction/i);
+    assert.match(prompt, /Do not update Blair on routine attempts/i);
+    assert.match(prompt, /Keep Slack compact/i);
+    assert.match(prompt, /Cyrus owns consolidated company-level reporting/i);
     assert.match(prompt, new RegExp(role === "cyrus" ? "Cyrus" : role === "malik" ? "Malik" : role[0].toUpperCase() + role.slice(1), "i"));
   }
   assert.notEqual(systemPrompt("cyrus"), systemPrompt("malik"));
@@ -105,5 +110,5 @@ test("structured reports preserve newlines and detailed output while ordinary re
   assert.match(detailed,/Revenue status:\n\n- Verified meeting/);
   assert.ok(detailed.length>1200);
   const short = enforceReply(report,{status:"completed",evidenceCount:1});
-  assert.ok(short.length<=1200);
+  assert.ok(short.length<=800);
 });
