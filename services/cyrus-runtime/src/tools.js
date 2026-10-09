@@ -427,7 +427,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
       // An explicit dialogue handoff is read-only. Infer it for colleague opinions
       // if the caller omitted mode, but never infer a business action from chat.
       const requestedMode = String(args.mode || "").toLowerCase();
-      const conversationalObjective = /\\b(?:conversation[- ]only|dialogue[- ]only|your (?:honest )?(?:opinion|take|thoughts)|what do you think|what's your take|financial take|creative opinion|as a colleague|discuss|debate|brainstorm)\\b/i.test(objective);
+      const conversationalObjective = /\b(?:conversation[- ]only|dialogue[- ]only|your (?:honest )?(?:opinion|take|thoughts)|what do you think|what's your take|financial take|creative opinion|as a colleague|discuss|debate|brainstorm)\b/i.test(objective);
       const mode = requestedMode === "conversation" || (requestedMode !== "task" && conversationalObjective) ? "conversation" : "task";
       const handoffId = createHash("sha256").update(JSON.stringify([context.taskId, target, objective, args.work_item_id || "", mode])).digest("hex");
       if (agentDispatcher?.has(target)) {
