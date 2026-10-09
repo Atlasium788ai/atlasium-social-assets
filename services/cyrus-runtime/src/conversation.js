@@ -18,11 +18,15 @@ export function isConversationOnly(text) {
   // A discussion explicitly fenced off from execution is always read-only.
   if (explicitConversation && forbidsActions) return true;
 
-  const actionVerbs = "(?:check|verify|find|fetch|inspect|send|post|create|schedule|book|delegate|update|change|fix|launch|deploy|activate|run|pull|contact|email|message|call|connect|charge|buy|pay|delete|save|record|remember|assign|build|draft|start|stop|turn|enable|disable|configure|publish|upload|download|remove|archive|invite|approve|reject|refund|hire|fire|research|investigate|audit|analyze|get|execute|handle|prepare)";
+  const actionVerbs = "(?:check|verify|find|fetch|inspect|send|post|create|schedule|book|delegate|update|change|fix|launch|deploy|activate|run|pull|contact|email|message|call|connect|charge|buy|pay|delete|save|record|remember|assign|build|draft|start|stop|turn|enable|disable|configure|publish|upload|download|remove|archive|invite|approve|reject|refund|hire|fire|research|investigate|audit|analyze|get|execute|handle|prepare|complete|resolve|identify)";
   const positiveAction = new RegExp(
     "\\b(?:please|go ahead and|i need you to|we need to|let's|can you|could you|would you|then|also|and then)\\s+(?:(?:actually|now|just|go)\\s+)?"+actionVerbs+"\\b|^"+actionVerbs+"\\b|\\b(?:do it|do this|go get it done|make it happen|take care of it)\\b", "i"
   );
   if (positiveAction.test(input)) return false;
+  // Commands inside a compound request are still actions:
+  // "Identify as Kenji, verify health", "Test complete. Delegate to Clara".
+  const embeddedImperative = new RegExp("(?:[.,;!?]\\\\s*|\\\\band\\\\s+|\\\\bthen\\\\s+)" + actionVerbs + "\\\\b", "i");
+  if (embeddedImperative.test(input)) return false;
 
   // A request for current, exact or audited facts warrants tools/evidence.
   const freshMetrics = /\b(?:how many|how much|exact|current|today|live|latest|right now|up.to.date|as of now)\b[\s\S]{0,90}\b(?:numbers|figures|metrics|results|replies|campaigns|sales|revenue|balance|cash|spend|pipeline|meetings|appointments|leads|prospects|invoices|payments)\b|\b(?:numbers|figures|metrics|results|replies|campaigns|sales|revenue|balance|cash|spend|pipeline|meetings|appointments|leads|prospects|invoices|payments)\b[\s\S]{0,60}\b(?:today|right now|latest|current|exact|live)\b/i;
