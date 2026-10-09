@@ -1,10 +1,10 @@
 const roles = {
-  clara: { expectedUserId: "U0C1DES05L5" },
-  mateo: { expectedUserId: "U0C2GFE1C9W" },
-  kenji: { expectedUserId: "U0C2GFPP7AL" },
-  amara: { expectedUserId: "U0C16P5BYAK" },
-  nadia: { expectedUserId: "U0C1FU0ANRZ" },
-  sloane: { expectedUserId: "" },
+  clara: { expectedUserId: "U0C1DES05L5", directSlackRequired: true },
+  mateo: { expectedUserId: "U0C2GFE1C9W", directSlackRequired: true },
+  kenji: { expectedUserId: "U0C2GFPP7AL", directSlackRequired: true },
+  amara: { expectedUserId: "U0C16P5BYAK", directSlackRequired: true },
+  nadia: { expectedUserId: "U0C1FU0ANRZ", directSlackRequired: true },
+  sloane: { expectedUserId: "", directSlackRequired: false },
 };
 
 async function slack(method, token) {
@@ -23,12 +23,23 @@ for (const [role, profile] of Object.entries(roles)) {
   const botToken = process.env[`${prefix}_SLACK_BOT_TOKEN`]?.trim();
   const appToken = process.env[`${prefix}_SLACK_APP_TOKEN`]?.trim();
   if (!botToken || !appToken) {
-    results.push({ role, configured: false, botAuthenticated: false, appAuthenticated: false, expectedUserId: profile.expectedUserId || null });
+    results.push({
+      role,
+      mode: profile.directSlackRequired ? "direct-slack" : "cyrus-mediated",
+      directSlackRequired: profile.directSlackRequired,
+      configured: false,
+      botAuthenticated: false,
+      appAuthenticated: false,
+      expectedUserId: profile.expectedUserId || null,
+      acceptable: !profile.directSlackRequired,
+    });
     continue;
   }
   const [bot, app] = await Promise.all([slack("auth.test", botToken), slack("apps.connections.open", appToken)]);
   results.push({
     role,
+    mode: "direct-slack",
+    directSlackRequired: profile.directSlackRequired,
     configured: true,
     botAuthenticated: bot.httpOk && bot.ok,
     appAuthenticated: app.httpOk && app.ok,
@@ -37,8 +48,9 @@ for (const [role, profile] of Object.entries(roles)) {
     identityMatches: Boolean(profile.expectedUserId) && bot.userId === profile.expectedUserId,
     botError: bot.error,
     appError: app.error,
+    acceptable: bot.httpOk && bot.ok && app.httpOk && app.ok && Boolean(profile.expectedUserId) && bot.userId === profile.expectedUserId,
   });
 }
 
 console.log(JSON.stringify(results, null, 2));
-if (results.some((item) => !item.configured || !item.botAuthenticated || !item.appAuthenticated || !item.identityMatches)) process.exitCode = 1;
+if (results.some((item) => !item.acceptable)) process.exitCode = 1;
