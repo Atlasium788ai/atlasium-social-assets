@@ -34,6 +34,9 @@ test("normal business discussion is distinct from taking action or requesting a 
     "Sloane, what are your thoughts on that contract clause?",
     "Internal handoff from cyrus: Mateo, what do you think of this positioning?",
     "Internal handoff from malik: Cyrus, I think our prospecting is too broad.",
+    "That feels wrong. We need more punch in the positioning.",
+    "I disagree with the direction we have taken.",
+    "Why the hell does every bot sound the same?",
     "Cyrus: this is a conversational personality test only. Respond in your own voice. Do not use tools."
   ];
   for (const message of conversational) {
@@ -51,6 +54,9 @@ test("normal business discussion is distinct from taking action or requesting a 
     "Internal handoff from cyrus: Delegate to Clara, use system_health and report evidence.",
     "Cyrus, what do you think? Then send the emails.",
     "Please provide a scorecard with citations",
+    "Stop the campaign immediately.",
+    "We need to launch the pilot now.",
+    "What is the status of our current outreach?",
   ];
   for (const message of operational) {
     assert.equal(isConversationOnly(message), false, "Expected operational: " + message);
