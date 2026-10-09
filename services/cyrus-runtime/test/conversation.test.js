@@ -59,7 +59,9 @@ test("personality conversation calls no tools and cannot delegate even if model 
     assert.equal(f.store.getTask(current.id).status, "completed");
     assert.equal(requests.length, 1);
     assert.deepEqual(requests[0].tools, []);
-    assert.equal(requests[0].input.length, 1);
+    assert.equal(requests[0].input.length, 2);
+    assert.match(requests[0].input[0].content, /ATLASIUM 7\/88 OPERATING BRIEF/);
+    assert.equal(requests[0].input[1].content, hypothetical);
     assert.match(requests[0].instructions, /CONVERSATION-ONLY MODE/);
     assert.equal(toolExecutions, 0);
     assert.deepEqual(f.store.getWorkItems(current.id), []);

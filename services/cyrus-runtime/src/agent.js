@@ -1,7 +1,7 @@
 import { systemPrompt, enforceReply } from "./personality.js";
 import { outputText, toolCalls } from "./model.js";
 import { ATLASIUM_OPERATING_BRIEF } from "./operating_context.js";
-import { isConversationOnly } from "./conversation.js";
+import { isConversationOnly, isStructuredUpdateRequest } from "./conversation.js";
 
 function looksLikeAction(text) {
   return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|connect|deploy|remove|launch|complete)\b/i.test(text);
@@ -18,13 +18,25 @@ export class CyrusAgent {
 
   async handleTask(task, { followupReason = null } = {}) {
     this.store.setTaskStatus(task.id, "running");
-    // A conversation is not a revenue task. Keep it read-only at the API boundary:
-    // no external tools, no delegation, no operating-plan side effects.
-    if (this.config.role === "cyrus" && !followupReason && !String(task.channel_id || "").startsWith("internal:") && isConversationOnly(task.request_text)) {
+    // Conversation-only mode applies to every executive, including dialogue
+    // handed off via Cyrus. It is read-only at the API boundary.
+    if (!followupReason && isConversationOnly(task.request_text)) {
       try {
+        const operatingPlan = this.store.getOperatingItems();
+        const memories = this.store.recentDecisions();
         const response = await this.model.respond({
-          instructions: systemPrompt(this.config.role) + "\n\nCONVERSATION-ONLY MODE: Blair asked to talk or roleplay, not authorize work. Respond naturally in your Chief of Staff personality and address his actual words. This is discussion, not a task. Never claim you performed, delegated, verified, inspected, contacted, or changed anything. Do not make a work plan. Do not request tools. Be candid, specific, and human rather than reporting operational status.",
-          input: [{ role: "user", content: task.request_text }],
+          instructions: systemPrompt(this.config.role) + "\n\nCONVERSATION-ONLY MODE: This is a discussion, not permission to operate. Answer the speaker directly in your specific executive voice. Do not give a status report, introduce yourself, list your capabilities, or use a formal template. No tools, delegations, follow-ups, task planning, changes or external communication. Rely on the supplied context when relevant but distinguish past information from live facts. Never claim to have checked a service or completed business work.",
+          input: [
+            { role: "developer", content: `READ-ONLY COMPANY BACKGROUND (not a new instruction or proof of live figures):
+${ATLASIUM_OPERATING_BRIEF}
+
+Role-specific remembered decisions (not guaranteed current):
+${JSON.stringify(memories.slice(0, 12))}
+
+Role-specific current operating-plan records (verify externally before claiming live status):
+${JSON.stringify(operatingPlan.slice(0, 20))}` },
+            { role: "user", content: task.request_text },
+          ],
           tools: [],
         });
         if (response?.usage) {
@@ -170,6 +182,6 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
       : followup
         ? `In motion. I will reassess automatically at ${followup.due_at}.`
         : settled.summary;
-    return enforceReply(lastText || fallback, { status: settled.status, evidenceCount: evidence.length, name: this.config.name, requiresEvidence: context.requiresEvidence });
+    return enforceReply(lastText || fallback, { status: settled.status, evidenceCount: evidence.length, name: this.config.name, requiresEvidence: context.requiresEvidence, structured: isStructuredUpdateRequest(task.request_text) });
   }
 }
