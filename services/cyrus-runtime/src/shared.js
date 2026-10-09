@@ -100,13 +100,22 @@ export function createSharedSwarmRuntime({
   let stopped = false;
 
   async function maintain(runtime) {
+    let stage = "flush_outbox";
     try {
       await runtime.socket.flushOutbox();
+      stage = "due_followups";
       await runtime.socket.processDueFollowups();
+      stage = "dm_poll";
       if (runtime.slackAuthenticated && runtime.config.slackSocketEnabled) await runtime.socket.pollDirectMessages();
+      runtime.slackError = null;
     } catch (error) {
       runtime.slackError = error.message;
-      logger.error(`${runtime.config.name} shared maintenance failed`, { message: error.message });
+      // Log the failed stage and source line, never message bodies or credentials.
+      logger.error(`${runtime.config.name} shared maintenance failed`, {
+        stage,
+        message: error.message,
+        stack: String(error.stack || "").slice(0, 1400),
+      });
     }
   }
 
