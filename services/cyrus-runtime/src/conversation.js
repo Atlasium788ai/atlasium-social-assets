@@ -18,7 +18,10 @@ export function isConversationOnly(text) {
   // A discussion explicitly fenced off from execution is always read-only.
   if (explicitConversation && forbidsActions) return true;
 
-  const positiveAction = /\b(?:please|go ahead and|i need you to|can you|could you|would you|then|also|and then)\s+(?:(?:actually|now|just|go)\s+)?(?:check|verify|find|fetch|inspect|send|post|create|schedule|book|delegate|update|change|fix|launch|deploy|activate|run|pull|contact|email|message|call|connect|charge|buy|pay|delete|save|record|remember|assign|build|draft)\b|^(?:check|verify|find|fetch|inspect|send|post|create|schedule|book|delegate|update|change|fix|launch|deploy|activate|run|pull|contact|email|message|call|connect|charge|buy|pay|delete|save|record|remember|assign|build|draft)\b/i;
+  const actionVerbs = "(?:check|verify|find|fetch|inspect|send|post|create|schedule|book|delegate|update|change|fix|launch|deploy|activate|run|pull|contact|email|message|call|connect|charge|buy|pay|delete|save|record|remember|assign|build|draft|start|stop|turn|enable|disable|configure|publish|upload|download|remove|archive|invite|approve|reject|refund|hire|fire|research|investigate|audit|analyze|get|execute|handle|prepare)";
+  const positiveAction = new RegExp(
+    "\\b(?:please|go ahead and|i need you to|we need to|let's|can you|could you|would you|then|also|and then)\\s+(?:(?:actually|now|just|go)\\s+)?"+actionVerbs+"\\b|^"+actionVerbs+"\\b|\\b(?:do it|do this|go get it done|make it happen|take care of it)\\b", "i"
+  );
   if (positiveAction.test(input)) return false;
 
   // A request for current, exact or audited facts warrants tools/evidence.
@@ -26,5 +29,11 @@ export function isConversationOnly(text) {
   if (freshMetrics.test(input)) return false;
 
   if (explicitConversation) return true;
-  return /^(?:hey[,.! ]*|hi[,.! ]*|hello[,.! ]*|so[,.! ]*|okay[,.! ]*|ok[,.! ]*)?(?:how are you|how's it going|what's your take|what do you think|what are your thoughts|how do you feel|tell me what you think|tell me your opinion|are you serious|why do you sound like a robot|what would you do|what should we do|should we|do you agree|can we talk|let's talk|can we discuss|let's discuss|talk me through|help me think through|here's what i'm thinking|i'm worried|i'm concerned|i'm frustrated|i don't like|i'm thinking|i think|i feel|do you think|what if|suppose|imagine|why do you think)\b/i.test(input);
+  if (/^(?:hey[,.! ]*|hi[,.! ]*|hello[,.! ]*|so[,.! ]*|okay[,.! ]*|ok[,.! ]*)?(?:how are you|how's it going|what's your take|what do you think|what are your thoughts|how do you feel|tell me what you think|tell me your opinion|are you serious|why do you sound like a robot|what would you do|what should we do|should we|do you agree|can we talk|let's talk|can we discuss|let's discuss|talk me through|help me think through|here's what i'm thinking|i'm worried|i'm concerned|i'm frustrated|i don't like|i'm thinking|i think|i feel|do you think|what if|suppose|imagine|why do you think)\b/i.test(input)) return true;
+
+  // Many natural replies do not begin with a question or a fixed phrase:
+  // "That feels wrong", "I disagree", "The positioning is too generic".
+  // Prefer discussion over taking unrequested action.
+  if (/^(?:what(?:'s| is) (?:the )?(?:status|progress|update)|how far (?:are we|did you|get)|where are we at|any (?:new|latest) (?:replies|meetings|leads|sales|results))\b/i.test(input)) return false;
+  return !/^(?:send|schedule|book|launch|start|stop|turn on|turn off|do|go|execute|deploy|check|verify|investigate|research|fix|update|create|make|build|draft|write|prepare|find|get|pull|contact|email|message|call|save|record|approve|reject|refund|hire|fire|remove|delete|archive|invite|run|enable|disable|upload|download|publish|analyze|audit)\b/i.test(input);
 }
