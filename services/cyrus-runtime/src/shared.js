@@ -29,7 +29,7 @@ export function createLocalAgentDispatcher() {
       if (!normalized || agents.has(normalized)) throw new Error(`Local agent already registered: ${normalized || "unknown"}`);
       agents.set(normalized, runtime);
     },
-    async dispatch({ id, from, to, message }) {
+    async dispatch({ id, from, to, message, mode = "task" }) {
       const source = String(from || "").toLowerCase();
       const target = String(to || "").toLowerCase();
       const handoffId = String(id || randomUUID()).trim();
@@ -47,7 +47,7 @@ export function createLocalAgentDispatcher() {
         sourceEventId,
         requesterId: `agent:${source}`,
         channelId: `internal:${source}`,
-        requestText: `Internal handoff from ${source}: ${objective}`,
+        requestText: `Internal handoff from ${source}: ${mode === "conversation" ? "CONVERSATION-ONLY: " : ""}${objective}`,
       });
       const reply = await runtime.agent.handleTask(task);
       const settled = runtime.store.getTask(task.id);
