@@ -1,0 +1,49 @@
+name: Command88 zero-spend preflight
+
+on:
+  push:
+    branches:
+      - command88-free-preflight-2026-10-09
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  free-preflight:
+    name: Eight-role offline verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/cyrus-runtime
+    steps:
+      - name: Check out shared-runtime source
+        uses: actions/checkout@v4
+      - name: Install Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check every runtime script and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r f; do
+            node --check "$f"
+          done < <(find src scripts test -type f \( -name '*.js' -o -name '*.mjs' \) | sort)
+      - name: Run every shared-runtime and eight-executive offline test
+        run: node --test test/*.test.js
+      - name: Confirm six roles have distinct memory and no paid activity
+        env:
+          BOT_ROLE: cyrus
+          CYRUS_DATA_DIR: /tmp/command88-free-preflight
+          SHARED_BOT_DATA_DIR: /tmp/command88-free-preflight/executives
+          SHARED_BOT_ROLES: clara,mateo,kenji,amara,nadia,sloane
+          SLACK_APP_TOKEN: xapp-offline-mock
+          SLACK_BOT_TOKEN: xoxb-offline-mock
+          BLAIR_SLACK_USER_ID: U_OFFLINE_TEST
+          OPENAI_API_KEY: offline-mock-no-network
+          CYRUS_AUTONOMY_ENABLED: 'false'
+          PROACTIVE_MONITORING_ENABLED: 'false'
+          BOT_SOCKET_ENABLED: 'false'
+        run: node scripts/preflight-shared.mjs
