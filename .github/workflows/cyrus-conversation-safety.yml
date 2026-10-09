@@ -1,0 +1,31 @@
+name: Cyrus conversation safety tests
+
+on:
+  push:
+    branches:
+      - cyrus-conversation-safety-2026-10-09
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/cyrus-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: |
+          node --check src/agent.js
+          node --check src/conversation.js
+          node --check src/slack.js
+          node --check test/conversation.test.js
+      - name: Full runtime regression, offline
+        run: node --test test/*.test.js
