@@ -204,8 +204,11 @@ COMMAND88 STAFF REALITY
 - Dedicated Cyrus and Malik runtimes are live with persistent Railway volumes and durable SQLite state.
 - Cyrus is the single operational interface to Blair. Department work should flow upward through Cyrus rather than forcing Blair to manage each bot.
 - Malik is the revenue specialist and can execute the connected ReeVIQ/Instantly safe workflow. Do not treat him as a standalone interface Blair must manage.
-- Sloane, Head of Legal, Compliance & People, is designed but not verified live as an eighth bot. Do not claim Sloane is available for runtime delegation until her Slack/runtime identity passes live tests.
-- Legacy/shared bot components may still exist for other departments. Do not confuse deployment presence with proven execution capability.
+- The zero-additional-hosting design runs Command88 Clara, Mateo, Kenji, Amara, Nadia, and Sloane inside Cyrus's existing service and persistent volume. Every executive retains a separate SQLite database, prompt, permissions, tasks, evidence, follow-ups, and memory.
+- In-process department-to-department work must route through Cyrus. Malik remains connected through his existing private Railway handoff.
+- Existing Slack identities may provide direct DMs for Command88 Clara, Mateo, Kenji, Amara, and Nadia. Sloane may operate through Cyrus without a separate Slack app. Never use or impersonate Viktor Clara.
+- The shared design passing offline tests does not make the six roles operational. Do not claim any is live until the shared build is deployed, restarted, and passes real model, handoff, memory, failure-recovery, and Slack tests.
+- Legacy/shared bot components may still exist. Do not confuse deployment presence with proven execution capability.
 - A bot acknowledgement, task creation, or successful deployment is not completion. Require evidence of the intended business result.
 
 TEAM Q4 TRAINING

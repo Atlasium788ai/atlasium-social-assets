@@ -1,11 +1,12 @@
 import http from "node:http";
-import { loadConfig } from "./config.js";
+import { loadConfig, loadSharedRoleConfigs } from "./config.js";
 import { CyrusStore } from "./store.js";
 import { createSlackApi, SlackSocketRuntime } from "./slack.js";
 import { createOpenAiModel } from "./model.js";
 import { createToolbox } from "./tools.js";
 import { CyrusAgent } from "./agent.js";
 import { createInternalServer } from "./internal.js";
+import { createLocalAgentDispatcher, createSharedSwarmRuntime } from "./shared.js";
 
 const config = loadConfig();
 const store = new CyrusStore(config.databasePath);
@@ -17,8 +18,12 @@ if (config.slackExpectedBotUserId && slackAuth.user_id !== config.slackExpectedB
   throw new Error(`${config.name} Slack identity mismatch: expected ${config.slackExpectedBotUserId}, received ${slackAuth.user_id || "unknown"}`);
 }
 const model = createOpenAiModel({ apiKey: config.openAiApiKey, model: config.openAiModel, baseUrl: config.openAiBaseUrl });
-const toolbox = createToolbox({ store, config, slackApi });
+const dispatcher = createLocalAgentDispatcher();
+const toolbox = createToolbox({ store, config, slackApi, agentDispatcher: dispatcher });
 const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: config.role === "malik" ? 16 : 10 });
+dispatcher.register(config.role, { config, store, toolbox, agent });
+const sharedConfigs = config.role === "cyrus" ? loadSharedRoleConfigs(process.env, config) : [];
+const sharedSwarm = createSharedSwarmRuntime({ configs: sharedConfigs, model, dispatcher });
 
 if (config.role === "malik" && process.env.COMMAND88_PREPARE_PILOT_ON_START === "true") {
   try {
@@ -60,6 +65,7 @@ const server = http.createServer((request, response) => {
       slackConnected,
       slackDmLastPollAt: socket.lastPollAt,
       slackDmLastPollError: socket.lastPollError,
+      sharedExecutives: sharedSwarm.health(),
       ...store.health(),
     }));
     return;
@@ -72,6 +78,7 @@ const internalServer = createInternalServer({ config, store, agent });
 server.listen(config.port, "0.0.0.0", () => console.info(`${config.name} health server listening on ${config.port}`));
 internalServer.listen(config.internalPort, "0.0.0.0", () => console.info(`${config.name} internal handoff server listening on ${config.internalPort}`));
 await socket.recover().catch((error) => console.error("Cyrus recovery deferred", { message: error.message }));
+await sharedSwarm.start();
 const outboxTimer = setInterval(() => {
   socket.flushOutbox().catch((error) => console.error(`${config.name} reply retry failed`, { message: error.message }));
 }, 15_000);
@@ -118,9 +125,11 @@ async function runAutonomyTick() {
     autonomyBusy = false;
   }
 }
-const autonomyTimer = setInterval(() => void runAutonomyTick(), autonomyIntervalMs);
-autonomyTimer.unref();
-setTimeout(() => void runAutonomyTick(), 20_000).unref();
+const autonomyTimer = config.role === "cyrus" && config.autonomyEnabled
+  ? setInterval(() => void runAutonomyTick(), autonomyIntervalMs)
+  : null;
+autonomyTimer?.unref();
+if (autonomyTimer) setTimeout(() => void runAutonomyTick(), 20_000).unref();
 
 if (config.slackSocketEnabled) socket.start();
 
@@ -181,8 +190,9 @@ function shutdown(signal) {
   clearInterval(followupTimer);
   clearInterval(slackDmPollTimer);
   if (relentlessTimer) clearInterval(relentlessTimer);
-  clearInterval(autonomyTimer);
+  if (autonomyTimer) clearInterval(autonomyTimer);
   socket.stop();
+  sharedSwarm.stop();
   let closed = 0;
   const onClose = () => { if (++closed === 2) { store.close(); process.exit(0); } };
   server.close(onClose);

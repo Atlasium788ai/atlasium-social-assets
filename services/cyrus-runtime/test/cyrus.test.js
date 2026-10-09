@@ -103,6 +103,7 @@ test("all eight runtime profiles resolve the correct identity and expected Slack
     assert.equal(loaded.department, department);
     assert.equal(loaded.slackExpectedBotUserId, `U_${role.toUpperCase()}`);
     assert.match(loaded.databasePath, new RegExp(`${role}\\.sqlite$`));
+    assert.equal(loaded.autonomyEnabled, false);
   }
 });
 
@@ -113,6 +114,7 @@ test("revenue execution tools belong to Malik only", () => {
     const tools = new Set(toolbox.definitions.map((item) => item.name));
     assert.equal(tools.has("instantly_activate_campaign"), role === "malik");
     assert.equal(tools.has("reeviq_leads"), role === "malik");
+    assert.equal(tools.has("upsert_operating_item"), role === "cyrus");
     store.close();
   }
 });

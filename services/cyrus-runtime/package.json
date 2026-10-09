@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/*.test.js",
+    "preflight:shared": "node scripts/preflight-shared.mjs",
     "eval:roles": "node scripts/evaluate-roles.mjs"
   }
 }

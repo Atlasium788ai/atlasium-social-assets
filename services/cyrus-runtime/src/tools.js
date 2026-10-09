@@ -8,7 +8,7 @@ function fail(error, retryable = false) {
   return { ok: false, error, retryable };
 }
 
-export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
+export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agentDispatcher = null }) {
   let instantlyStageBusy = false;
   const definitions = [
     {
@@ -422,9 +422,27 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     }
     if (name === "delegate_to_agent") {
       const target = String(args.agent || "").toLowerCase();
+      const handoffId = createHash("sha256").update(JSON.stringify([context.taskId, target, args.objective, args.work_item_id || ""])).digest("hex");
+      if (agentDispatcher?.has(target)) {
+        try {
+          const body = await agentDispatcher.dispatch({
+            id: handoffId,
+            from: config.role,
+            to: target,
+            message: args.objective,
+          });
+          if (!body?.ok) return fail(body?.error || `Agent ${target} rejected the local handoff`);
+          return ok(body, {
+            source: `handoff:${target}`,
+            claim: `Verified handoff to ${target}: ${body.status}`,
+            detail: { handoffId, status: body.status, evidenceCount: body.evidenceCount || 0, transport: "local" },
+          });
+        } catch (error) {
+          return fail(`Handoff to ${target} failed: ${error.message}`, true);
+        }
+      }
       const baseUrl = config.agentPeers[target];
       if (!baseUrl) return fail(`Agent ${target || "unknown"} is not connected for verified handoff`);
-      const handoffId = createHash("sha256").update(JSON.stringify([context.taskId, target, args.objective, args.work_item_id || ""])).digest("hex");
       try {
         const response = await fetchImpl(`${baseUrl}/handoff`, {
           method: "POST",
@@ -1144,8 +1162,11 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch }) {
     return fail(`Unknown tool: ${name}`);
   }
 
-  const roleDefinitions = config.role === "malik"
-    ? definitions
-    : definitions.filter((tool) => !["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_workspace_presence", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"].includes(tool.name));
+  const revenueTools = new Set(["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_workspace_presence", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"]);
+  const roleDefinitions = definitions.filter((tool) => {
+    if (tool.name === "upsert_operating_item" && config.role !== "cyrus") return false;
+    if (revenueTools.has(tool.name) && config.role !== "malik") return false;
+    return true;
+  });
   return { definitions: roleDefinitions, execute };
 }
