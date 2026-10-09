@@ -133,6 +133,16 @@ export function createSharedSwarmRuntime({
             }
             runtime.slackAuthenticated = true;
             runtime.slackError = null;
+            // Log public Slack bot identity only, never token values. This
+            // supports pinning EXPECTED_SLACK_BOT_USER_ID on all shared roles.
+            logger.info(JSON.stringify({
+              event: "command88_shared_slack_identity",
+              role: config.role,
+              slackUserId: auth.user_id || null,
+              slackUserName: auth.user || null,
+              slackBotId: auth.bot_id || null,
+              slackTeamId: auth.team_id || null,
+            }));
           } catch (error) {
             runtime.slackError = error.message;
             logger.error(`${config.name} shared Slack disabled`, { message: error.message });
