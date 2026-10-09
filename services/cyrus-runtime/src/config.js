@@ -42,6 +42,8 @@ export function loadConfig(env = process.env) {
     databasePath: path.join(dataDir, `${role}.sqlite`),
     slackAppToken: required(env, "SLACK_APP_TOKEN"),
     slackBotToken: required(env, "SLACK_BOT_TOKEN"),
+    // Clara must never authenticate as the legacy Viktor bot. This is non-overridable.
+    slackExpectedBotUserId: role === "clara" ? "U0C1DES05L5" : (env.SLACK_EXPECTED_BOT_USER_ID?.trim() || ""),
     blairSlackUserId: required(env, "BLAIR_SLACK_USER_ID"),
     slackAllowedChannelIds: csv(env.SLACK_ALLOWED_CHANNEL_IDS),
     slackSocketEnabled: bool(env.BOT_SOCKET_ENABLED ?? env.CYRUS_SOCKET_ENABLED, true),

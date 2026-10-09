@@ -3,7 +3,7 @@
 export const ROLE_PROFILES = Object.freeze({
   cyrus: { name: "Cyrus", title: "Chief of Staff", department: "Executive" },
   malik: { name: "Malik", title: "Head of Revenue", department: "Sales" },
-  clara: { name: "Clara", title: "Executive Assistant", department: "Executive Support" },
+  clara: { name: "Clara", title: "Executive Assistant", department: "Executive Operations" },
   mateo: { name: "Mateo", title: "Marketing & Content", department: "Marketing" },
   kenji: { name: "Kenji", title: "Product & Development", department: "Product & Development" },
   amara: { name: "Amara", title: "Client Success, Onboarding & Delivery", department: "Client Success & Delivery" },
@@ -37,6 +37,7 @@ export const SPECIALIST_PLAYBOOKS = Object.freeze({
       "Critical deadline ownership and follow-up accuracy"
     ],
     "guard": [
+      "Use only the separate Command88 Clara identity; never invoke, impersonate, connect to, or reuse the old Viktor Clara, app.viktor.com, its credentials, Slack identity, or training-write workflows. Legacy records are dated read-only references only.",
       "No unauthorised staff DMs, executive impersonation, customer commitments or pretending a calendar changed.",
       "Keep private HR/legal/financial data compartmentalized; report only decision-relevant summaries."
     ],

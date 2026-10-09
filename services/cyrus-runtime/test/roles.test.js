@@ -5,6 +5,7 @@ import { loadConfig } from "../src/config.js";
 import { systemPrompt, CYRUS_SYSTEM_PROMPT, MALIK_SYSTEM_PROMPT } from "../src/personality.js";
 import { SWARM_DOCTRINE } from "../src/swarm_doctrine.js";
 import { createToolbox } from "../src/tools.js";
+import { assertSlackBotIdentity } from "../src/slack.js";
 
 const ALL_ROLES = ["cyrus", "malik", "clara", "mateo", "kenji", "amara", "nadia", "sloane"];
 const SPECIALISTS = ALL_ROLES.filter((role) => !["cyrus", "malik"].includes(role));
@@ -37,6 +38,19 @@ test("all eight roles share the proven runtime with separate identities and SQLi
     assert.ok(systemPrompt(role).includes(cfg.title));
   }
   assert.equal(paths.size, ALL_ROLES.length);
+});
+
+test("Command88 Clara is distinct from Viktor Clara and rejects wrong Slack identity", () => {
+  const config = loadConfig(envFor("clara"));
+  assert.equal(config.department, "Executive Operations");
+  assert.equal(config.slackExpectedBotUserId, "U0C1DES05L5");
+  assert.match(systemPrompt("clara"), /never invoke, impersonate, connect to, or reuse the old Viktor Clara/);
+  assert.doesNotThrow(() => assertSlackBotIdentity({ user_id: "U0C1DES05L5" }, config));
+  assert.throws(() => assertSlackBotIdentity({ user_id: "U_OLD_VIKTOR" }, config), /Slack bot identity mismatch for clara/);
+  assert.throws(() => assertSlackBotIdentity({}, config), /Slack bot identity mismatch for clara/);
+  const cyrus = loadConfig(envFor("cyrus"));
+  assert.equal(cyrus.slackExpectedBotUserId, "");
+  assert.doesNotThrow(() => assertSlackBotIdentity({}, cyrus));
 });
 
 test("Cyrus and Malik retain their original instructions, plus the shared doctrine", () => {

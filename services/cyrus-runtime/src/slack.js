@@ -1,5 +1,13 @@
 const SLACK_API = "https://slack.com/api";
 
+export function assertSlackBotIdentity(authResult, config) {
+  const expected = config.slackExpectedBotUserId;
+  if (expected && authResult?.user_id !== expected) {
+    throw new Error(`Slack bot identity mismatch for ${config.role}: expected ${expected}, got ${authResult?.user_id || "missing"}`);
+  }
+}
+
+
 export function createSlackApi(token, fetchImpl = fetch) {
   return async function slackApi(method, payload = {}) {
     const response = await fetchImpl(`${SLACK_API}/${method}`, {

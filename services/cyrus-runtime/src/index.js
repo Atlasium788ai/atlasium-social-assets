@@ -1,7 +1,7 @@
 import http from "node:http";
 import { loadConfig } from "./config.js";
 import { CyrusStore } from "./store.js";
-import { createSlackApi, SlackSocketRuntime } from "./slack.js";
+import { createSlackApi, SlackSocketRuntime, assertSlackBotIdentity } from "./slack.js";
 import { createOpenAiModel } from "./model.js";
 import { createToolbox } from "./tools.js";
 import { CyrusAgent } from "./agent.js";
@@ -13,6 +13,7 @@ const recovered = store.recoverInterruptedTasks();
 const slackApi = createSlackApi(config.slackBotToken);
 const slackAuth = await slackApi("auth.test");
 if (!slackAuth.ok) throw new Error(`${config.name} Slack authentication failed: ${slackAuth.error || "unknown error"}`);
+assertSlackBotIdentity(slackAuth, config);
 const model = createOpenAiModel({ apiKey: config.openAiApiKey, model: config.openAiModel, baseUrl: config.openAiBaseUrl });
 const toolbox = createToolbox({ store, config, slackApi });
 const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: config.role === "malik" ? 16 : 10 });
