@@ -1,6 +1,7 @@
 import { systemPrompt, enforceReply } from "./personality.js";
 import { outputText, toolCalls } from "./model.js";
 import { ATLASIUM_OPERATING_BRIEF } from "./operating_context.js";
+import { isConversationOnly } from "./conversation.js";
 
 function looksLikeAction(text) {
   return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|connect|deploy|remove|launch|complete)\b/i.test(text);
@@ -17,6 +18,43 @@ export class CyrusAgent {
 
   async handleTask(task, { followupReason = null } = {}) {
     this.store.setTaskStatus(task.id, "running");
+    // A conversation is not a revenue task. Keep it read-only at the API boundary:
+    // no external tools, no delegation, no operating-plan side effects.
+    if (this.config.role === "cyrus" && !followupReason && !String(task.channel_id || "").startsWith("internal:") && isConversationOnly(task.request_text)) {
+      try {
+        const response = await this.model.respond({
+          instructions: systemPrompt(this.config.role) + "\n\nCONVERSATION-ONLY MODE: Blair asked to talk or roleplay, not authorize work. Respond naturally in your Chief of Staff personality and address his actual words. This is discussion, not a task. Never claim you performed, delegated, verified, inspected, contacted, or changed anything. Do not make a work plan. Do not request tools. Be candid, specific, and human rather than reporting operational status.",
+          input: [{ role: "user", content: task.request_text }],
+          tools: [],
+        });
+        if (response?.usage) {
+          console.info(JSON.stringify({
+            event: "model_usage",
+            role: this.config.role,
+            taskId: task.id,
+            attempt: 1,
+            mode: "conversation",
+            inputTokens: response.usage.input_tokens ?? null,
+            cachedInputTokens: response.usage.input_tokens_details?.cached_tokens ?? null,
+            outputTokens: response.usage.output_tokens ?? null,
+          }));
+        }
+        // No execution path exists in conversation mode, even if the model
+        // unexpectedly tries to emit a function call.
+        const reply = outputText(response).trim();
+        if (!reply) {
+          this.store.setTaskStatus(task.id, "blocked", { blocker: "Conversation model returned no text" });
+          return "I couldn't produce a useful answer. Ask me again.";
+        }
+        this.store.setTaskStatus(task.id, "completed", { summary: reply });
+        return reply.length > 1200 ? reply.slice(0, 1197) + "..." : reply;
+      } catch (error) {
+        this.store.addStep(task.id, { attempt: 1, status: "model_error", detail: { error: error.message } });
+        this.store.setTaskStatus(task.id, "blocked", { blocker: "Conversation model unavailable" });
+        console.error(JSON.stringify({ event: "model_error", mode: "conversation", role: this.config.role, taskId: task.id, error: error.message }));
+        return "I can't answer that right now. The AI connection failed.";
+      }
+    }
     const context = {
       taskId: task.id,
       requiresEvidence: looksLikeAction(task.request_text),
