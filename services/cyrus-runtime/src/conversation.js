@@ -10,6 +10,9 @@ export function isStructuredUpdateRequest(text) {
 }
 
 export function isConversationOnly(text) {
+  // Explicitly routed internal dialogue stays read-only even when it quotes
+  // another executive saying "launch", "check", or "send".
+  if (/^Internal handoff from [a-z-]+:\s*CONVERSATION-ONLY:/i.test(String(text || ""))) return true;
   const input = String(text || "").replace(internalPrefix, "").replace(namePrefix, "").trim();
   if (!input || isStructuredUpdateRequest(input)) return false;
 

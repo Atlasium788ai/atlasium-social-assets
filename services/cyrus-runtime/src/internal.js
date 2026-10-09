@@ -39,6 +39,7 @@ export function createInternalServer({ config, store, agent, logger = console })
       const to = String(body.to || "").toLowerCase();
       const id = String(body.id || "").trim();
       const message = String(body.message || "").trim();
+      const mode = body.mode === "conversation" ? "conversation" : "task";
       if (request.headers["x-atlasium-source"] !== from) throw new Error("source_header_mismatch");
       if (!Object.hasOwn(config.agentPeers, from)) throw new Error("source_not_connected");
       if (to !== config.role) throw new Error("wrong_target");
@@ -54,7 +55,7 @@ export function createInternalServer({ config, store, agent, logger = console })
         sourceEventId,
         requesterId: `agent:${from}`,
         channelId: `internal:${from}`,
-        requestText: `Internal handoff from ${from}: ${message}`,
+        requestText: `Internal handoff from ${from}: ${mode === "conversation" ? "CONVERSATION-ONLY: " : ""}${message}`,
       });
       const reply = await agent.handleTask(task);
       const settled = store.getTask(task.id);

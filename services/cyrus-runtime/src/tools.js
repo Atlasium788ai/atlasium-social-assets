@@ -114,10 +114,10 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     {
       type: "function",
       name: "delegate_to_agent",
-      description: "Deliver work to a connected Atlasium agent and wait for its verified response. Never use this for an unconnected role.",
+      description: "Route a task or conversation to a connected executive. For opinions, brainstorming, debates, and colleague-to-colleague dialogue set mode=conversation: it guarantees a read-only natural-language response even when quoting operational instructions. For actual work use mode=task. Never use this for an unconnected role.",
       parameters: {
         type: "object",
-        properties: { agent: { type: "string" }, objective: { type: "string" }, work_item_id: { type: "string" } },
+        properties: { agent: { type: "string" }, objective: { type: "string" }, work_item_id: { type: "string" }, mode: { type: "string", enum: ["task", "conversation"] } },
         required: ["agent", "objective"],
         additionalProperties: false,
       },
@@ -423,14 +423,21 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     }
     if (name === "delegate_to_agent") {
       const target = String(args.agent || "").toLowerCase();
-      const handoffId = createHash("sha256").update(JSON.stringify([context.taskId, target, args.objective, args.work_item_id || ""])).digest("hex");
+      const objective = String(args.objective || "");
+      // An explicit dialogue handoff is read-only. Infer it for colleague opinions
+      // if the caller omitted mode, but never infer a business action from chat.
+      const requestedMode = String(args.mode || "").toLowerCase();
+      const conversationalObjective = /\b(?:conversation[- ]only|dialogue[- ]only|your (?:honest )?(?:opinion|take|thoughts)|what do you think|what's your take|financial take|creative opinion|as a colleague|discuss|debate|brainstorm)\b/i.test(objective);
+      const mode = requestedMode === "conversation" || (requestedMode !== "task" && conversationalObjective) ? "conversation" : "task";
+      const handoffId = createHash("sha256").update(JSON.stringify([context.taskId, target, objective, args.work_item_id || "", mode])).digest("hex");
       if (agentDispatcher?.has(target)) {
         try {
           const body = await agentDispatcher.dispatch({
             id: handoffId,
             from: config.role,
             to: target,
-            message: args.objective,
+            message: objective,
+            mode,
           });
           if (!body?.ok) return fail(body?.error || `Agent ${target} rejected the local handoff`);
           return ok(body, {
@@ -448,7 +455,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
         const response = await fetchImpl(`${baseUrl}/handoff`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-atlasium-source": config.role },
-          body: JSON.stringify({ id: handoffId, from: config.role, to: target, message: args.objective }),
+          body: JSON.stringify({ id: handoffId, from: config.role, to: target, message: objective, mode }),
           signal: AbortSignal.timeout(75_000),
         });
         let body;

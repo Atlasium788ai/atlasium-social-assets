@@ -1,0 +1,26 @@
+name: Command88 internal conversation handoff verification
+on:
+  push:
+    branches:
+      - command88-dialogue-mode-fix
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/cyrus-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate syntax
+        run: |
+          set -eu
+          find src test -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Run all offline unit tests
+        run: node --test test/*.test.js
