@@ -150,20 +150,16 @@ export class SlackSocketRuntime {
       requestText: event.text.trim(),
     });
     if (!created) return false;
-    // Immediate acknowledgement so Blair knows the bot received the task.
-    // This uses chat.postMessage, which the bot already has permission to use.
-    const ack = await this.slackApi("chat.postMessage", {
-      channel: event.channel,
-      text: "Working on it.",
-    });
-    if (!ack.ok) this.logger.warn("Slack acknowledgement failed", { error: ack.error || "unknown_error" });
+    // Indicate receipt without posting a robotic placeholder message.
+    // Missing reactions:write permission is non-fatal; the actual answer still sends.
+    await this.setMessageReaction(event, "eyes", true);
     try {
       const reply = await this.agent.handleTask(task);
       this.store.queueReply(task.id, event.channel, reply);
       await this.flushOutbox();
       return true;
-    } catch (error) {
-      throw error;
+    } finally {
+      await this.setMessageReaction(event, "eyes", false);
     }
   }
 
