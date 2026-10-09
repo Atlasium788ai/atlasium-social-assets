@@ -386,7 +386,7 @@ test("socket and DM polling use one canonical Slack message identity", async () 
   }));
   await runtime.pollDirectMessages();
   assert.equal(executions, 1);
-  assert.equal(posts.length, 2);
+  assert.equal(posts.length, 1);
   assert.equal(posts.filter((post) => post.client_msg_id).length, 1);
   assert.equal(store.getTaskBySourceEvent("slack-message:D_BLAIR:100.1").request_text, "Same request");
   store.close();
