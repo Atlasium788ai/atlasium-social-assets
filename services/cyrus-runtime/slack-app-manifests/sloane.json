@@ -1,0 +1,44 @@
+{
+  "_metadata": {
+    "major_version": 1
+  },
+  "display_information": {
+    "name": "Command88 Sloane",
+    "description": "Atlasium 7/88 Legal, Compliance and People executive agent",
+    "background_color": "#0b1736"
+  },
+  "features": {
+    "app_home": {
+      "home_tab_enabled": false,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "bot_user": {
+      "display_name": "Sloane Legal & Compliance",
+      "always_online": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "im:history",
+        "im:read",
+        "im:write",
+        "channels:history",
+        "groups:history"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "message.im"
+      ]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "is_hosted": false,
+    "token_rotation_enabled": false
+  }
+}
