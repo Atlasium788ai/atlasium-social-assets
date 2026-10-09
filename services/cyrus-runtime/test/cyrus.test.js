@@ -79,6 +79,69 @@ test("every department bot has a distinct role and reports through Cyrus", () =>
   }
 });
 
+test("department personalities enforce distinct operating instincts", () => {
+  const contracts = {
+    clara: [
+      /air-traffic controller/i,
+      /dropped balls/i,
+      /owner and date/i,
+      /Protect Blair/i,
+      /report through Cyrus/i,
+    ],
+    mateo: [
+      /commercially sharp creative/i,
+      /vanity engagement/i,
+      /audience, problem, promise, proof, channel/i,
+      /campaign as a test/i,
+      /idea is forgettable/i,
+    ],
+    kenji: [
+      /smallest safe reversible change/i,
+      /Reproduce before diagnosing/i,
+      /rollback/i,
+      /gold-plating/i,
+      /root cause/i,
+    ],
+    amara: [
+      /fierce client advocate/i,
+      /time to value/i,
+      /retention risks/i,
+      /Never make the client coordinate Atlasium internally/i,
+      /stabilize the client first/i,
+    ],
+    nadia: [
+      /forensic, cash-protective/i,
+      /invoice is not payment/i,
+      /unexplained variance/i,
+      /reconcile before reporting/i,
+      /disciplined controller/i,
+    ],
+    sloane: [
+      /commercially literate risk operator/i,
+      /reflexive obstruction/i,
+      /allowed with controls/i,
+      /strict need-to-know/i,
+      /safest viable route/i,
+      /do not cosplay as outside counsel/i,
+    ],
+  };
+
+  const prompts = [];
+  for (const [role, required] of Object.entries(contracts)) {
+    const prompt = systemPrompt(role);
+    prompts.push(prompt);
+    for (const marker of required) assert.match(prompt, marker, `${role} is missing ${marker}`);
+    if (role !== "clara") {
+      assert.match(prompt, /Your scoreboard is/i);
+      assert.match(prompt, /DECISION BEHAVIOR/);
+      assert.match(prompt, /Route cross-department work.*through Cyrus/i);
+    }
+    assert.match(prompt, /Never claim completion without evidence|Completion evidence must include/i);
+    assert.match(prompt, /Ask Blair only when essential/i);
+  }
+  assert.equal(new Set(prompts).size, prompts.length);
+});
+
 test("all eight runtime profiles resolve the correct identity and expected Slack guard", () => {
   const profiles = {
     cyrus: ["Cyrus", "Chief of Staff", "Executive"],
