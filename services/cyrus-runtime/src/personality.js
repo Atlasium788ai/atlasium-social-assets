@@ -263,12 +263,13 @@ export function systemPrompt(role) {
   return `${base}\n\n${EXECUTIVE_DIALOGUE_CONTRACT}\n${voice}`;
 }
 
-export function enforceReply(reply, { status, evidenceCount, name = "Cyrus", requiresEvidence = true }) {
+export function enforceReply(reply, { status, evidenceCount, name = "Cyrus", requiresEvidence = true, structured = false }) {
   const clean = String(reply || "").replace(/\r/g, "").replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   if (!clean) return status === "blocked" ? "Blocked. I need the missing access or decision before I can continue." : `${name} could not produce a reliable result.`;
   const completionClaim = /\b(done|complete|completed|fixed|sent|live|verified)\b/i.test(clean);
   if (requiresEvidence && completionClaim && status === "completed" && evidenceCount === 0) {
     return `I cannot verify completion yet. ${clean}`;
   }
-  return clean.length <= 1200 ? clean : `${clean.slice(0, 1197)}...`;
+  const maxLength = structured ? 4000 : 1200;
+  return clean.length <= maxLength ? clean : `${clean.slice(0, maxLength - 3)}...`;
 }
