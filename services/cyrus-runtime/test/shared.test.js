@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CyrusAgent } from "../src/agent.js";
-import { loadConfig, loadSharedRoleConfigs, SHARED_EXECUTIVE_ROLES } from "../src/config.js";
+import { BOT_PROFILES, loadConfig, loadSharedRoleConfigs, SHARED_EXECUTIVE_ROLES } from "../src/config.js";
 import { createLocalAgentDispatcher, createSharedSwarmRuntime } from "../src/shared.js";
 import { CyrusStore } from "../src/store.js";
 import { createToolbox } from "../src/tools.js";
@@ -43,6 +43,24 @@ function offlineExecutionModel() {
 function task(store, id, text) {
   return store.createTask({ sourceEventId: id, requesterId: "U_BLAIR", channelId: "D_BLAIR", requestText: text }).task;
 }
+
+test("all eight executives independently execute a tool-backed offline task", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-eight-executives-"));
+  for (const [role, profile] of Object.entries(BOT_PROFILES)) {
+    const env = environment(path.join(dir, role), { BOT_ROLE: role });
+    const config = loadConfig(env);
+    const store = new CyrusStore(config.databasePath);
+    const toolbox = createToolbox({ store, config, slackApi: async () => ({ ok: false, error: "offline" }) });
+    const agent = new CyrusAgent({ store, model: offlineExecutionModel(), toolbox, config, maxTurns: 5 });
+    const current = task(store, `offline-execution:${role}`, `Identify as ${profile.name}, verify your durable runtime health with a tool, and complete only with evidence.`);
+    const reply = await agent.handleTask(current);
+    assert.equal(store.getTask(current.id).status, "completed", `${profile.name} did not complete`);
+    assert.equal(store.getEvidence(current.id)[0].source, `${role}_runtime`);
+    assert.match(reply, new RegExp(`\\b${profile.name}\\b`, "i"));
+    store.close();
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 test("six executives share Cyrus infrastructure while keeping isolated identities and databases", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-shared-config-"));
