@@ -25,7 +25,7 @@ export function isConversationOnly(text) {
   if (positiveAction.test(input)) return false;
   // Commands inside a compound request are still actions:
   // "Identify as Kenji, verify health", "Test complete. Delegate to Clara".
-  const embeddedImperative = new RegExp("(?:[.,;!?]\\\\s*|\\\\band\\\\s+|\\\\bthen\\\\s+)" + actionVerbs + "\\\\b", "i");
+  const embeddedImperative = new RegExp("(?:[.,;!?]\\s*|\\band\\s+|\\bthen\\s+)" + actionVerbs + "\\b", "i");
   if (embeddedImperative.test(input)) return false;
 
   // A request for current, exact or audited facts warrants tools/evidence.
