@@ -28,6 +28,7 @@ export function loadConfig(env = process.env) {
   const profiles = {
     cyrus: { name: "Cyrus", title: "Chief of Staff", department: "Executive" },
     malik: { name: "Malik", title: "Head of Revenue", department: "Sales" },
+    clara: { name: "Clara", title: "Executive Assistant", department: "Executive Operations" },
   };
   if (!profiles[role]) throw new Error(`Unsupported BOT_ROLE: ${role}`);
   const name = env.BOT_NAME?.trim() || profiles[role].name;
