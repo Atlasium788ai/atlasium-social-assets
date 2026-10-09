@@ -3,10 +3,6 @@ import { outputText, toolCalls } from "./model.js";
 import { ATLASIUM_OPERATING_BRIEF } from "./operating_context.js";
 import { isConversationOnly, isStructuredUpdateRequest } from "./conversation.js";
 
-function looksLikeAction(text) {
-  return /\b(build|check|verify|find|fix|send|post|create|change|update|remember|schedule|run|inspect|connect|deploy|remove|launch|complete)\b/i.test(text);
-}
-
 export class CyrusAgent {
   constructor({ store, model, toolbox, config = { role: "cyrus", name: "Cyrus" }, maxTurns = 10 }) {
     this.store = store;
@@ -69,7 +65,7 @@ ${JSON.stringify(operatingPlan.slice(0, 20))}` },
     }
     const context = {
       taskId: task.id,
-      requiresEvidence: looksLikeAction(task.request_text),
+      requiresEvidence: true,
       isFollowup: Boolean(followupReason),
     };
     const durableContext = this.store.recentDecisions();
@@ -90,7 +86,8 @@ ${JSON.stringify(durableContext)}
 Current task work plan:
 ${JSON.stringify(workPlan)}
 Existing verified evidence:
-${JSON.stringify(priorEvidence)}${followupReason ? `
+${JSON.stringify(priorEvidence)}
+Request routing: ACTION. Execute with tools and require evidence. A phrase such as 'conversational exercise' or a restriction against external messaging limits the permitted actions; it does not turn an explicit internal diagnostic or execution request into conversation-only.${followupReason ? `
 Automatic follow-up is due: ${followupReason}` : ""}`,
       },
       { role: "user", content: task.request_text },

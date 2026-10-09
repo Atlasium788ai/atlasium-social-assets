@@ -52,6 +52,7 @@ export class SlackSocketRuntime {
     this.lastPollAt = null;
     this.lastPollError = null;
     this.dmChannelId = null;
+    this.reactionPermission = "unknown";
   }
 
   async start() {
@@ -125,13 +126,27 @@ export class SlackSocketRuntime {
 
   async setMessageReaction(event, name, add) {
     if (!event?.channel || !event?.ts) return false;
+    if (this.reactionPermission === "missing_scope") return false;
     const method = add ? "reactions.add" : "reactions.remove";
     try {
       const result = await this.slackApi(method, { channel: event.channel, timestamp: event.ts, name });
+      if (!result.ok && result.error === "missing_scope") {
+        this.reactionPermission = "missing_scope";
+        this.logger.warn("Slack reactions disabled: existing app authorization is missing reactions:write", {
+          method,
+          name,
+          error: result.error,
+          requiredScope: result.needed || "reactions:write",
+          providedScopes: result.provided || null,
+          authorizationRequired: "Add reactions:write to the existing Slack app Bot Token Scopes, then reinstall or re-authorize that app in the workspace.",
+        });
+        return false;
+      }
       if (!result.ok && !(add && result.error === "already_reacted") && !(!add && result.error === "no_reaction")) {
         this.logger.warn("Slack reaction update failed", { method, name, error: result.error || "unknown_error" });
         return false;
       }
+      this.reactionPermission = "available";
       return true;
     } catch (error) {
       this.logger.warn("Slack reaction update failed", { method, name, error: error.message });

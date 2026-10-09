@@ -6,6 +6,7 @@ import path from "node:path";
 import { CyrusStore } from "../src/store.js";
 import { createToolbox } from "../src/tools.js";
 import { CyrusAgent } from "../src/agent.js";
+import { isConversationOnly } from "../src/conversation.js";
 import { loadConfig } from "../src/config.js";
 import { createOpenAiModel } from "../src/model.js";
 import { shouldHandleMessage, SlackSocketRuntime } from "../src/slack.js";
@@ -44,6 +45,54 @@ function call(name, args, callId = "call_1") {
 test("direct Blair DM is accepted and staff DM is ignored", () => {
   assert.equal(shouldHandleMessage({ type: "message", channel_type: "im", user: "U_BLAIR", text: "Check health" }, config()), true);
   assert.equal(shouldHandleMessage({ type: "message", channel_type: "im", user: "U_STAFF", text: "Check health" }, config()), false);
+});
+
+test("explicit internal diagnostics remain actions despite conversational framing and no external messaging", async () => {
+  const request = "This is a conversational exercise. Do not use external messaging. Perform internal diagnostics and report the results.";
+  assert.equal(isConversationOnly(request), false);
+
+  const profiles = {
+    cyrus: "Cyrus",
+    malik: "Malik",
+    clara: "Clara",
+    mateo: "Mateo",
+    kenji: "Kenji",
+    amara: "Amara",
+    nadia: "Nadia",
+    sloane: "Sloane",
+  };
+
+  for (const [role, name] of Object.entries(profiles)) {
+    const { store } = tempStore();
+    const seenInstructions = [];
+    let attempt = 0;
+    const model = {
+      respond: async ({ instructions, input }) => {
+        seenInstructions.push(instructions);
+        attempt += 1;
+        if (attempt === 1) {
+          assert.match(input[0].content, /Request routing: ACTION/);
+          return { output_text: "This sounds conversation-only.", output: [] };
+        }
+        if (attempt === 2) return call("system_health", {}, `${role}_health`);
+        return {
+          output_text: "Internal diagnostics passed and were verified.",
+          ...call("complete_task", { summary: "Internal diagnostics passed." }, `${role}_complete`),
+        };
+      },
+    };
+    const roleConfig = config({ role, name });
+    const toolbox = createToolbox({ store, config: roleConfig, slackApi: async () => ({ ok: true }), fetchImpl: fetch });
+    const agent = new CyrusAgent({ store, model, toolbox, config: roleConfig });
+    const current = task(store, `Ev-routing-${role}`, request);
+    const reply = await agent.handleTask(current);
+
+    assert.equal(store.getTask(current.id).status, "completed", `${role} treated the request as conversation-only`);
+    assert.equal(store.getEvidence(current.id).length, 1, `${role} completed without diagnostic evidence`);
+    assert.match(reply, /verified/i);
+    assert.ok(seenInstructions.every((prompt) => prompt === systemPrompt(role)), `${role} used the wrong personality`);
+    store.close();
+  }
 });
 
 test("Malik is configured as Head of Revenue", () => {
@@ -358,6 +407,50 @@ test("restart recovery resumes a task and flushes its reply", async () => {
   assert.notEqual(posts[0].payload.client_msg_id, current.id);
   assert.equal(typeof posts[0].payload.client_msg_id, "string");
   assert.equal(store.pendingReplies().length, 0);
+  store.close();
+});
+
+test("missing reactions scope disables optional acknowledgements without blocking Slack task handling", async () => {
+  const { store } = tempStore();
+  const warnings = [];
+  const posts = [];
+  let reactionCalls = 0;
+  let executions = 0;
+  const runtime = new SlackSocketRuntime({
+    config: config(),
+    store,
+    agent: { handleTask: async (current) => {
+      executions += 1;
+      store.setTaskStatus(current.id, "completed", { summary: "Handled." });
+      return "Handled.";
+    } },
+    slackApi: async (method, payload) => {
+      if (method.startsWith("reactions.")) {
+        reactionCalls += 1;
+        return { ok: false, error: "missing_scope", needed: "reactions:write", provided: "chat:write,im:history" };
+      }
+      if (method === "chat.postMessage") {
+        posts.push(payload);
+        return { ok: true, ts: `300.${posts.length}` };
+      }
+      return { ok: true };
+    },
+    WebSocketImpl: class {},
+    logger: { info() {}, error() {}, warn(message, detail) { warnings.push({ message, detail }); } },
+  });
+  const event = { type: "message", channel_type: "im", channel: "D_BLAIR", ts: "300.0", user: "U_BLAIR", text: "Handle this" };
+
+  assert.equal(await runtime.setMessageReaction(event, "eyes", true), false);
+  assert.equal(await runtime.setMessageReaction(event, "eyes", false), false);
+  assert.equal(reactionCalls, 1, "missing scope should suppress repeated reaction attempts");
+  assert.equal(runtime.reactionPermission, "missing_scope");
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].detail.requiredScope, "reactions:write");
+  assert.match(warnings[0].detail.authorizationRequired, /existing Slack app.*re-authorize/i);
+
+  assert.equal(await runtime.processSlackMessage(event), true);
+  assert.equal(executions, 1);
+  assert.equal(posts.length, 1, "the final reply should still be sent without a reaction acknowledgement");
   store.close();
 });
 

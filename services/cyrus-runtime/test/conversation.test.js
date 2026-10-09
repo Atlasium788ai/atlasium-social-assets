@@ -132,7 +132,8 @@ test("Slack reaction permission failures do not block the real reply", async () 
       logger: { info() {}, warn() {}, error() {} },
     });
     assert.equal(await runtime.processSlackMessage({ type: "message", channel_type: "im", user: "U_BLAIR", channel: "D_BLAIR", ts: "101.1", text: "Just talk" }), true);
-    assert.deepEqual(calls, ["reactions.add", "chat.postMessage", "reactions.remove"]);
+    assert.deepEqual(calls, ["reactions.add", "chat.postMessage"]);
+    assert.equal(runtime.reactionPermission, "missing_scope");
   } finally {
     f.close();
   }

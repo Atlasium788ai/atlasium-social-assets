@@ -17,19 +17,22 @@ export function isConversationOnly(text) {
   if (!input || isStructuredUpdateRequest(input)) return false;
 
   const explicitConversation = /\b(?:conversational|personality|dialogue|roleplay|hypothetical|thought experiment)\s+(?:test|exercise|situation|scenario|only)\b|\b(?:this is|it's|it is)\s+(?:a\s+)?(?:conversation|hypothetical|roleplay|personality test)\b|\b(?:just|only)\s+(?:talk|chat|discuss|answer)\b|\b(?:what would you say|how would you respond|speak to me|talk to me like|respond in your own voice)\b/i.test(input);
-  const forbidsActions = /\b(?:do not|don't|without|no)\s+(?:use\s+)?(?:tools?|delegate|contact|send|spend|change|modify|execute|perform|take action|business systems|outreach)\b/i.test(input);
-  // A discussion explicitly fenced off from execution is always read-only.
-  if (explicitConversation && forbidsActions) return true;
+  const forbidsActions = /\b(?:do not|don't|without|no)\s+(?:use\s+)?(?:tools?|delegate|contact|send|spend|change|modify|execute|perform|take action|business systems|outreach|external\s+(?:messages?|messaging|communication))\b/i.test(input);
+  const actionableInput = input.replace(/\b(?:do not|don't|without|no)\b[^.!?;]*?(?=\bbut\b|[.!?;]|$)/gi, "");
 
-  const actionVerbs = "(?:check|verify|find|fetch|inspect|send|post|create|schedule|book|delegate|update|change|fix|launch|deploy|activate|run|pull|contact|email|message|call|connect|charge|buy|pay|delete|save|record|remember|assign|build|draft|start|stop|turn|enable|disable|configure|publish|upload|download|remove|archive|invite|approve|reject|refund|hire|fire|research|investigate|audit|analyze|get|execute|handle|prepare|complete|resolve|identify)";
+  const actionVerbs = "(?:check|verify|find|fetch|inspect|test|send|post|create|schedule|book|delegate|update|change|fix|launch|deploy|activate|run|pull|contact|email|message|call|connect|charge|buy|pay|delete|save|record|remember|assign|build|draft|start|stop|turn|enable|disable|configure|publish|upload|download|remove|archive|invite|approve|reject|refund|hire|fire|research|investigate|audit|analyze|diagnose|validate|perform|conduct|get|execute|handle|prepare|complete|resolve|identify)";
   const positiveAction = new RegExp(
     "\\b(?:please|go ahead and|i need you to|we need to|let's|can you|could you|would you|then|also|and then)\\s+(?:(?:actually|now|just|go)\\s+)?"+actionVerbs+"\\b|^"+actionVerbs+"\\b|\\b(?:do it|do this|go get it done|make it happen|take care of it)\\b", "i"
   );
-  if (positiveAction.test(input)) return false;
+  if (positiveAction.test(actionableInput)) return false;
   // Commands inside a compound request are still actions:
   // "Identify as Kenji, verify health", "Test complete. Delegate to Clara".
   const embeddedImperative = new RegExp("(?:[.,;!?]\\s*|\\band\\s+|\\bthen\\s+)" + actionVerbs + "\\b", "i");
-  if (embeddedImperative.test(input)) return false;
+  if (embeddedImperative.test(actionableInput)) return false;
+
+  // Restrictions such as "no external messaging" narrow the permitted
+  // execution surface; they do not cancel a separate explicit internal action.
+  if (explicitConversation && forbidsActions) return true;
 
   // A request for current, exact or audited facts warrants tools/evidence.
   const freshMetrics = /\b(?:how many|how much|exact|current|today|live|latest|right now|up.to.date|as of now)\b[\s\S]{0,90}\b(?:numbers|figures|metrics|results|replies|campaigns|sales|revenue|balance|cash|spend|pipeline|meetings|appointments|leads|prospects|invoices|payments)\b|\b(?:numbers|figures|metrics|results|replies|campaigns|sales|revenue|balance|cash|spend|pipeline|meetings|appointments|leads|prospects|invoices|payments)\b[\s\S]{0,60}\b(?:today|right now|latest|current|exact|live)\b/i;
