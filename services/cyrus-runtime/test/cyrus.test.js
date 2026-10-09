@@ -7,6 +7,7 @@ import { CyrusStore } from "../src/store.js";
 import { createToolbox } from "../src/tools.js";
 import { CyrusAgent } from "../src/agent.js";
 import { loadConfig } from "../src/config.js";
+import { createOpenAiModel } from "../src/model.js";
 import { shouldHandleMessage, SlackSocketRuntime } from "../src/slack.js";
 import { systemPrompt } from "../src/personality.js";
 
@@ -117,6 +118,22 @@ test("revenue execution tools belong to Malik only", () => {
     assert.equal(tools.has("upsert_operating_item"), role === "cyrus");
     store.close();
   }
+});
+
+test("model requests enforce the configured output-token ceiling", async () => {
+  let requestBody;
+  const model = createOpenAiModel({
+    apiKey: "offline-test-key",
+    model: "gpt-6-luna",
+    maxOutputTokens: 600,
+    fetchImpl: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return new Response(JSON.stringify({ output: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  await model.respond({ instructions: "Test", input: "Test", tools: [] });
+  assert.equal(requestBody.max_output_tokens, 600);
+  assert.equal(requestBody.parallel_tool_calls, false);
 });
 
 test("deduplicates by Slack event id, not repeated request text", () => {

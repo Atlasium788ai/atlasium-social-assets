@@ -1,10 +1,10 @@
-export function createOpenAiModel({ apiKey, model, baseUrl = "https://api.openai.com/v1", fetchImpl = fetch }) {
+export function createOpenAiModel({ apiKey, model, baseUrl = "https://api.openai.com/v1", maxOutputTokens = 1_200, fetchImpl = fetch }) {
   return {
     async respond({ instructions, input, tools }) {
       const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/responses`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, instructions, input, tools, tool_choice: "auto", parallel_tool_calls: false }),
+        body: JSON.stringify({ model, instructions, input, tools, tool_choice: "auto", parallel_tool_calls: false, max_output_tokens: maxOutputTokens }),
         signal: AbortSignal.timeout(60_000),
       });
       let body;

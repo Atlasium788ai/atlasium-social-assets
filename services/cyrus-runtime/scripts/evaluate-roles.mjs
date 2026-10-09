@@ -11,7 +11,23 @@ const apiKey = process.env.OPENAI_API_KEY?.trim();
 if (!apiKey) throw new Error("OPENAI_API_KEY is required for live role evaluation");
 
 const modelName = process.env.OPENAI_MODEL?.trim() || "gpt-6-luna";
-const model = createOpenAiModel({ apiKey, model: modelName, baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1" });
+const liveModel = createOpenAiModel({
+  apiKey,
+  model: modelName,
+  baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  maxOutputTokens: Math.max(256, Math.min(1_200, Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 600))),
+});
+const usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, requests: 0 };
+const model = {
+  async respond(request) {
+    const response = await liveModel.respond(request);
+    usage.requests += 1;
+    usage.inputTokens += Number(response.usage?.input_tokens || 0);
+    usage.cachedInputTokens += Number(response.usage?.input_tokens_details?.cached_tokens || 0);
+    usage.outputTokens += Number(response.usage?.output_tokens || 0);
+    return response;
+  },
+};
 const roles = [
   {
     role: "clara",
@@ -71,6 +87,7 @@ for (const profile of roles) {
     openAiApiKey: apiKey,
     openAiModel: modelName,
     openAiBaseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+    openAiMaxOutputTokens: Math.max(256, Math.min(1_200, Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 600))),
     instantlyApiKey: "",
     instantlyBaseUrl: "https://api.instantly.ai/api/v2",
     instantlyCampaignId: "",
@@ -90,7 +107,7 @@ for (const profile of roles) {
     };
   };
   const toolbox = createToolbox({ store, config, slackApi: async () => ({ ok: false, error: "not used" }), fetchImpl });
-  const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: 8 });
+  const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: 5 });
   const task = store.createTask({
     sourceEventId: `role-eval:${profile.role}`,
     requesterId: "U_BLAIR_EVAL",
@@ -123,4 +140,6 @@ for (const profile of roles) {
   }
 }
 
-console.log(JSON.stringify({ model: modelName, passed: results.length, results }, null, 2));
+const uncachedInputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
+const estimatedUsd = (uncachedInputTokens * 0.10 + usage.cachedInputTokens * 0.01 + usage.outputTokens * 0.50) / 1_000_000;
+console.log(JSON.stringify({ model: modelName, passed: results.length, usage, estimatedUsd, results }, null, 2));

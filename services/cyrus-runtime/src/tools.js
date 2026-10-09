@@ -353,6 +353,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
             "Return a concise answer suitable for another executive agent to act on."
           ].join("\n"),
           input: contextText ? `Context:\n${contextText}\n\nQuestion:\n${question}` : question,
+          max_output_tokens: config.openAiMaxOutputTokens || 1_200,
           tools,
           tool_choice: args.must_search_web === false ? "auto" : "auto",
           include: ["web_search_call.action.sources"]

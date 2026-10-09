@@ -61,6 +61,7 @@ export function loadConfig(env = process.env) {
     openAiApiKey: required(env, "OPENAI_API_KEY"),
     openAiModel: env.OPENAI_MODEL?.trim() || "gpt-6-luna",
     openAiBaseUrl: env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1",
+    openAiMaxOutputTokens: Math.max(256, Math.min(4_000, Number(env.OPENAI_MAX_OUTPUT_TOKENS || 1_200))),
     httpReadAllowlist: new Set([
       ...csv(env.HTTP_READ_ALLOWLIST),
       "https://linklatch.atlasium788.ca",

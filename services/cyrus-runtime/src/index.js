@@ -17,7 +17,12 @@ if (!slackAuth.ok) throw new Error(`Cyrus Slack authentication failed: ${slackAu
 if (config.slackExpectedBotUserId && slackAuth.user_id !== config.slackExpectedBotUserId) {
   throw new Error(`${config.name} Slack identity mismatch: expected ${config.slackExpectedBotUserId}, received ${slackAuth.user_id || "unknown"}`);
 }
-const model = createOpenAiModel({ apiKey: config.openAiApiKey, model: config.openAiModel, baseUrl: config.openAiBaseUrl });
+const model = createOpenAiModel({
+  apiKey: config.openAiApiKey,
+  model: config.openAiModel,
+  baseUrl: config.openAiBaseUrl,
+  maxOutputTokens: config.openAiMaxOutputTokens,
+});
 const dispatcher = createLocalAgentDispatcher();
 const toolbox = createToolbox({ store, config, slackApi, agentDispatcher: dispatcher });
 const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: config.role === "malik" ? 16 : 10 });

@@ -51,6 +51,18 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
       let response;
       try {
         response = await this.model.respond({ instructions: systemPrompt(this.config.role), input, tools: this.toolbox.definitions });
+        if (response?.usage) {
+          console.info(JSON.stringify({
+            event: "model_usage",
+            role: this.config.role,
+            taskId: task.id,
+            attempt,
+            inputTokens: response.usage.input_tokens ?? null,
+            cachedInputTokens: response.usage.input_tokens_details?.cached_tokens ?? null,
+            outputTokens: response.usage.output_tokens ?? null,
+            totalTokens: response.usage.total_tokens ?? null,
+          }));
+        }
       } catch (error) {
         this.store.addStep(task.id, { attempt, status: "model_error", detail: { error: error.message } });
         console.error(JSON.stringify({ event: "model_error", role: this.config.role, taskId: task.id, attempt, error: error.message }));
