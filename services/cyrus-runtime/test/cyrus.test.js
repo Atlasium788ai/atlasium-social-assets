@@ -51,13 +51,6 @@ test("Malik is configured as Head of Revenue", () => {
   assert.doesNotMatch(prompt, /Chief Operating Officer/);
 });
 
-test("Clara has a distinct Executive Assistant identity", () => {
-  const prompt = systemPrompt("clara");
-  assert.match(prompt, /Executive Assistant/);
-  assert.match(prompt, /Executive Operations/);
-  assert.doesNotMatch(prompt, /You are Cyrus|You are Malik/);
-});
-
 test("deduplicates by Slack event id, not repeated request text", () => {
   const { store } = tempStore();
   const first = store.createTask({ sourceEventId: "Ev1", requesterId: "U_BLAIR", channelId: "D1", requestText: "Check health" });

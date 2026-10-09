@@ -1,0 +1,27 @@
+name: Atlasium six-role real model exam
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  specialist-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Fail safely when model API is not configured
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ] || [ -z "$OPENAI_MODEL" ]; then echo "::error::Authorized OPENAI_API_KEY or runtime-matching OPENAI_MODEL unavailable. No inference attempted."; exit 2; fi
+      - name: Evaluate six role prompts against a real model without any live business tools
+        working-directory: services/cyrus-runtime
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+        run: node test/live-model-eval.mjs

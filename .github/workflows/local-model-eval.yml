@@ -1,0 +1,30 @@
+name: Six-role local LLM behavior exam
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  six-specialists:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install local Ollama inference runtime
+        run: curl -fsSL https://ollama.com/install.sh | sh
+      - name: Start private localhost-only model server
+        run: |
+          nohup env OLLAMA_HOST=127.0.0.1:11434 ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 45); do if curl -fsS http://127.0.0.1:11434/api/version; then exit 0; fi; sleep 2; done
+          tail -50 /tmp/ollama.log
+          exit 1
+      - name: Download free open-weights model
+        run: ollama pull qwen2.5:3b
+      - name: Run six isolated REAL local-model decisions
+        working-directory: services/cyrus-runtime
+        env:
+          EVAL_PROVIDER: ollama
+          EVAL_MODEL: qwen2.5:3b
+        run: node test/live-model-eval.mjs

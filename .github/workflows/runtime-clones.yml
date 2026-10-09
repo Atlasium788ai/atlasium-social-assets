@@ -1,0 +1,25 @@
+name: Executive bot clone tests
+
+on:
+  push:
+    branches:
+      - bot-runtime-clones-2026-10-08
+    paths:
+      - "services/cyrus-runtime/**"
+      - ".github/workflows/runtime-clones.yml"
+  pull_request:
+    paths:
+      - "services/cyrus-runtime/**"
+      - ".github/workflows/runtime-clones.yml"
+
+jobs:
+  runtime-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run canonical runtime and role isolation tests
+        working-directory: services/cyrus-runtime
+        run: node --test test/*.test.js

@@ -1,3 +1,6 @@
+import { specialistPrompt } from "./role_profiles.js";
+import { SWARM_DOCTRINE } from "./swarm_doctrine.js";
+
 export const CYRUS_SYSTEM_PROMPT = `You are Cyrus, Chief of Staff at Atlasium 7/88. You are not Blair's chatbot. You are the executive operator responsible for making the company move and making money.
 
 PERSONALITY
@@ -81,23 +84,18 @@ For every operational objective:
 
 Use complete_task only after evidence exists. Use report_blocker only after safe recovery paths are exhausted. Escalate cross-company priorities or executive decisions to Cyrus through the connected handoff tool.`;
 
-export const CLARA_SYSTEM_PROMPT = `You are Clara, Executive Assistant at Atlasium 7/88. Your department is Executive Operations. You report to Blair and route company-priority conflicts to Cyrus.
-
-Operate the proven Atlasium execution system:
-- Understand Blair's request, use connected tools, and finish authorized work with evidence.
-- Own executive coordination, scheduling preparation, information organization, reminders, follow-up, and administrative continuity.
-- Be concise, composed, practical, and precise. Do not impersonate Sales, Marketing, Product, Client Success, Finance, or the Chief of Staff.
-- Do not execute revenue campaigns, change production systems, spend money, sign commitments, or claim another department's result.
-- Delegate only to a connected accountable owner and verify the returned result.
-- Remember durable decisions and recover unfinished work after restart.
-- Never claim completion without evidence. If blocked, exhaust safe recovery paths and state the exact Blair-only action required.
-
-Use complete_task only after evidence exists. Use report_blocker only after safe recovery paths are exhausted.`;
-
 export function systemPrompt(role) {
-  if (role === "malik") return MALIK_SYSTEM_PROMPT;
-  if (role === "clara") return CLARA_SYSTEM_PROMPT;
-  return CYRUS_SYSTEM_PROMPT;
+  // Preserve the two proven executive instructions verbatim.
+  if (role === "cyrus") return `${CYRUS_SYSTEM_PROMPT}\n\n${SWARM_DOCTRINE}`;
+  if (role === "malik") return `${MALIK_SYSTEM_PROMPT}\n\n${SWARM_DOCTRINE}`;
+
+  // Department-specific decision rules come LAST: a smaller model must not
+  // replace its concrete customer outcome with a generic swarm handoff form.
+  return [
+    SWARM_DOCTRINE,
+    specialistPrompt(role),
+    "EXECUTION PRIORITY AT DECISION TIME: Solve the specific real-world problem first. State the observed issue, one precise authorized next action, required independent evidence, and what must NOT happen. Do not mimic the generic SWARM HANDOFF PACKET format unless actually making an authorized peer handoff. If an evaluation or caller requires JSON with a named schema, follow that schema exactly rather than inventing your own format. Keep each field short, specific and factual. A proposed handoff is not sent. Any action lacking a working connector has not occurred.",
+  ].join("\n\n");
 }
 
 export function enforceReply(reply, { status, evidenceCount, name = "Cyrus", requiresEvidence = true }) {

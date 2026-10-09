@@ -20,6 +20,10 @@ configuration; execution and reliability code are shared.
 - There is no tool for outbound campaigns, staff messages, spending, deletion or production deployment.
 - `/health` reports SQLite state, Slack authentication and live socket status.
 
+## Clara identity isolation
+
+The new Command88 Clara is a dedicated Executive Assistant, not the old Viktor-hosted Clara. For `BOT_ROLE=clara`, startup fails closed unless Slack `auth.test` returns the known new Clara bot user ID `U0C1DES05L5`; it cannot be overridden with environment variables. Do not reuse Viktor app tokens, Viktor credentials, legacy training write access, or `services/legacy-swarm-runtime` as the dedicated Clara runtime. Keep old Viktor training history as dated read-only context, never live task state. Confirm both bot and app tokens belong to the intended new app before enabling Socket Mode.
+
 ## Local test
 
 ```bash

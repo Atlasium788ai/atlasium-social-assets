@@ -1,4 +1,5 @@
 import path from "node:path";
+import { ROLE_PROFILES } from "./role_profiles.js";
 
 function required(env, name) {
   const value = env[name]?.trim();
@@ -25,11 +26,7 @@ function jsonObject(value, name) {
 
 export function loadConfig(env = process.env) {
   const role = (env.BOT_ROLE?.trim() || "cyrus").toLowerCase();
-  const profiles = {
-    cyrus: { name: "Cyrus", title: "Chief of Staff", department: "Executive" },
-    malik: { name: "Malik", title: "Head of Revenue", department: "Sales" },
-    clara: { name: "Clara", title: "Executive Assistant", department: "Executive Operations" },
-  };
+  const profiles = ROLE_PROFILES;
   if (!profiles[role]) throw new Error(`Unsupported BOT_ROLE: ${role}`);
   const name = env.BOT_NAME?.trim() || profiles[role].name;
   const dataDir = env.BOT_DATA_DIR?.trim() || env.CYRUS_DATA_DIR?.trim() || path.resolve(`.data/${role}`);
@@ -45,6 +42,8 @@ export function loadConfig(env = process.env) {
     databasePath: path.join(dataDir, `${role}.sqlite`),
     slackAppToken: required(env, "SLACK_APP_TOKEN"),
     slackBotToken: required(env, "SLACK_BOT_TOKEN"),
+    // Clara must never authenticate as the legacy Viktor bot. This is non-overridable.
+    slackExpectedBotUserId: role === "clara" ? "U0C1DES05L5" : (env.SLACK_EXPECTED_BOT_USER_ID?.trim() || ""),
     blairSlackUserId: required(env, "BLAIR_SLACK_USER_ID"),
     slackAllowedChannelIds: csv(env.SLACK_ALLOWED_CHANNEL_IDS),
     slackSocketEnabled: bool(env.BOT_SOCKET_ENABLED ?? env.CYRUS_SOCKET_ENABLED, true),
