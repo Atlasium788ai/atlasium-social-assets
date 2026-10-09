@@ -6,6 +6,7 @@ import path from "node:path";
 import { CyrusStore } from "../src/store.js";
 import { createToolbox } from "../src/tools.js";
 import { CyrusAgent } from "../src/agent.js";
+import { loadConfig } from "../src/config.js";
 import { shouldHandleMessage, SlackSocketRuntime } from "../src/slack.js";
 import { systemPrompt } from "../src/personality.js";
 
@@ -55,7 +56,65 @@ test("Clara has a distinct Executive Assistant identity", () => {
   const prompt = systemPrompt("clara");
   assert.match(prompt, /Executive Assistant/);
   assert.match(prompt, /Executive Operations/);
+  assert.match(prompt, /Command88 Clara/);
+  assert.match(prompt, /Never identify as, impersonate, or claim the identity or history of Viktor Clara/);
   assert.doesNotMatch(prompt, /You are Cyrus|You are Malik/);
+});
+
+test("every department bot has a distinct role and reports through Cyrus", () => {
+  const roles = {
+    mateo: ["Head of Marketing & Content", "Marketing"],
+    kenji: ["Head of Product & Development", "Product & Development"],
+    amara: ["Head of Client Success, Onboarding & Delivery", "Client Success"],
+    nadia: ["Head of Finance & Administration", "Finance"],
+    sloane: ["Head of Legal, Compliance & People", "Legal, Compliance & People"],
+  };
+  for (const [role, [title, department]] of Object.entries(roles)) {
+    const prompt = systemPrompt(role);
+    assert.match(prompt, new RegExp(title.replace(/[&]/g, "\\&")));
+    assert.match(prompt, new RegExp(`department is ${department.replace(/[&]/g, "\\&")}`));
+    assert.match(prompt, /report to Cyrus, Chief of Staff/);
+    assert.doesNotMatch(prompt, /You are Cyrus|You are Malik|You are Command88 Clara/);
+  }
+});
+
+test("all eight runtime profiles resolve the correct identity and expected Slack guard", () => {
+  const profiles = {
+    cyrus: ["Cyrus", "Chief of Staff", "Executive"],
+    malik: ["Malik", "Head of Revenue", "Sales"],
+    clara: ["Clara", "Executive Assistant", "Executive Operations"],
+    mateo: ["Mateo", "Head of Marketing & Content", "Marketing"],
+    kenji: ["Kenji", "Head of Product & Development", "Product & Development"],
+    amara: ["Amara", "Head of Client Success, Onboarding & Delivery", "Client Success"],
+    nadia: ["Nadia", "Head of Finance & Administration", "Finance"],
+    sloane: ["Sloane", "Head of Legal, Compliance & People", "Legal, Compliance & People"],
+  };
+  for (const [role, [name, title, department]] of Object.entries(profiles)) {
+    const loaded = loadConfig({
+      BOT_ROLE: role,
+      SLACK_APP_TOKEN: "xapp-test",
+      SLACK_BOT_TOKEN: "xoxb-test",
+      EXPECTED_SLACK_BOT_USER_ID: `U_${role.toUpperCase()}`,
+      BLAIR_SLACK_USER_ID: "U_BLAIR",
+      OPENAI_API_KEY: "test-key",
+    });
+    assert.equal(loaded.name, name);
+    assert.equal(loaded.title, title);
+    assert.equal(loaded.department, department);
+    assert.equal(loaded.slackExpectedBotUserId, `U_${role.toUpperCase()}`);
+    assert.match(loaded.databasePath, new RegExp(`${role}\\.sqlite$`));
+  }
+});
+
+test("revenue execution tools belong to Malik only", () => {
+  for (const role of ["cyrus", "clara", "mateo", "kenji", "amara", "nadia", "sloane", "malik"]) {
+    const { store } = tempStore();
+    const toolbox = createToolbox({ store, config: config({ role, name: role }), slackApi: async () => ({ ok: false }) });
+    const tools = new Set(toolbox.definitions.map((item) => item.name));
+    assert.equal(tools.has("instantly_activate_campaign"), role === "malik");
+    assert.equal(tools.has("reeviq_leads"), role === "malik");
+    store.close();
+  }
 });
 
 test("deduplicates by Slack event id, not repeated request text", () => {

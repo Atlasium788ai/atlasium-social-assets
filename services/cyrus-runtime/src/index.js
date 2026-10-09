@@ -13,6 +13,9 @@ const recovered = store.recoverInterruptedTasks();
 const slackApi = createSlackApi(config.slackBotToken);
 const slackAuth = await slackApi("auth.test");
 if (!slackAuth.ok) throw new Error(`Cyrus Slack authentication failed: ${slackAuth.error || "unknown error"}`);
+if (config.slackExpectedBotUserId && slackAuth.user_id !== config.slackExpectedBotUserId) {
+  throw new Error(`${config.name} Slack identity mismatch: expected ${config.slackExpectedBotUserId}, received ${slackAuth.user_id || "unknown"}`);
+}
 const model = createOpenAiModel({ apiKey: config.openAiApiKey, model: config.openAiModel, baseUrl: config.openAiBaseUrl });
 const toolbox = createToolbox({ store, config, slackApi });
 const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: config.role === "malik" ? 16 : 10 });

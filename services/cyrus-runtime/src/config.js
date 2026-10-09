@@ -29,6 +29,11 @@ export function loadConfig(env = process.env) {
     cyrus: { name: "Cyrus", title: "Chief of Staff", department: "Executive" },
     malik: { name: "Malik", title: "Head of Revenue", department: "Sales" },
     clara: { name: "Clara", title: "Executive Assistant", department: "Executive Operations" },
+    mateo: { name: "Mateo", title: "Head of Marketing & Content", department: "Marketing" },
+    kenji: { name: "Kenji", title: "Head of Product & Development", department: "Product & Development" },
+    amara: { name: "Amara", title: "Head of Client Success, Onboarding & Delivery", department: "Client Success" },
+    nadia: { name: "Nadia", title: "Head of Finance & Administration", department: "Finance" },
+    sloane: { name: "Sloane", title: "Head of Legal, Compliance & People", department: "Legal, Compliance & People" },
   };
   if (!profiles[role]) throw new Error(`Unsupported BOT_ROLE: ${role}`);
   const name = env.BOT_NAME?.trim() || profiles[role].name;
@@ -45,6 +50,7 @@ export function loadConfig(env = process.env) {
     databasePath: path.join(dataDir, `${role}.sqlite`),
     slackAppToken: required(env, "SLACK_APP_TOKEN"),
     slackBotToken: required(env, "SLACK_BOT_TOKEN"),
+    slackExpectedBotUserId: env.EXPECTED_SLACK_BOT_USER_ID?.trim() || "",
     blairSlackUserId: required(env, "BLAIR_SLACK_USER_ID"),
     slackAllowedChannelIds: csv(env.SLACK_ALLOWED_CHANNEL_IDS),
     slackSocketEnabled: bool(env.BOT_SOCKET_ENABLED ?? env.CYRUS_SOCKET_ENABLED, true),
@@ -65,10 +71,5 @@ export function loadConfig(env = process.env) {
     instantlyCampaignId: env.INSTANTLY_CAMPAIGN_ID?.trim() || "",
     reeviqBaseUrl: env.REEVIQ_BASE_URL?.trim()?.replace(/\/$/, "") || "",
     reeviqApiKeys: [env.REEVIQ_API_KEY?.trim() || "", env.REEVIQ_WRITE_API_KEY?.trim() || ""].filter((value, index, values) => value && values.indexOf(value) === index),
-    reeviqBaseUrl: env.REEVIQ_BASE_URL?.trim() || "",
-    reeviqApiKeys: [env.REEVIQ_API_KEY?.trim() || "", env.REEVIQ_WRITE_API_KEY?.trim() || ""].filter((value, index, all) => value && all.indexOf(value) === index),
-    instantlyApiKey: env.INSTANTLY_API_KEY?.trim() || "",
-    instantlyBaseUrl: env.INSTANTLY_BASE_URL?.trim() || "https://api.instantly.ai/api/v2",
-    instantlyCampaignId: env.INSTANTLY_CAMPAIGN_ID?.trim() || "",
   };
 }
