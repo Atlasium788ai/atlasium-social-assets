@@ -38,5 +38,13 @@ jobs:
         run: node --test test/executive-doctrine.test.js
       - name: Full offline acceptance tests
         run: node --test test/*.test.js
-      - name: Shared-role preflight
+      - name: Shared-role preflight (offline test identities only)
+        env:
+          SLACK_APP_TOKEN: xapp-offline-test
+          SLACK_BOT_TOKEN: xoxb-offline-test
+          BLAIR_SLACK_USER_ID: U_OFFLINE_TEST
+          OPENAI_API_KEY: offline-test-not-a-real-key
+          BOT_ROLE: cyrus
+          BOT_DATA_DIR: /tmp/command88-doctrine-test
+          SHARED_BOT_ROLES: clara,mateo,kenji,amara,nadia,sloane
         run: node scripts/preflight-shared.mjs
