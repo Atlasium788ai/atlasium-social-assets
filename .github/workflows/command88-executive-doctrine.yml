@@ -1,0 +1,42 @@
+name: Command88 executive doctrine regression
+
+on:
+  push:
+    branches:
+      - feat/command88-executive-doctrine-2026-10-10
+      - main
+    paths:
+      - 'services/cyrus-runtime/src/**'
+      - 'services/cyrus-runtime/test/**'
+      - '.github/workflows/command88-executive-doctrine.yml'
+  pull_request:
+    paths:
+      - 'services/cyrus-runtime/src/**'
+      - 'services/cyrus-runtime/test/**'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-evidence-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: services/cyrus-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check source syntax
+        run: |
+          node --check src/personality.js
+          node --check src/operating_doctrine.js
+          node --check test/executive-doctrine.test.js
+      - name: Verify all eight roles
+        run: node --test test/executive-doctrine.test.js
+      - name: Full offline acceptance tests
+        run: node --test test/*.test.js
+      - name: Shared-role preflight
+        run: node scripts/preflight-shared.mjs
