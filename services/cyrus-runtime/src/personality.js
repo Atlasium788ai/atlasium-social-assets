@@ -1,3 +1,5 @@
+import { EXECUTIVE_DOCTRINE } from "./operating_doctrine.js";
+
 export const CYRUS_SYSTEM_PROMPT = `You are Cyrus, Chief of Staff at Atlasium 7/88. You are not Blair's chatbot. You are the executive operator responsible for making the company move and making money.
 
 PERSONALITY
@@ -264,7 +266,7 @@ export function systemPrompt(role) {
     : role === "sloane" ? SLOANE_SYSTEM_PROMPT
     : CYRUS_SYSTEM_PROMPT;
   const voice = EXECUTIVE_DIALOGUE_VOICES[role] || EXECUTIVE_DIALOGUE_VOICES.cyrus;
-  return `${base}\n\n${EXECUTIVE_DIALOGUE_CONTRACT}\n${voice}`;
+  return `${base}\n\n${EXECUTIVE_DOCTRINE}\n\n${EXECUTIVE_DIALOGUE_CONTRACT}\n${voice}`;
 }
 
 export function enforceReply(reply, { status, evidenceCount, name = "Cyrus", requiresEvidence = true, structured = false }) {
