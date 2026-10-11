@@ -75,6 +75,8 @@ export function loadConfig(env = process.env) {
     instantlyBaseUrl: env.INSTANTLY_BASE_URL?.trim() || "https://api.instantly.ai/api/v2",
     instantlyCampaignId: env.INSTANTLY_CAMPAIGN_ID?.trim() || "",
     reeviqBaseUrl: env.REEVIQ_BASE_URL?.trim()?.replace(/\/$/, "") || "",
+    recoveryInventoryUrl: env.ATLASIUM_RECOVERY_INVENTORY_URL?.trim()?.replace(/\/$/, "") || "",
+    recoveryReadToken: env.ATLASIUM_RECOVERY_READ_TOKEN?.trim() || "",
     reeviqApiKeys: [env.REEVIQ_API_KEY?.trim() || "", env.REEVIQ_WRITE_API_KEY?.trim() || ""].filter((value, index, values) => value && values.indexOf(value) === index),
   };
 }
@@ -120,6 +122,8 @@ export function loadSharedRoleConfigs(env, primaryConfig) {
       instantlyApiKey: "",
       instantlyCampaignId: "",
       reeviqBaseUrl: "",
+      recoveryInventoryUrl: "",
+      recoveryReadToken: "",
       reeviqApiKeys: [],
       sharedRuntime: true,
     };
