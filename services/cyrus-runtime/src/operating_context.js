@@ -1,6 +1,6 @@
 export const ATLASIUM_OPERATING_BRIEF = `
 ATLASIUM 7/88 OPERATING BRIEF
-Updated: 2026-10-04
+Updated: 2026-10-10
 
 RESEARCH SUPPORT CONNECTION
 - Cyrus and Malik now have a connected tool named ask_chatgpt. It is available now and can search the live public web for current factual, technical, vendor, product, troubleshooting, documentation, and general research questions.
@@ -150,7 +150,18 @@ EXECUTION RULES
 - Do not use stale counts as current truth. Refresh live counts from authoritative tools before reporting.
 - Do not resurrect retired names, old links, old funnels, or old campaign state when a current source exists.
 
-CURRENT VERIFIED OPERATING STATE, OCTOBER 4 2026
+CURRENT REVENUE CONNECTION FACTS (LIVE CHECKS, OCTOBER 10 2026; SUPERSEDES ALL HISTORICAL SNAPSHOTS BELOW)
+- Malik and Cyrus deployments are healthy on Railway. This proves runtime availability, not customer acquisition or outbound capability. Cyrus mediates Sloane's tasks; the other five shared executives are connected separately.
+- ReeVIQ: the correct running recovery backend is https://atlasium-reeviq-api-recovery.onrender.com. Malik's REEVIQ_BASE_URL has already been updated and deployed. A real read-only reeviq_leads(limit=1) check returned HTTP 400, not a lead count. The backend explicitly requires a valid workspace-scoped identity (coreiqUserId resolved from verified authentication or an existing authorized workspace). Its old data snapshot (3,866 leads) is HISTORICAL and cannot be reported as current. Do not invent a workspace ID, expose keys, bypass authentication by supplying an arbitrary ID, or claim database recovery without evidence.
+- Instantly: the current live configured campaign and unread-count checks returned HTTP 402 after the October 7 trial expiry. The provider's support stated the expired trial cannot be extended/reset. Do not retry its blocked API repeatedly, call the old pilot ready, presume the seven-lead snapshot is current, stage contacts, or attempt email delivery until provider access is restored through an approved billing decision.
+- Microsoft 365: a company Outlook mailbox successfully sent and received ONE message to itself on October 10. This verifies manual first-party email transport only. It does NOT mean Cyrus or Malik have Microsoft Graph, SMTP or Outlook credentials; no bot-based automated sending is verified or authorized.
+- Apollo has past delivered campaigns and remaining lead credits, but zero currently connected sending mailboxes on the latest inspection. It is not yet a working automated transport substitute.
+- Resend listed the company domain with a FAILED verification status on October 10. Do not switch sending to Resend without repairing and confirming domain authentication.
+- Priority now: restore authenticated ReeVIQ workspace read; then implement an authorized, consent-respecting email transport with sender, dedupe, suppression and pilot controls; verify with an internal test before any real prospect outreach. These integration blockers are more important than the historical five-contact Instantly pilot staging issue.
+- Keep all outreach non-sending until actual endpoint access, safety constraints, budget, and required approvals are verified. Never treat stale operating-brief facts as fresh integration evidence.
+- The legacy October 4 snapshot below is retained for historical context only. Later verified facts and real live tool receipts always override older claims.
+
+HISTORICAL OPERATING STATE SNAPSHOT, OCTOBER 4 2026 (NOT LIVE)
 - Atlasium remains pre-revenue. Q4 must prove repeatable customer acquisition, cash flow, delivery value, and recurring revenue.
 - Spend posture: operate with existing/free resources. Do not create new paid spend or subscriptions without approved authority.
 - Tayo has been given Q4 revenue operating authority inside the approved economics. He can change campaigns, messaging, processes, offers, and execution for normal business decisions. Do not make him wait for Blair on routine revenue decisions. Pricing below approved floors, major custom deals, material spend, legal/compliance issues, and major strategy changes still escalate.
@@ -158,17 +169,17 @@ CURRENT VERIFIED OPERATING STATE, OCTOBER 4 2026
 - Blair's Q4 role is direction, economics, technical improvement, ReeVIQ improvement, friction removal, and technical support for revenue needs. Routine revenue execution should not wait on him.
 - Janine's latest verified operating work: LinkLatch booking confirmations were tested successfully after switching to Outlook SMTP; Instantly sent a real campaign test from info@atlasium788.ca and it landed in the inbox; Salesforge received a two-week trial extension and was reported operational; Atlasium social accounts were reported fully connected/aligned.
 - A successful Instantly test proves the sending path can work. It does NOT prove the current Command88 campaign is active, scaled, or producing replies.
-- Current ReeVIQ live read: 3,866 total leads; live runtime can read current lead records and verify individual lead identity, emailVerified state, phone, company, title, and source fields.
-- Current Command88 Instantly pilot: campaign ID 6b24c429-b6b0-426f-b02b-3c83f765b321, name "Atlasium Revenue Leak Assessment - Command88 Pilot", status draft/inactive, daily limit 5, stop-on-reply enabled, one sequence, preflight safeToStage=true, staleCodyRoute=false.
+- HISTORICAL OCT 4 ReeVIQ read: 3,866 leads were once retrievable. CURRENT LIVE ACCESS IS BLOCKED BY HTTP 400 (workspace identity); do not repeat this historical inventory as today's lead count.
+- HISTORICAL OCT 4 Instantly pilot: campaign ID 6b24c429-b6b0-426f-b02b-3c83f765b321 was draft/inactive, daily limit 5 and prior preflight safeToStage=true. CURRENT LIVE API ACCESS IS BLOCKED BY HTTP 402; do not act on outdated campaign status.
 - The Command88 pilot importer has been live-proven on the repaired path. Subsequent live inventory reads reached 7 visible leads, which is above the current 5-lead pilot cap.
-- Current outbound staging blocker: the "fresh pilot" path is reusing the same 7-lead campaign instead of provisioning a genuinely distinct inactive pilot below the cap. This is the blocker to solve now. Do not mislabel the repaired importer itself as broken.
+- HISTORICAL staging issue: a fresh pilot reused a 7-lead campaign above the cap. It must be retested only AFTER current subscription access is legitimately restored; this is not the immediate blocker now.
 - Historical Instantly defect: the old single-lead staging path could return HTTP 200/accepted while the lead never appeared in target campaign inventory. Do not retry those historical accepted-but-not-visible emails.
 - The staging code was replaced on October 5 with an authoritative path: exact workspace lookup, safe existing-lead copy when needed, official /leads/add bulk endpoint for new contacts, ReeVIQ-verified email input, no second verification job, and exact GET/list verification of the target campaign before success can be claimed.
 - One controlled live staging test using the repaired path is allowed while the campaign remains draft/non-sending. Do not block that one test solely because historical accepted-but-not-visible attempts exist; the new staging tool performs its own duplicate, workspace, campaign-state, and pilot-cap checks.
 - Recent verified NEW decision-maker examples from ReeVIQ include Chris Rochester, Owner, 1st Choice Roofing & Construction; Jake Miller, President, DK Haney Roofing; Daniel Kelly, CEO, Multi-Phase Electrical Services. Their presence proves live decision-maker records are available; it does not authorize contact by itself.
-- Instantly unread reply count was 0 on the latest runtime read.
+- HISTORICAL OCT 4 Instantly unread count was 0; current unread count is UNKNOWN because the API returns HTTP 402.
 - Cyrus-to-Malik internal handoffs are now working and have returned verified completed/running responses with evidence. This is materially different from the earlier broken handoff state.
-- Routine approved Q4 outbound is authorized once the technical campaign guardrails pass: correct campaign, truthful/approved messaging, suppression/opt-out handling, sender health, verified contactability, and safe campaign state. The immediate technical gate is a genuinely distinct inactive pilot below the five-lead cap. Once verified, Cyrus/Malik should move directly to the next authorized conversion action rather than waiting for Blair.
+- Approved Q4 outreach can proceed only after CURRENT tools verify the sending provider is available, sender, exact campaign, approved content, dedupe/suppression and contactability. Instantly HTTP 402 and ReeVIQ HTTP 400 currently prevent that pilot; neither old data nor a plan is evidence of successful outreach.
 
 Q4 CAMPAIGN CALENDAR
 - Oct 4 to Nov 15: FIND THE LEAK. First customers, first cash, first proof. Assessments, direct outreach, social, network, trials, proposals, Q4 intro pricing.
