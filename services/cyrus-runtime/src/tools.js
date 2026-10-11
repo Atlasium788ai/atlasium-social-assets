@@ -167,6 +167,20 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     },
     {
       type: "function",
+      name: "recovery_candidates",
+      description: "Read private Atlasium restored ARCHIVE candidates in quarantine only. Summary returns aggregate counts. Research returns up to 10 company-level previews with NO emails, contacts or send permissions. This is NOT the original ReeVIQ CRM and NEVER authorizes outreach.",
+      parameters: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["summary", "research"] },
+          limit: { type: "integer", minimum: 1, maximum: 10 },
+          company: { type: "string", maxLength: 70 }
+        },
+        additionalProperties: false
+      },
+    },
+    {
+      type: "function",
       name: "reeviq_leads",
       description: "Read up to 100 ReeVIQ leads for verified revenue prioritization. Read-only.",
       parameters: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 100 }, status: { type: "string" } }, additionalProperties: false },
@@ -465,6 +479,61 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
         return ok(body, { source: `handoff:${target}`, claim, detail: { handoffId, status: body.status, evidenceCount: body.evidenceCount || 0 } });
       } catch (error) {
         return fail(`Handoff to ${target} failed: ${error.message}`, true);
+      }
+    }
+    if (name === "recovery_candidates") {
+      if (config.role !== "malik") return fail("Only Malik can inspect the private recovery quarantine");
+      if (!config.recoveryInventoryUrl || !config.recoveryReadToken) return fail("Private recovery inventory connector is not configured");
+      let endpoint;
+      try {
+        endpoint = new URL(config.recoveryInventoryUrl);
+        if (endpoint.protocol !== "https:" || endpoint.hostname !== "qywkyngkxaqfvcumgaro.supabase.co"
+            || endpoint.pathname !== "/functions/v1/atlasium-recovery-inventory") return fail("Recovery inventory URL is not the approved private endpoint");
+      } catch { return fail("Invalid recovery inventory URL"); }
+      const mode = args.mode === "research" ? "research" : "summary";
+      endpoint.searchParams.set("mode", mode);
+      if (mode === "research") {
+        endpoint.searchParams.set("limit", String(Math.max(1, Math.min(10, Number(args.limit) || 5))));
+        if (args.company) endpoint.searchParams.set("company", String(args.company).slice(0, 70));
+      }
+      try {
+        const response = await fetchImpl(endpoint, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${config.recoveryReadToken}`, Accept: "application/json" },
+          redirect: "error",
+          signal: AbortSignal.timeout(12_000)
+        });
+        if (!response.ok) return fail(`Recovery inventory returned HTTP ${response.status}`, response.status >= 500);
+        const data = await response.json();
+        if (data?.system !== "atlasium_recovery_quarantine" || data?.originalReeviqCRMRestored !== false
+            || data?.outreachEligible !== false) return fail("Recovery server did not confirm quarantine and no-outreach state");
+        if (mode === "summary") {
+          const fields = ["emailCandidates", "phoneOnlyReview", "verifiedContacts", "suppressionChecked"];
+          if (fields.some(field => !Number.isSafeInteger(data[field]) || data[field] < 0)) return fail("Recovery summary returned invalid aggregate counts");
+          return ok({ ...data, canSend: false, crmRestored: false }, {
+            source: "supabase:recovery-quarantine",
+            claim: `Read ${data.emailCandidates} unverified email candidates and ${data.phoneOnlyReview} phone/company reviews from recovery quarantine`,
+            detail: { candidateCount: data.emailCandidates, reviewCount: data.phoneOnlyReview, sendEnabled: false }
+          });
+        }
+        if (!Array.isArray(data.candidates) || data.candidates.length > 10) return fail("Recovery research returned an invalid sample");
+        const candidates = data.candidates.map(row => ({
+          recoveryId: row.recoveryId,
+          company: row.company,
+          jobTitle: row.jobTitle,
+          industry: row.industry,
+          location: row.location,
+          currentVerification: "NOT_VERIFIED",
+          suppressionChecked: false,
+          outreachEligible: false
+        }));
+        return ok({ candidates, count: candidates.length, emailsExposed: false, canSend: false, crmRestored: false }, {
+          source: "supabase:recovery-quarantine",
+          claim: `Read ${candidates.length} company-level quarantine research previews; no contact details or send authorization`,
+          detail: { count: candidates.length, sendEnabled: false }
+        });
+      } catch (error) {
+        return fail(`Private recovery read failed: ${error.message}`, true);
       }
     }
     if (name === "reeviq_leads") {
@@ -1170,7 +1239,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     return fail(`Unknown tool: ${name}`);
   }
 
-  const revenueTools = new Set(["reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_workspace_presence", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"]);
+  const revenueTools = new Set(["recovery_candidates", "reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_workspace_presence", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"]);
   const roleDefinitions = definitions.filter((tool) => {
     if (tool.name === "upsert_operating_item" && config.role !== "cyrus") return false;
     if (revenueTools.has(tool.name) && config.role !== "malik") return false;

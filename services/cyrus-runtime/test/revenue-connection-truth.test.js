@@ -12,8 +12,8 @@ test("live revenue access failures override historical snapshots", () => {
   assert.match(brief,/Do not invent tenant IDs/);
   assert.match(brief,/API access is blocked by HTTP 402/i);
   assert.match(brief,/Microsoft Graph, SMTP or Outlook credentials/);
-  assert.match(brief,/3,401 distinct syntactically valid emails/);
-  assert.match(brief,/THESE ARE NOT VERIFIED LIVE CRM LEADS, NOT SUPPRESSION CLEARED/);
+  assert.match(brief,/3,401 distinct email candidates/);
+  assert.match(brief,/protected quarantine tables with row-level security/);
   assert.match(brief,/No live staging or activation/);
   assert.match(brief,/zero currently connected sending mailboxes/);
   assert.match(brief,/Resend listed the company domain with a FAILED verification status/);
