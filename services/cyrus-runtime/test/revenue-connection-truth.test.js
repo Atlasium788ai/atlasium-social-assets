@@ -8,10 +8,13 @@ test("live revenue access failures override historical snapshots", () => {
   const history=brief.indexOf("HISTORICAL OPERATING STATE SNAPSHOT, OCTOBER 4 2026");
   assert.ok(latest>=0 && history>latest,"live current facts precede retained history");
   assert.match(brief,/reeviq_leads\(limit=1\) check returned HTTP 400/);
-  assert.match(brief,/requires a valid workspace-scoped identity/);
-  assert.match(brief,/Do not invent a workspace ID/);
+  assert.match(brief,/zero coreiq_user records and zero xipherx_lead records/);
+  assert.match(brief,/Do not invent tenant IDs/);
   assert.match(brief,/API access is blocked by HTTP 402/i);
   assert.match(brief,/Microsoft Graph, SMTP or Outlook credentials/);
+  assert.match(brief,/3,401 distinct syntactically valid emails/);
+  assert.match(brief,/THESE ARE NOT VERIFIED LIVE CRM LEADS, NOT SUPPRESSION CLEARED/);
+  assert.match(brief,/No live staging or activation/);
   assert.match(brief,/zero currently connected sending mailboxes/);
   assert.match(brief,/Resend listed the company domain with a FAILED verification status/);
   assert.match(brief,/CURRENT LIVE ACCESS IS BLOCKED BY HTTP 400/);
