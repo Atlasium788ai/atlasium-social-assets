@@ -115,6 +115,18 @@ test("Cyrus and shared executives exchange verified idempotent handoffs only thr
   assert.equal(repeated.data.taskId, first.data.taskId);
   assert.equal(model.calls, callsAfterFirst, "idempotent handoff executed the target twice");
 
+  const bounced = cyrusStore.createTask({
+    sourceEventId: "handoff-loop-guard",
+    requesterId: "agent:mateo",
+    channelId: "internal:mateo",
+    requestText: "Internal handoff from mateo: resolve this without bouncing it back",
+  }).task;
+  const beforeLoopAttempt = model.calls;
+  const loop = await cyrusToolbox.execute("delegate_to_agent", { agent: "mateo", objective: "Take this back" }, { taskId: bounced.id, requiresEvidence: true });
+  assert.equal(loop.ok, false);
+  assert.match(loop.error, /Handoff loop prevented/i);
+  assert.equal(model.calls, beforeLoopAttempt, "loop guard still executed the sender");
+
   const mateo = shared.roles.find((item) => item.config.role === "mateo");
   assert.equal(mateo.store.getEvidence(first.data.taskId)[0].source, "mateo_runtime");
   assert.equal(mateo.store.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 1);

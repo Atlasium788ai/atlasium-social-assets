@@ -497,6 +497,13 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     if (name === "delegate_to_agent") {
       const target = String(args.agent || "").toLowerCase();
       const objective = String(args.objective || "");
+      const sourceTask = store.getTask(context.taskId);
+      const handoffSource = String(sourceTask?.requester_id || "").startsWith("agent:")
+        ? String(sourceTask.requester_id).slice("agent:".length).toLowerCase()
+        : "";
+      if (handoffSource && target === handoffSource) {
+        return fail(`Handoff loop prevented: return the result in this task instead of delegating it back to ${target}`);
+      }
       // An explicit dialogue handoff is read-only. Infer it for colleague opinions
       // if the caller omitted mode, but never infer a business action from chat.
       const requestedMode = String(args.mode || "").toLowerCase();
