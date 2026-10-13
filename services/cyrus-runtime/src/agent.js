@@ -10,9 +10,23 @@ export class CyrusAgent {
     this.toolbox = toolbox;
     this.config = config;
     this.maxTurns = maxTurns;
+    this.activeTasks = 0;
   }
 
-  async handleTask(task, { followupReason = null } = {}) {
+  isBusy() {
+    return this.activeTasks > 0;
+  }
+
+  async handleTask(task, options = {}) {
+    this.activeTasks += 1;
+    try {
+      return await this.executeTask(task, options);
+    } finally {
+      this.activeTasks = Math.max(0, this.activeTasks - 1);
+    }
+  }
+
+  async executeTask(task, { followupReason = null } = {}) {
     this.store.setTaskStatus(task.id, "running");
     // Conversation-only mode applies to every executive, including dialogue
     // handed off via Cyrus. It is read-only at the API boundary.
@@ -137,7 +151,12 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
       for (const call of calls) {
         let args = {};
         try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
-        let result = await this.toolbox.execute(call.name, args, context);
+        let result;
+        try {
+          result = await this.toolbox.execute(call.name, args, context);
+        } catch (error) {
+          result = { ok: false, error: `Tool rejected invalid input: ${error.message}`, retryable: false };
+        }
         this.store.addStep(task.id, { attempt, toolName: call.name, status: result.ok ? "ok" : "failed", detail: result });
         console.info(JSON.stringify({
           event: "tool_result",
@@ -152,7 +171,11 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
         }));
         if (!result.ok && result.retryable) {
           const firstFailure = result;
-          result = await this.toolbox.execute(call.name, args, context);
+          try {
+            result = await this.toolbox.execute(call.name, args, context);
+          } catch (error) {
+            result = { ok: false, error: `Tool retry rejected invalid input: ${error.message}`, retryable: false };
+          }
           result = result.ok ? { ...result, recoveredFrom: firstFailure.error } : result;
           this.store.addStep(task.id, { attempt, toolName: call.name, status: result.ok ? "recovered" : "retry_failed", detail: result });
         }

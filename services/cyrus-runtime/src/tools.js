@@ -9,6 +9,17 @@ function fail(error, retryable = false) {
   return { ok: false, error, retryable };
 }
 
+function requiredString(value, label, maxLength = 12_000) {
+  if (typeof value !== "string" || !value.trim()) return { error: `${label} must be a non-empty string` };
+  return { value: value.trim().slice(0, maxLength) };
+}
+
+function optionalString(value, label, maxLength = 12_000) {
+  if (value === undefined || value === null || value === "") return { value: null };
+  if (typeof value !== "string") return { error: `${label} must be a string` };
+  return { value: value.trim().slice(0, maxLength) || null };
+}
+
 const INSTANTLY_TOOLS = new Set([
   "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight",
   "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route",
@@ -360,16 +371,25 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
   ];
 
   async function execute(name, args, context) {
+    if (!args || typeof args !== "object" || Array.isArray(args)) args = {};
     if (config.role !== "malik" && REVENUE_TOOLS.has(name)) {
       return fail(`Tool ${name} is restricted to Malik's revenue runtime`);
     }
     if (INSTANTLY_TOOLS.has(name) && config.instantlyEnabled === false) {
       return fail("Instantly is disabled because the existing account requires payment (HTTP 402). Use the guarded Microsoft 365 pathway instead.");
     }
-    if (name === "recall_memory") return ok(store.recallDecisions(args.query));
+    if (name === "recall_memory") {
+      const query = requiredString(args.query, "query", 500);
+      if (query.error) return fail(query.error);
+      return ok(store.recallDecisions(query.value));
+    }
     if (name === "remember_decision") {
-      const row = store.rememberDecision({ ...args, sourceTaskId: context.taskId });
-      return ok(row, { source: `${config.role}_memory`, claim: `Decision remembered: ${args.topic}`, detail: row });
+      const topic = requiredString(args.topic, "topic", 500);
+      const decision = requiredString(args.decision, "decision", 4_000);
+      const rationale = requiredString(args.rationale, "rationale", 4_000);
+      if (topic.error || decision.error || rationale.error) return fail(topic.error || decision.error || rationale.error);
+      const row = store.rememberDecision({ topic: topic.value, decision: decision.value, rationale: rationale.value, sourceTaskId: context.taskId });
+      return ok(row, { source: `${config.role}_memory`, claim: `Decision remembered: ${topic.value}`, detail: row });
     }
     if (name === "system_health") {
       const health = store.health();
@@ -477,7 +497,11 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
       return ok(messages, { source: `slack:${id}`, claim: `Read ${messages.length} channel messages`, detail: { latestTs: messages[0]?.ts || null } });
     }
     if (name === "create_work_plan") {
-      if (!Array.isArray(args.items) || args.items.some((item) => !item?.id?.trim() || !item?.title?.trim() || !item?.owner?.trim())) {
+      if (!Array.isArray(args.items) || args.items.some((item) => typeof item?.id !== "string" || !item.id.trim()
+        || typeof item?.title !== "string" || !item.title.trim()
+        || typeof item?.owner !== "string" || !item.owner.trim()
+        || (item.depends_on != null && typeof item.depends_on !== "string")
+        || (item.next_action_at != null && typeof item.next_action_at !== "string"))) {
         return fail("Every work item needs an id, title, and owner");
       }
       try { return ok(store.createWorkPlan(context.taskId, args.items)); }
@@ -485,11 +509,18 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     }
     if (name === "list_work_plan") return ok(store.getWorkItems(context.taskId));
     if (name === "update_work_item") {
+      const itemId = requiredString(args.item_id, "item_id", 500);
+      const status = requiredString(args.status, "status", 50);
+      const evidenceId = optionalString(args.evidence_id, "evidence_id", 500);
+      const nextActionAt = optionalString(args.next_action_at, "next_action_at", 100);
+      if (itemId.error || status.error || evidenceId.error || nextActionAt.error) {
+        return fail(itemId.error || status.error || evidenceId.error || nextActionAt.error);
+      }
       try {
-        const row = store.updateWorkItem(context.taskId, args.item_id, {
-          status: args.status,
-          evidenceId: args.evidence_id || null,
-          nextActionAt: args.next_action_at || null,
+        const row = store.updateWorkItem(context.taskId, itemId.value, {
+          status: status.value,
+          evidenceId: evidenceId.value,
+          nextActionAt: nextActionAt.value,
         });
         return ok(row);
       } catch (error) { return fail(`Work item update rejected: ${error.message}`); }
@@ -519,7 +550,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
             message: objective,
             mode,
           });
-          if (!body?.ok) return fail(body?.error || `Agent ${target} rejected the local handoff`);
+          if (!body?.ok) return fail(body?.error || `Agent ${target} rejected the local handoff`, Boolean(body?.retryable));
           return ok(body, {
             source: `handoff:${target}`,
             claim: `Verified handoff to ${target}: ${body.status}`,
@@ -540,7 +571,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
         });
         let body;
         try { body = await response.json(); } catch { return fail(`Agent ${target} returned invalid JSON`, response.status >= 500); }
-        if (!response.ok || !body.ok) return fail(body.error || `Agent ${target} returned ${response.status}`, response.status >= 500);
+        if (!response.ok || !body.ok) return fail(body.error || `Agent ${target} returned ${response.status}`, Boolean(body.retryable) || response.status >= 500);
         const claim = `Verified handoff to ${target}: ${body.status}`;
         return ok(body, { source: `handoff:${target}`, claim, detail: { handoffId, status: body.status, evidenceCount: body.evidenceCount || 0 } });
       } catch (error) {
@@ -1412,17 +1443,21 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
       return ok(row);
     }
     if (name === "complete_task") {
+      const summary = requiredString(args.summary, "summary", 4_000);
+      if (summary.error) return fail(summary.error);
       const evidenceCount = store.getEvidence(context.taskId).length;
       if (context.requiresEvidence && evidenceCount === 0) return fail("Completion rejected: this action has no verification evidence");
       if (store.hasPendingFollowup(context.taskId)) return fail("Completion rejected: an automatic follow-up is still pending");
       const openItems = store.openWorkItems(context.taskId);
       if (openItems.length) return fail(`Completion rejected: ${openItems.length} planned work item(s) are still open`);
-      store.setTaskStatus(context.taskId, "completed", { summary: args.summary });
-      return ok({ status: "completed", summary: args.summary });
+      store.setTaskStatus(context.taskId, "completed", { summary: summary.value });
+      return ok({ status: "completed", summary: summary.value });
     }
     if (name === "report_blocker") {
-      store.setTaskStatus(context.taskId, "blocked", { blocker: args.blocker });
-      return ok({ status: "blocked", blocker: args.blocker });
+      const blocker = requiredString(args.blocker, "blocker", 4_000);
+      if (blocker.error) return fail(blocker.error);
+      store.setTaskStatus(context.taskId, "blocked", { blocker: blocker.value });
+      return ok({ status: "blocked", blocker: blocker.value });
     }
     return fail(`Unknown tool: ${name}`);
   }

@@ -51,6 +51,10 @@ export function createInternalServer({ config, store, agent, logger = console })
         send(response, 200, snapshot(store, existing));
         return;
       }
+      if (agent.isBusy?.()) {
+        send(response, 409, { ok: false, status: "busy", retryable: true, error: `${config.name} is executing another objective; retry or schedule a follow-up` });
+        return;
+      }
       const { task } = store.createTask({
         sourceEventId,
         requesterId: `agent:${from}`,

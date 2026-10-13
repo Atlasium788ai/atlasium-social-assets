@@ -154,6 +154,28 @@ test("Cyrus and shared executives exchange verified idempotent handoffs only thr
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test("a busy executive rejects a colliding handoff without creating duplicate work", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-busy-handoff-"));
+  const primaryConfig = loadConfig(environment(path.join(dir, "cyrus")));
+  const targetConfig = loadConfig(environment(path.join(dir, "mateo"), { BOT_ROLE: "mateo" }));
+  const dispatcher = createLocalAgentDispatcher();
+  const cyrusStore = new CyrusStore(primaryConfig.databasePath);
+  const mateoStore = new CyrusStore(targetConfig.databasePath);
+  dispatcher.register("cyrus", { config: primaryConfig, store: cyrusStore, agent: { isBusy: () => false } });
+  dispatcher.register("mateo", { config: targetConfig, store: mateoStore, agent: { isBusy: () => true } });
+
+  const result = await dispatcher.dispatch({ id: "busy-one", from: "cyrus", to: "mateo", message: "Run a second objective" });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "busy");
+  assert.equal(result.retryable, true);
+  assert.match(result.error, /executing another objective/i);
+  assert.equal(mateoStore.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 0);
+
+  cyrusStore.close();
+  mateoStore.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("all six shared executives independently execute a verified Cyrus assignment", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-all-roles-"));
   const env = environment(dir, { SHARED_BOT_ROLES: SHARED_EXECUTIVE_ROLES.join(",") });

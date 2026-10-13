@@ -44,6 +44,9 @@ export function createLocalAgentDispatcher() {
       const sourceEventId = `handoff:${source}:${handoffId}`;
       const existing = runtime.store.getTaskBySourceEvent(sourceEventId);
       if (existing) return snapshot(runtime.store, existing);
+      if (runtime.agent.isBusy?.()) {
+        return { ok: false, status: "busy", retryable: true, error: `${runtime.config.name} is executing another objective; retry or schedule a follow-up` };
+      }
       const { task } = runtime.store.createTask({
         sourceEventId,
         requesterId: `agent:${source}`,

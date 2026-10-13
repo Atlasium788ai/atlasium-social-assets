@@ -36,21 +36,23 @@ export function createRelentlessController({ runtime, logger = console, now = ()
 
   async function run() {
     if (!config.autonomyEnabled || busy) return { skipped: true, reason: config.autonomyEnabled ? "busy" : "disabled" };
+    if (agent.isBusy?.()) return { skipped: true, reason: "agent_busy" };
     const health = store.health();
     if (health.openTasks > 0) return { skipped: true, reason: "open_tasks", openTasks: health.openTasks };
     busy = true;
     const intervalMs = Math.max(15 * 60_000, Number(config.relentlessIntervalMs || 60 * 60_000));
     const bucket = Math.floor(now() / intervalMs);
     const sourceEventId = `relentless:${config.role}:${bucket}`;
+    let task = null;
     try {
       const existing = store.getTaskBySourceEvent(sourceEventId);
       if (existing) return { skipped: true, reason: "deduplicated", taskId: existing.id };
-      const { task } = store.createTask({
+      ({ task } = store.createTask({
         sourceEventId,
         requesterId: "system:relentless",
         channelId: `internal:relentless:${config.role}`,
         requestText: relentlessPrompt(config),
-      });
+      }));
       lastStartedAt = new Date(now()).toISOString();
       logger.info(JSON.stringify({ event: "relentless_tick_start", role: config.role, taskId: task.id, intervalMs }));
       const reply = await agent.handleTask(task);
@@ -71,6 +73,9 @@ export function createRelentlessController({ runtime, logger = console, now = ()
     } catch (error) {
       lastFinishedAt = new Date(now()).toISOString();
       lastError = error.message;
+      if (task && store.getTask(task.id)?.status === "running") {
+        store.setTaskStatus(task.id, "blocked", { blocker: `Execution failed safely: ${error.message}` });
+      }
       logger.error(JSON.stringify({ event: "relentless_tick_failed", role: config.role, error: error.message }));
       return { skipped: false, error: error.message };
     } finally {

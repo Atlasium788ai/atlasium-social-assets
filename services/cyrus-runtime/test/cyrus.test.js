@@ -353,6 +353,61 @@ test("completion without evidence is rejected and becomes an honest blocker", as
   store.close();
 });
 
+test("malformed model tool arguments are rejected without crashing or reaching SQLite", async () => {
+  const { store } = tempStore();
+  const toolbox = createToolbox({ store, config: config(), slackApi: async () => ({ ok: true }), fetchImpl: fetch });
+  const current = task(store, "Ev-malformed-tool", "Record the decision and verify it");
+  const context = { taskId: current.id, requiresEvidence: true };
+
+  const memory = await toolbox.execute("remember_decision", {
+    topic: { nested: "not bindable" },
+    decision: "Keep the runtime safe",
+    rationale: "Model output can be malformed",
+  }, context);
+  const completion = await toolbox.execute("complete_task", { summary: ["not", "bindable"] }, context);
+  const blocker = await toolbox.execute("report_blocker", { blocker: { reason: "not bindable" } }, context);
+
+  assert.equal(memory.ok, false);
+  assert.match(memory.error, /topic must be a non-empty string/i);
+  assert.equal(completion.ok, false);
+  assert.match(completion.error, /summary must be a non-empty string/i);
+  assert.equal(blocker.ok, false);
+  assert.match(blocker.error, /blocker must be a non-empty string/i);
+  assert.equal(store.recentDecisions().length, 0);
+  assert.equal(store.getTask(current.id).status, "received");
+  store.close();
+});
+
+test("an unexpected tool exception becomes a recorded failure instead of escaping the agent", async () => {
+  const { store } = tempStore();
+  const model = scriptedModel([
+    call("broken_tool", {}),
+    call("report_blocker", { blocker: "The connected tool rejected invalid input" }, "call_2"),
+    { output_text: "Blocked. The connected tool rejected invalid input.", output: [] },
+  ]);
+  const toolbox = {
+    definitions: [],
+    async execute(name) {
+      if (name === "broken_tool") throw new TypeError("Provided value cannot be bound to SQLite parameter 1");
+      if (name === "report_blocker") {
+        store.setTaskStatus(current.id, "blocked", { blocker: "The connected tool rejected invalid input" });
+        return { ok: true, data: { status: "blocked" } };
+      }
+      return { ok: false, error: "unknown" };
+    },
+  };
+  const agent = new CyrusAgent({ store, model, toolbox, config: config(), maxTurns: 3 });
+  const current = task(store, "Ev-tool-throws", "Execute the internal diagnostic with the connected tool and report the exact blocker if it fails");
+  const reply = await agent.handleTask(current);
+
+  assert.match(reply, /^Blocked\./);
+  assert.equal(store.getTask(current.id).status, "blocked");
+  const step = store.db.prepare("SELECT status, detail_json FROM task_steps WHERE task_id=? ORDER BY id LIMIT 1").get(current.id);
+  assert.equal(step.status, "failed");
+  assert.match(step.detail_json, /Tool rejected invalid input/);
+  store.close();
+});
+
 test("interrupted running task is recovered after restart", () => {
   const { dir, store } = tempStore();
   const db = path.join(dir, "cyrus.sqlite");

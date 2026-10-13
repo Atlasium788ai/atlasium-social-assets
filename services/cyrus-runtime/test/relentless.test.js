@@ -71,6 +71,22 @@ test("a relentless pulse persists one internal task, skips busy work, and dedupl
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test("a relentless pulse does not collide with an executive already handling work", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-pulse-busy-agent-"));
+  const config = configFor("kenji", dir);
+  const store = new CyrusStore(config.databasePath);
+  const controller = createRelentlessController({
+    runtime: { config, store, agent: { isBusy: () => true } },
+    logger: { info() {}, error() {} },
+  });
+  const result = await controller.run();
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, "agent_busy");
+  assert.equal(store.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 0);
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("shared roles inherit autonomy without sharing databases or Slack identities", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-shared-autonomy-"));
   const primary = configFor("cyrus", dir);
