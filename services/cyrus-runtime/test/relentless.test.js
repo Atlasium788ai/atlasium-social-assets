@@ -63,6 +63,7 @@ test("a relentless pulse persists one internal task, skips busy work, and dedupl
   const persisted = store.getTask(first.taskId);
   assert.equal(persisted.requester_id, "system:relentless");
   assert.equal(persisted.channel_id, "internal:relentless:mateo");
+  assert.match(persisted.source_event_id, /^relentless:mateo:v1:/);
 
   store.createTask({ sourceEventId: "manual", requesterId: "U_BLAIR", channelId: "D_BLAIR", requestText: "Work this first" });
   const busy = await createRelentlessController({ runtime: { config, store, agent }, logger: { info() {}, error() {} }, now: () => Date.parse("2026-10-13T14:00:00.000Z") }).run();

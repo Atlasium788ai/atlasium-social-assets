@@ -81,6 +81,7 @@ export function loadConfig(env = process.env) {
     autonomyEnabled: bool(env.CYRUS_AUTONOMY_ENABLED, false),
     proactiveEnabled: bool(env.PROACTIVE_MONITORING_ENABLED, false),
     relentlessIntervalMs: Math.max(15 * 60_000, Number(env.BOT_RELENTLESS_INTERVAL_MS || env.CYRUS_RELENTLESS_INTERVAL_MS || 60 * 60_000)),
+    relentlessGeneration: env.RELENTLESS_GENERATION?.trim() || "v1",
     instantlyApiKey: env.INSTANTLY_API_KEY?.trim() || "",
     instantlyBaseUrl: env.INSTANTLY_BASE_URL?.trim() || "https://api.instantly.ai/api/v2",
     instantlyCampaignId: env.INSTANTLY_CAMPAIGN_ID?.trim() || "",

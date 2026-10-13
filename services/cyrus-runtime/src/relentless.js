@@ -42,7 +42,8 @@ export function createRelentlessController({ runtime, logger = console, now = ()
     busy = true;
     const intervalMs = Math.max(15 * 60_000, Number(config.relentlessIntervalMs || 60 * 60_000));
     const bucket = Math.floor(now() / intervalMs);
-    const sourceEventId = `relentless:${config.role}:${bucket}`;
+    const generation = String(config.relentlessGeneration || "v1").replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 80) || "v1";
+    const sourceEventId = `relentless:${config.role}:${generation}:${bucket}`;
     let task = null;
     try {
       const existing = store.getTaskBySourceEvent(sourceEventId);
