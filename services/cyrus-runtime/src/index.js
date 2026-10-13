@@ -7,6 +7,8 @@ import { createToolbox } from "./tools.js";
 import { CyrusAgent } from "./agent.js";
 import { createInternalServer } from "./internal.js";
 import { createLocalAgentDispatcher, createSharedSwarmRuntime } from "./shared.js";
+import { verifyUnsubscribeToken } from "./outbound.js";
+import { createRelentlessController } from "./relentless.js";
 
 const config = loadConfig();
 const store = new CyrusStore(config.databasePath);
@@ -26,6 +28,8 @@ const model = createOpenAiModel({
 const dispatcher = createLocalAgentDispatcher();
 const toolbox = createToolbox({ store, config, slackApi, agentDispatcher: dispatcher });
 const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: config.role === "malik" ? 16 : 10 });
+config.autonomyEnabled = Boolean(config.autonomyEnabled || config.proactiveEnabled);
+const relentless = createRelentlessController({ runtime: { config, store, agent } });
 dispatcher.register(config.role, { config, store, toolbox, agent });
 const sharedConfigs = config.role === "cyrus" ? loadSharedRoleConfigs(process.env, config) : [];
 const sharedSwarm = createSharedSwarmRuntime({ configs: sharedConfigs, model, dispatcher });
@@ -54,6 +58,29 @@ const socket = new SlackSocketRuntime({ config, store, agent, slackApi: async (m
 } });
 
 const server = http.createServer((request, response) => {
+  const requestUrl = new URL(request.url || "/", "http://localhost");
+  if (["GET", "POST"].includes(request.method || "") && requestUrl.pathname === "/unsubscribe") {
+    if (config.role !== "malik" || !config.outboundUnsubscribeSecret) {
+      response.writeHead(404, { "content-type": "application/json", "cache-control": "no-store" });
+      response.end(JSON.stringify({ ok: false, error: "not_found" }));
+      return;
+    }
+    const recipientHash = verifyUnsubscribeToken(requestUrl.searchParams.get("token"), config.outboundUnsubscribeSecret);
+    if (!recipientHash) {
+      response.writeHead(400, { "content-type": "application/json", "cache-control": "no-store" });
+      response.end(JSON.stringify({ ok: false, error: "invalid_unsubscribe_token" }));
+      return;
+    }
+    if (request.method === "POST") {
+      store.suppressEmail({ emailHash: recipientHash, reason: "unsubscribe", evidenceReference: "public-one-click-unsubscribe" });
+      response.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
+      response.end("");
+    } else {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unsubscribe</title></head><body><main><h1>Stop Command88 email</h1><form method="post" action="/unsubscribe?token=${encodeURIComponent(requestUrl.searchParams.get("token") || "")}"><button type="submit">Unsubscribe</button></form></main></body></html>`);
+    }
+    return;
+  }
   if (request.method === "GET" && request.url === "/health") {
     const slackConnected = config.slackSocketEnabled ? socket.connected : false;
     const healthy = Boolean(slackAuth.ok);
@@ -70,6 +97,7 @@ const server = http.createServer((request, response) => {
       slackConnected,
       slackDmLastPollAt: socket.lastPollAt,
       slackDmLastPollError: socket.lastPollError,
+      autonomy: relentless.state(),
       sharedExecutives: sharedSwarm.health(),
       ...store.health(),
     }));
@@ -98,104 +126,15 @@ const slackDmPollTimer = setInterval(() => {
 slackDmPollTimer.unref();
 socket.pollDirectMessages().catch((error) => console.error(`${config.name} initial Slack DM recovery failed`, { message: error.message }));
 
-const autonomyIntervalMs = Math.max(60_000, Number(process.env.CYRUS_AUTONOMY_INTERVAL_MS || 300_000));
-let autonomyBusy = false;
-async function runAutonomyTick() {
-  if (config.role !== "cyrus" || autonomyBusy) return;
-  const health = store.health();
-  if (health.openTasks > 0) {
-    console.info(JSON.stringify({ event: "autonomy_tick_skipped", reason: "open_tasks", openTasks: health.openTasks }));
-    return;
-  }
-  autonomyBusy = true;
-  const bucket = Math.floor(Date.now() / autonomyIntervalMs);
-  const sourceEventId = `autonomy:${bucket}`;
-  try {
-    const existing = store.getTaskBySourceEvent(sourceEventId);
-    if (existing) return;
-    const { task } = store.createTask({
-      sourceEventId,
-      requesterId: "system:command88",
-      channelId: "internal:autonomy",
-      requestText: "Advance Atlasium revenue now. The priority is verified conversations, meetings booked, proposals advanced, and collected revenue. Delegate concrete revenue execution to Malik and require evidence. Routine Q4 prospecting, follow-up, meeting booking, and standard outbound inside approved offers/economics are authorized after technical/contactability/opt-out preflight. Do not create new paid spend, change pricing below approved floors, sign contracts, delete data, or deploy production. If one route is blocked, research or use another authorized route rather than returning routine problems to Blair. Finish with evidence of movement or the precise blocker and next recovery action.",
-    });
-    console.info(JSON.stringify({ event: "autonomy_tick_start", taskId: task.id, intervalMs: autonomyIntervalMs }));
-    const reply = await agent.handleTask(task);
-    const settled = store.getTask(task.id);
-    const evidenceCount = store.getEvidence(task.id).length;
-    console.info(JSON.stringify({ event: "autonomy_tick_result", taskId: task.id, status: settled.status, evidenceCount, reply: String(reply || "").slice(0, 500) }));
-  } catch (error) {
-    console.error("Cyrus autonomy tick failed", { message: error.message });
-  } finally {
-    autonomyBusy = false;
-  }
-}
-const autonomyTimer = config.role === "cyrus" && config.autonomyEnabled
-  ? setInterval(() => void runAutonomyTick(), autonomyIntervalMs)
-  : null;
-autonomyTimer?.unref();
-if (autonomyTimer) setTimeout(() => void runAutonomyTick(), 20_000).unref();
-
 if (config.slackSocketEnabled) socket.start();
-
-let relentlessRunning = false;
-async function relentlessTick() {
-  if (config.role !== "cyrus" || !config.proactiveEnabled || relentlessRunning) return;
-  relentlessRunning = true;
-  const bucket = Math.floor(Date.now() / config.relentlessIntervalMs);
-  const sourceEventId = `relentless:${bucket}`;
-  try {
-    const { task, created } = store.createTask({
-      sourceEventId,
-      requesterId: "system:relentless",
-      channelId: "internal:relentless",
-      requestText: [
-        "RELENTLESS REVENUE ENGINE TICK.",
-        "North star: BOOK MEETINGS and PUT COLLECTED REVENUE IN THE BANK.",
-        "Do not wait for Blair on routine Q4 execution. Delegate live revenue execution to Malik and require evidence.",
-        "Priority order: live reply/buyer -> meeting -> proposal/deal -> payment -> verified outbound -> pipeline building.",
-        "First inspect live Instantly campaign state and received replies plus live ReeVIQ inventory. If a real reply exists, work that conversion path before adding more cold prospects.",
-        "Routine Q4 prospecting, follow-up, meeting booking, and standard outbound are authorized once contactability, suppression/opt-out, campaign copy, sender health, and campaign-state checks pass.",
-        "If the configured Command88 campaign is at or above the 5-lead pilot cap, call instantly_create_fresh_pilot. It must return a genuinely distinct inactive pilot below cap; use the returned campaign ID for all subsequent preflight, inventory, staging, and activation calls.",
-        "Run instantly_preflight on the exact target campaign ID. Do not proceed if stale Cody routing, retired branding, missing sequence, missing sender, risky-contact settings, or another preflight issue is present.",
-        "Build a small pilot deliberately. If target inventory is below 5, take a short set of NEW ReeVIQ decision-makers with emailVerified=true and run instantly_workspace_presence first. Choose a genuinely fresh email that is absent from the Instantly workspace, re-read that ReeVIQ record by ID plus expected email, then stage exactly one fresh lead using instantly_stage_lead with source_email_verified=true.",
-        "If a candidate already exists anywhere in Instantly, skip it and choose a fresh candidate rather than copying/moving it between campaigns. Do not retry historical attempted addresses. Do not stage duplicates. Do not exceed 5 leads.",
-        "When the exact target campaign reaches 5 verified visible leads, call instantly_activate_campaign on that campaign ID. The activation tool must verify sender health, campaign safety, lead cap, and resulting active state.",
-        "Once active, stop pausing merely to add leads. Prioritize received replies, booked meetings, proposal progression, and cash. Use reply evidence to tell Cyrus what needs human closing attention.",
-        "If research or vendor documentation is needed to solve a blocker, use ask_chatgpt before escalating.",
-        "Do not create paid spend or pricing exceptions. Respect opt-outs, suppression, truthful claims, and platform rules.",
-        "A sent email is not the finish line. Measure movement through Conversation -> Assessment -> Meeting -> Proposal -> Cash.",
-        "Require evidence for every material claim. If blocked, identify root cause and the next safe recovery action."
-      ].join(" "),
-    });
-    if (!created) return;
-    console.info(JSON.stringify({ event: "relentless_engine_tick_start", taskId: task.id, sourceEventId, intervalMs: config.relentlessIntervalMs }));
-    const reply = await agent.handleTask(task);
-    const settled = store.getTask(task.id);
-    const evidenceCount = store.getEvidence(task.id).length;
-    console.info(JSON.stringify({ event: "relentless_engine_tick", taskId: task.id, sourceEventId, status: settled.status, evidenceCount, reply: String(reply || "").slice(0, 500) }));
-  } catch (error) {
-    console.error(JSON.stringify({ event: "relentless_engine_tick_failed", sourceEventId, error: error.message }));
-  } finally {
-    relentlessRunning = false;
-  }
-}
-const relentlessTimer = config.role === "cyrus" && config.proactiveEnabled
-  ? setInterval(() => relentlessTick(), config.relentlessIntervalMs)
-  : null;
-relentlessTimer?.unref();
-if (relentlessTimer) {
-  console.info(JSON.stringify({ event: "relentless_engine_started", intervalMs: config.relentlessIntervalMs }));
-  relentlessTick();
-}
+relentless.start(20_000);
 
 function shutdown(signal) {
   console.info(`${config.name} stopping on ${signal}`);
   clearInterval(outboxTimer);
   clearInterval(followupTimer);
   clearInterval(slackDmPollTimer);
-  if (relentlessTimer) clearInterval(relentlessTimer);
-  if (autonomyTimer) clearInterval(autonomyTimer);
+  relentless.stop();
   socket.stop();
   sharedSwarm.stop();
   let closed = 0;

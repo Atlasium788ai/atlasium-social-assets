@@ -15,6 +15,12 @@ function bool(value, fallback = false) {
   return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
 }
 
+function positiveInt(value, fallback, maximum = Number.MAX_SAFE_INTEGER) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(Math.floor(parsed), maximum);
+}
+
 function jsonObject(value, name) {
   if (!value?.trim()) return {};
   let parsed;
@@ -41,6 +47,10 @@ export function loadConfig(env = process.env) {
   if (!BOT_PROFILES[role]) throw new Error(`Unsupported BOT_ROLE: ${role}`);
   const name = env.BOT_NAME?.trim() || BOT_PROFILES[role].name;
   const dataDir = env.BOT_DATA_DIR?.trim() || env.CYRUS_DATA_DIR?.trim() || path.resolve(`.data/${role}`);
+  const outboundEmailProvider = (env.OUTBOUND_EMAIL_PROVIDER?.trim() || "disabled").toLowerCase();
+  if (!["disabled", "microsoft_graph"].includes(outboundEmailProvider)) {
+    throw new Error(`Unsupported OUTBOUND_EMAIL_PROVIDER: ${outboundEmailProvider}`);
+  }
   return {
     role,
     name,
@@ -70,14 +80,25 @@ export function loadConfig(env = process.env) {
     followupPollMs: Math.max(5_000, Number(env.FOLLOWUP_POLL_MS || 15_000)),
     autonomyEnabled: bool(env.CYRUS_AUTONOMY_ENABLED, false),
     proactiveEnabled: bool(env.PROACTIVE_MONITORING_ENABLED, false),
-    relentlessIntervalMs: Math.max(120_000, Number(env.CYRUS_RELENTLESS_INTERVAL_MS || 300_000)),
+    relentlessIntervalMs: Math.max(15 * 60_000, Number(env.BOT_RELENTLESS_INTERVAL_MS || env.CYRUS_RELENTLESS_INTERVAL_MS || 60 * 60_000)),
     instantlyApiKey: env.INSTANTLY_API_KEY?.trim() || "",
     instantlyBaseUrl: env.INSTANTLY_BASE_URL?.trim() || "https://api.instantly.ai/api/v2",
     instantlyCampaignId: env.INSTANTLY_CAMPAIGN_ID?.trim() || "",
+    instantlyEnabled: bool(env.INSTANTLY_ENABLED, true),
     reeviqBaseUrl: env.REEVIQ_BASE_URL?.trim()?.replace(/\/$/, "") || "",
     recoveryInventoryUrl: env.ATLASIUM_RECOVERY_INVENTORY_URL?.trim()?.replace(/\/$/, "") || "",
     recoveryReadToken: env.ATLASIUM_RECOVERY_READ_TOKEN?.trim() || "",
     reeviqApiKeys: [env.REEVIQ_API_KEY?.trim() || "", env.REEVIQ_WRITE_API_KEY?.trim() || ""].filter((value, index, values) => value && values.indexOf(value) === index),
+    outboundEmailProvider,
+    outboundSendEnabled: bool(env.OUTBOUND_SEND_ENABLED, false),
+    outboundDailyCap: positiveInt(env.OUTBOUND_DAILY_CAP, 5, 25),
+    outboundPhysicalAddress: env.OUTBOUND_PHYSICAL_ADDRESS?.trim() || "",
+    outboundPublicBaseUrl: env.OUTBOUND_PUBLIC_BASE_URL?.trim()?.replace(/\/$/, "") || "",
+    outboundUnsubscribeSecret: env.OUTBOUND_UNSUBSCRIBE_SECRET?.trim() || "",
+    microsoftGraphTenantId: env.MICROSOFT_GRAPH_TENANT_ID?.trim() || "",
+    microsoftGraphClientId: env.MICROSOFT_GRAPH_CLIENT_ID?.trim() || "",
+    microsoftGraphClientSecret: env.MICROSOFT_GRAPH_CLIENT_SECRET?.trim() || "",
+    microsoftGraphSender: env.MICROSOFT_GRAPH_SENDER?.trim()?.toLowerCase() || "",
   };
 }
 
@@ -117,14 +138,19 @@ export function loadSharedRoleConfigs(env, primaryConfig) {
         "https://linklatch.atlasium788.ca",
       ]),
       agentPeers: {},
-      autonomyEnabled: false,
+      autonomyEnabled: bool(env[`${prefix}_AUTONOMY_ENABLED`], bool(env.SHARED_SWARM_AUTONOMY_ENABLED, false)),
       proactiveEnabled: false,
+      relentlessIntervalMs: Math.max(15 * 60_000, Number(env[`${prefix}_RELENTLESS_INTERVAL_MS`] || env.SHARED_SWARM_RELENTLESS_INTERVAL_MS || 60 * 60_000)),
       instantlyApiKey: "",
       instantlyCampaignId: "",
+      instantlyEnabled: false,
       reeviqBaseUrl: "",
       recoveryInventoryUrl: "",
       recoveryReadToken: "",
       reeviqApiKeys: [],
+      outboundEmailProvider: "disabled",
+      outboundSendEnabled: false,
+      microsoftGraphClientSecret: "",
       sharedRuntime: true,
     };
   });

@@ -3,7 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export class CyrusStore {
   constructor(databasePath) {
@@ -116,11 +116,36 @@ export class CyrusStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS email_suppressions (
+        email_hash TEXT PRIMARY KEY,
+        reason TEXT NOT NULL,
+        evidence_reference TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS outbound_email_attempts (
+        idempotency_key TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        recipient_hash TEXT NOT NULL,
+        source_lead_id TEXT NOT NULL,
+        subject_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('reserved','sending','accepted','blocked','failed','unknown')),
+        consent_basis TEXT NOT NULL,
+        consent_evidence TEXT NOT NULL,
+        approval_reference TEXT NOT NULL,
+        provider_request_id TEXT,
+        detail_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        accepted_at TEXT
+      );
       CREATE INDEX IF NOT EXISTS decisions_topic_idx ON decisions(topic, active, created_at);
       CREATE INDEX IF NOT EXISTS work_items_task_idx ON work_items(task_id, status, created_at);
       CREATE INDEX IF NOT EXISTS followups_due_idx ON followups(status, due_at);
       CREATE INDEX IF NOT EXISTS reply_outbox_messages_status_idx ON reply_outbox_messages(status, created_at);
       CREATE INDEX IF NOT EXISTS operating_items_status_priority_idx ON operating_items(status, priority, updated_at);
+      CREATE INDEX IF NOT EXISTS outbound_email_status_created_idx ON outbound_email_attempts(status, created_at);
+      CREATE INDEX IF NOT EXISTS outbound_email_recipient_idx ON outbound_email_attempts(recipient_hash, created_at);
       INSERT INTO schema_meta(key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')
       ON CONFLICT(key) DO UPDATE SET value=excluded.value;
     `);
@@ -215,11 +240,13 @@ export class CyrusStore {
       WHERE w.status!='completed' AND t.status IN ('received','running')
     `).get();
     const pendingFollowups = this.db.prepare("SELECT count(*) AS count FROM followups WHERE status = 'pending'").get();
+    const outboundUnknown = this.db.prepare("SELECT count(*) AS count FROM outbound_email_attempts WHERE status = 'unknown'").get();
     return {
       schemaVersion: Number(row.value),
       openTasks: Number(openTasks.count),
       openWorkItems: Number(openWorkItems.count),
       pendingFollowups: Number(pendingFollowups.count),
+      outboundUnknown: Number(outboundUnknown.count),
     };
   }
 
@@ -439,6 +466,60 @@ export class CyrusStore {
     `).all(Math.min(limit, 20));
   }
 
+  suppressEmail({ emailHash, reason, evidenceReference }) {
+    if (!emailHash || !reason || !evidenceReference) throw new Error("Suppression requires email hash, reason, and evidence reference");
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO email_suppressions(email_hash, reason, evidence_reference, created_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(email_hash) DO UPDATE SET
+        reason=excluded.reason,
+        evidence_reference=excluded.evidence_reference,
+        created_at=excluded.created_at
+    `).run(emailHash, reason, evidenceReference, now);
+    return this.db.prepare("SELECT * FROM email_suppressions WHERE email_hash=?").get(emailHash);
+  }
+
+  getEmailSuppression(emailHash) {
+    return this.db.prepare("SELECT * FROM email_suppressions WHERE email_hash=?").get(emailHash);
+  }
+
+  reserveOutboundEmail({ idempotencyKey, taskId, provider, recipientHash, sourceLeadId, subjectHash, consentBasis, consentEvidence, approvalReference }) {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO outbound_email_attempts(
+        idempotency_key, task_id, provider, recipient_hash, source_lead_id, subject_hash,
+        status, consent_basis, consent_evidence, approval_reference, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?, ?)
+    `).run(idempotencyKey, taskId, provider, recipientHash, sourceLeadId, subjectHash, consentBasis, consentEvidence, approvalReference, now, now);
+    return {
+      created: result.changes === 1,
+      row: this.db.prepare("SELECT * FROM outbound_email_attempts WHERE idempotency_key=?").get(idempotencyKey),
+    };
+  }
+
+  updateOutboundEmail(idempotencyKey, { status, providerRequestId = null, detail = {} }) {
+    const now = new Date().toISOString();
+    const acceptedAt = status === "accepted" ? now : null;
+    const result = this.db.prepare(`
+      UPDATE outbound_email_attempts
+      SET status=?, provider_request_id=COALESCE(?, provider_request_id), detail_json=?, updated_at=?,
+          accepted_at=COALESCE(?, accepted_at)
+      WHERE idempotency_key=?
+    `).run(status, providerRequestId, JSON.stringify(detail), now, acceptedAt, idempotencyKey);
+    if (result.changes !== 1) throw new Error("Unknown outbound email attempt");
+    return this.db.prepare("SELECT * FROM outbound_email_attempts WHERE idempotency_key=?").get(idempotencyKey);
+  }
+
+  getOutboundEmail(idempotencyKey) {
+    return this.db.prepare("SELECT * FROM outbound_email_attempts WHERE idempotency_key=?").get(idempotencyKey);
+  }
+
+  outboundAcceptedCount(sinceIso) {
+    const row = this.db.prepare("SELECT count(*) AS count FROM outbound_email_attempts WHERE status='accepted' AND accepted_at>=?").get(sinceIso);
+    return Number(row.count);
+  }
+
   getOperatingItems({ includeCompleted = false, limit = 50 } = {}) {
     const sql = includeCompleted
       ? "SELECT * FROM operating_items ORDER BY priority ASC, updated_at DESC LIMIT ?"
@@ -465,6 +546,8 @@ export class CyrusStore {
   }
 
   recoverInterruptedTasks() {
+    this.db.prepare("UPDATE outbound_email_attempts SET status='unknown', updated_at=? WHERE status IN ('reserved','sending')")
+      .run(new Date().toISOString());
     this.db.prepare("UPDATE followups SET status='pending', claimed_at=NULL WHERE status='claimed'").run();
     const nowMs = Date.now();
     const cleanupAt = new Date(nowMs).toISOString();

@@ -3,6 +3,7 @@ import { CyrusAgent } from "./agent.js";
 import { createSlackApi, SlackSocketRuntime } from "./slack.js";
 import { CyrusStore } from "./store.js";
 import { createToolbox } from "./tools.js";
+import { createRelentlessController } from "./relentless.js";
 
 function snapshot(store, task) {
   return {
@@ -92,6 +93,7 @@ export function createSharedSwarmRuntime({
       slackAuthenticated: false,
       slackError: null,
     };
+    runtime.relentless = createRelentlessController({ runtime, logger });
     roles.push(runtime);
     dispatcher.register(config.role, runtime);
   }
@@ -122,7 +124,7 @@ export function createSharedSwarmRuntime({
   return {
     roles,
     async start() {
-      for (const runtime of roles) {
+      for (const [index, runtime] of roles.entries()) {
         const { config } = runtime;
         if (config.slackSocketEnabled) {
           try {
@@ -153,6 +155,7 @@ export function createSharedSwarmRuntime({
           logger.error(`${config.name} shared recovery deferred`, { message: error.message });
         });
         if (runtime.slackAuthenticated && config.slackSocketEnabled && !stopped) runtime.socket.start();
+        runtime.relentless.start(30_000 + index * 20_000);
       }
       maintenanceTimer = setInterval(() => {
         for (const runtime of roles) void maintain(runtime);
@@ -168,6 +171,7 @@ export function createSharedSwarmRuntime({
         slackAuthenticated: runtime.slackAuthenticated,
         slackConnected: runtime.socket.connected,
         slackError: runtime.slackError,
+        autonomy: runtime.relentless.state(),
         recovered: runtime.recovered,
         ...runtime.store.health(),
       }]));
@@ -176,6 +180,7 @@ export function createSharedSwarmRuntime({
       stopped = true;
       if (maintenanceTimer) clearInterval(maintenanceTimer);
       for (const runtime of roles) {
+        runtime.relentless.stop();
         runtime.socket.stop();
         runtime.store.close();
       }

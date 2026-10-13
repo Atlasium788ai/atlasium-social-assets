@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createMicrosoftGraphTransport, createUnsubscribeToken, emailFingerprint, normalizeEmail } from "./outbound.js";
 
 function ok(data, evidence) {
   return { ok: true, data, evidence };
@@ -8,8 +9,19 @@ function fail(error, retryable = false) {
   return { ok: false, error, retryable };
 }
 
+const INSTANTLY_TOOLS = new Set([
+  "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight",
+  "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route",
+  "instantly_workspace_presence", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count",
+]);
+const REVENUE_TOOLS = new Set([
+  "recovery_candidates", "reeviq_leads", "reeviq_lead", ...INSTANTLY_TOOLS,
+  "microsoft365_outbound_preflight", "outbound_email_send", "outbound_email_suppress",
+]);
+
 export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agentDispatcher = null }) {
   let instantlyStageBusy = false;
+  const microsoftGraph = createMicrosoftGraphTransport({ config, fetchImpl });
   const definitions = [
     {
       type: "function",
@@ -187,6 +199,47 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     },
     {
       type: "function",
+      name: "microsoft365_outbound_preflight",
+      description: "Verify the configured Microsoft 365 bot credential, tenant, Mail.Send permission, fixed sender, pilot state, and daily cap without sending email.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      type: "function",
+      name: "outbound_email_suppress",
+      description: "Permanently suppress one recipient after an opt-out, complaint, hard bounce, or legal restriction. Stores only a one-way email fingerprint.",
+      parameters: {
+        type: "object",
+        properties: {
+          email: { type: "string" },
+          reason: { type: "string", enum: ["unsubscribe", "complaint", "hard_bounce", "legal_restriction"] },
+          evidence_reference: { type: "string" },
+        },
+        required: ["email", "reason", "evidence_reference"],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: "function",
+      name: "outbound_email_send",
+      description: "Send exactly one approved Microsoft 365 email. Requires a verified ReeVIQ email, recorded consent basis/evidence, explicit pilot approval, suppression clearance, unsubscribe route, physical address, daily cap, and durable idempotency. HTTP 202 means accepted by Microsoft, not delivered.",
+      parameters: {
+        type: "object",
+        properties: {
+          email: { type: "string" },
+          source_lead_id: { type: "string" },
+          source_email_verified: { type: "boolean" },
+          subject: { type: "string" },
+          text: { type: "string" },
+          html: { type: "string" },
+          consent_basis: { type: "string", enum: ["express_consent", "existing_business_relationship", "recent_inquiry", "transactional"] },
+          consent_evidence: { type: "string" },
+        },
+        required: ["email", "source_lead_id", "source_email_verified", "subject", "text", "consent_basis", "consent_evidence"],
+        additionalProperties: false,
+      },
+    },
+    {
+      type: "function",
       name: "instantly_campaign",
       description: "Read the configured Instantly campaign status and settings. Read-only. Never sends email.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -307,6 +360,12 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
   ];
 
   async function execute(name, args, context) {
+    if (config.role !== "malik" && REVENUE_TOOLS.has(name)) {
+      return fail(`Tool ${name} is restricted to Malik's revenue runtime`);
+    }
+    if (INSTANTLY_TOOLS.has(name) && config.instantlyEnabled === false) {
+      return fail("Instantly is disabled because the existing account requires payment (HTTP 402). Use the guarded Microsoft 365 pathway instead.");
+    }
     if (name === "recall_memory") return ok(store.recallDecisions(args.query));
     if (name === "remember_decision") {
       const row = store.rememberDecision({ ...args, sourceTaskId: context.taskId });
@@ -536,6 +595,118 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
         return fail(`Private recovery read failed: ${error.message}`, true);
       }
     }
+    if (name === "microsoft365_outbound_preflight") {
+      try {
+        const data = await microsoftGraph.preflight();
+        return ok(data, {
+          source: "microsoft_graph:oauth",
+          claim: `Microsoft 365 transport authorized for the fixed sender; Mail.Send present; sending ${data.sendEnabled ? "enabled" : "disabled"}`,
+          detail: data,
+        });
+      } catch (error) {
+        const retryable = /timed out|aborted|fetch failed|HTTP 429|HTTP 5\d\d/i.test(String(error.message));
+        return fail(`Microsoft 365 preflight failed: ${error.message}`, retryable);
+      }
+    }
+    if (name === "outbound_email_suppress") {
+      const email = normalizeEmail(args.email);
+      const reference = String(args.evidence_reference || "").trim();
+      if (!email) return fail("A valid email is required for suppression");
+      if (!reference) return fail("Suppression requires an evidence reference");
+      const hash = emailFingerprint(email);
+      const row = store.suppressEmail({ emailHash: hash, reason: String(args.reason), evidenceReference: reference });
+      const data = { suppressed: true, emailFingerprint: hash.slice(0, 12), reason: row.reason, createdAt: row.created_at };
+      return ok(data, { source: "command88:suppression", claim: `Recipient ${data.emailFingerprint} suppressed for ${data.reason}`, detail: data });
+    }
+    if (name === "outbound_email_send") {
+      if (config.outboundEmailProvider !== "microsoft_graph") return fail("Microsoft Graph is not the configured outbound provider");
+      if (!config.outboundSendEnabled) return fail("Outbound email sending is disabled pending Blair's approved pilot");
+      const email = normalizeEmail(args.email);
+      const sourceLeadId = String(args.source_lead_id || "").trim();
+      const subject = String(args.subject || "").trim();
+      const textBody = String(args.text || "").trim();
+      const consentEvidence = String(args.consent_evidence || "").trim();
+      const consentBasis = String(args.consent_basis || "").trim();
+      const approvalTask = store.getTask(context.taskId);
+      const directBlairApproval = approvalTask
+        && approvalTask.requester_id === config.blairSlackUserId
+        && /\b(approve|approved|authorize|authorized|go ahead|send)\b/i.test(approvalTask.request_text)
+        && !/\b(do not|don't|not approved|not authorized|without approval)\b/i.test(approvalTask.request_text);
+      const approvalReference = directBlairApproval ? approvalTask.source_event_id : "";
+      if (!email) return fail("A valid recipient email is required");
+      if (!sourceLeadId) return fail("A ReeVIQ source lead ID is required");
+      if (args.source_email_verified !== true) return fail("source_email_verified must be true from a verified ReeVIQ record");
+      if (!subject || !textBody) return fail("Subject and plain-text body are required");
+      if (!["express_consent", "existing_business_relationship", "recent_inquiry", "transactional"].includes(consentBasis)) return fail("A recognized consent basis is required");
+      if (!consentEvidence) return fail("Consent evidence is required");
+      if (!approvalReference) return fail("The current task is not a direct, explicit email approval from Blair");
+      if (!config.outboundPhysicalAddress) return fail("Outbound physical mailing address is not configured");
+      if (!config.outboundPublicBaseUrl.startsWith("https://") || !config.outboundUnsubscribeSecret) {
+        return fail("A signed HTTPS one-click unsubscribe route is not configured");
+      }
+      const recipientHash = emailFingerprint(email);
+      const suppression = store.getEmailSuppression(recipientHash);
+      if (suppression) return fail(`Recipient is suppressed for ${suppression.reason}`);
+      const since = new Date();
+      since.setUTCHours(0, 0, 0, 0);
+      const acceptedToday = store.outboundAcceptedCount(since.toISOString());
+      if (acceptedToday >= Number(config.outboundDailyCap || 5)) {
+        return fail(`Microsoft 365 daily pilot cap reached (${acceptedToday}/${config.outboundDailyCap})`);
+      }
+      const subjectHash = createHash("sha256").update(subject).digest("hex");
+      const idempotencyKey = createHash("sha256")
+        .update(JSON.stringify([context.taskId, recipientHash, sourceLeadId, subjectHash, approvalReference]))
+        .digest("hex");
+      const existing = store.getOutboundEmail(idempotencyKey);
+      if (existing?.status === "accepted") {
+        const data = { accepted: true, duplicate: true, provider: existing.provider, requestId: existing.provider_request_id, recipientFingerprint: recipientHash.slice(0, 12) };
+        return ok(data, { source: "microsoft_graph:send", claim: "Reused the verified Microsoft Graph acceptance for this exact email; no duplicate send occurred", detail: data });
+      }
+      if (existing) return fail(`Outbound email is not safe to retry automatically after status ${existing.status}`);
+      store.reserveOutboundEmail({
+        idempotencyKey,
+        taskId: context.taskId,
+        provider: "microsoft_graph",
+        recipientHash,
+        sourceLeadId,
+        subjectHash,
+        consentBasis,
+        consentEvidence,
+        approvalReference,
+      });
+      store.updateOutboundEmail(idempotencyKey, { status: "sending", detail: { acceptedToday, dailyCap: config.outboundDailyCap } });
+      const unsubscribeToken = createUnsubscribeToken(email, config.outboundUnsubscribeSecret);
+      const unsubscribeUrl = `${config.outboundPublicBaseUrl}/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}`;
+      try {
+        const delivery = await microsoftGraph.send({
+          to: email,
+          subject,
+          text: textBody,
+          html: args.html ? String(args.html) : "",
+          idempotencyKey,
+          unsubscribeUrl,
+          physicalAddress: config.outboundPhysicalAddress,
+        });
+        const row = store.updateOutboundEmail(idempotencyKey, {
+          status: "accepted",
+          providerRequestId: delivery.requestId,
+          detail: { httpStatus: delivery.status, accepted: true },
+        });
+        const data = {
+          accepted: true,
+          delivered: false,
+          provider: delivery.provider,
+          httpStatus: delivery.status,
+          requestId: row.provider_request_id,
+          recipientFingerprint: recipientHash.slice(0, 12),
+        };
+        return ok(data, { source: "microsoft_graph:send", claim: "Microsoft Graph accepted one approved email (HTTP 202); delivery is not yet claimed", detail: data });
+      } catch (error) {
+        const uncertain = /timed out|aborted|fetch failed|network/i.test(String(error.message));
+        store.updateOutboundEmail(idempotencyKey, { status: uncertain ? "unknown" : "failed", detail: { error: String(error.message).slice(0, 240) } });
+        return fail(`Microsoft 365 send failed${uncertain ? " with unknown acceptance; do not retry automatically" : ""}: ${error.message}`);
+      }
+    }
     if (name === "reeviq_leads") {
       if (!config.reeviqBaseUrl) return fail("ReeVIQ base URL is not configured");
       if (!config.reeviqApiKeys.length) return fail("ReeVIQ API key is not configured");
@@ -547,15 +718,20 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
         for (const key of config.reeviqApiKeys) {
           const response = await fetchImpl(url, {
             method: "POST",
-            headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "Content-Type": "application/json" },
+            headers: { Authorization: `Bearer ${key}`, "X-Api-Key": key, Accept: "application/json", "Content-Type": "application/json" },
             body: JSON.stringify({ filter: status ? { status } : {}, limit, page: 1, sortBy: "createdAt", sortType: "desc" }),
             signal: AbortSignal.timeout(12_000),
           });
           lastStatus = response.status;
-          if ((response.status === 401 || response.status === 403) && key !== config.reeviqApiKeys.at(-1)) continue;
+          const body = await response.json().catch(() => ({}));
+          const errorMessage = String(body?.message || body?.error || "").slice(0, 240);
+          const workspaceAuthMiss = response.status === 400 && /coreiqUserId is required/i.test(errorMessage);
+          if ((response.status === 401 || response.status === 403 || workspaceAuthMiss) && key !== config.reeviqApiKeys.at(-1)) continue;
           if (response.status >= 500 && key !== config.reeviqApiKeys.at(-1)) continue;
-          if (!response.ok) return fail(`ReeVIQ returned HTTP ${response.status}`, response.status >= 500);
-          const body = await response.json();
+          if (!response.ok) {
+            if (workspaceAuthMiss) return fail("ReeVIQ credential is not valid for the configured database workspace (HTTP 400: coreiqUserId is required)");
+            return fail(`ReeVIQ returned HTTP ${response.status}${errorMessage ? `: ${errorMessage}` : ""}`, response.status >= 500);
+          }
           const data = body?.data ?? body;
           const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.results) ? data.results : Array.isArray(body?.items) ? body.items : [];
           const total = body?.total ?? body?.count ?? data?.total ?? data?.count ?? data?.pagination?.total ?? body?.pagination?.total ?? null;
@@ -1189,13 +1365,18 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
               : { filter: { id: leadId }, limit: 10, page: 1 };
           const response = await fetchImpl(url, {
             method: "POST",
-            headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "Content-Type": "application/json" },
+            headers: { Authorization: `Bearer ${key}`, "X-Api-Key": key, Accept: "application/json", "Content-Type": "application/json" },
             body: JSON.stringify(requestBody),
             signal: AbortSignal.timeout(12_000),
           });
-          if ((response.status === 401 || response.status === 403) && key !== config.reeviqApiKeys.at(-1)) continue;
-          if (!response.ok) return fail(`ReeVIQ returned HTTP ${response.status}`, response.status >= 500);
-          const body = await response.json();
+          const body = await response.json().catch(() => ({}));
+          const errorMessage = String(body?.message || body?.error || "").slice(0, 240);
+          const workspaceAuthMiss = response.status === 400 && /coreiqUserId is required/i.test(errorMessage);
+          if ((response.status === 401 || response.status === 403 || workspaceAuthMiss) && key !== config.reeviqApiKeys.at(-1)) continue;
+          if (!response.ok) {
+            if (workspaceAuthMiss) return fail("ReeVIQ credential is not valid for the configured database workspace (HTTP 400: coreiqUserId is required)");
+            return fail(`ReeVIQ returned HTTP ${response.status}${errorMessage ? `: ${errorMessage}` : ""}`, response.status >= 500);
+          }
           const data = body?.data ?? body;
           const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.results) ? data.results : Array.isArray(body?.items) ? body.items : [];
           const normalized = items.map((item) => item?.lead ?? item).filter(Boolean);
@@ -1239,10 +1420,9 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     return fail(`Unknown tool: ${name}`);
   }
 
-  const revenueTools = new Set(["recovery_candidates", "reeviq_leads", "reeviq_lead", "instantly_campaign", "instantly_campaign_leads", "instantly_create_fresh_pilot", "instantly_preflight", "instantly_activate_campaign", "instantly_pause_campaign", "instantly_repair_cody_route", "instantly_workspace_presence", "instantly_stage_lead", "instantly_received_emails", "instantly_unread_count"]);
   const roleDefinitions = definitions.filter((tool) => {
     if (tool.name === "upsert_operating_item" && config.role !== "cyrus") return false;
-    if (revenueTools.has(tool.name) && config.role !== "malik") return false;
+    if (REVENUE_TOOLS.has(tool.name) && config.role !== "malik") return false;
     return true;
   });
   return { definitions: roleDefinitions, execute };

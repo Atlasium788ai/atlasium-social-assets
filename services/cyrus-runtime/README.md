@@ -25,6 +25,9 @@ follow-ups and memory. No additional Railway service or volume is required.
 - `/health` reports SQLite state, Slack authentication and live socket status.
 - `EXPECTED_SLACK_BOT_USER_ID` stops a service before Socket Mode starts if the
   supplied token belongs to the wrong bot.
+- Every executive can run a separate, durable, role-specific execution pulse.
+  Pulses create internal tasks only, skip busy runtimes, deduplicate by time
+  bucket, require evidence, and route cross-department work through Cyrus.
 
 ## Supported role profiles
 
@@ -45,6 +48,23 @@ fully addressable through Cyrus and does not open a separate Slack socket.
 `CYRUS_AUTONOMY_ENABLED` and `PROACTIVE_MONITORING_ENABLED` default to false.
 This prevents background model calls during the zero-spend build. Enable them
 only at final launch after an explicit operating budget is approved.
+
+Set `SHARED_SWARM_AUTONOMY_ENABLED=true` to activate the six shared executives.
+`SHARED_SWARM_RELENTLESS_INTERVAL_MS` controls their common cadence, and a
+`ROLE_RELENTLESS_INTERVAL_MS` value can override one role. Each pulse is kept
+internal so autonomous work does not flood Slack. Five shared roles use their
+existing Slack identities; Sloane remains an isolated internal runtime whose
+decision-grade updates route through Cyrus.
+
+## Revenue transport safeguards
+
+Malik alone receives ReeVIQ and outbound email tools. Expired Instantly access
+can be disabled without deleting its existing configuration. The Microsoft 365
+alternative uses app-only Graph authorization with a fixed sender and MIME
+submission. Sending remains off until the tenant, `Mail.Send` role, mailbox
+restriction, SPF/DKIM/DMARC, physical address, signed one-click unsubscribe,
+suppression, consent evidence, daily cap and explicit pilot approval are ready.
+An HTTP 202 is recorded only as Microsoft acceptance, never as delivery.
 
 ## Local test
 

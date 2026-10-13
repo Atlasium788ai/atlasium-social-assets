@@ -30,6 +30,8 @@ const report = {
     title: item.title,
     department: item.department,
     mode: item.slackSocketEnabled ? "direct-slack" : "cyrus-mediated",
+    autonomyEnabled: item.autonomyEnabled,
+    relentlessIntervalMs: item.relentlessIntervalMs,
     databasePath: item.databasePath,
   })),
   issues,
