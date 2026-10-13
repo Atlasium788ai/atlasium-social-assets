@@ -139,11 +139,14 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
         const current = this.store.getTask(task.id);
         if (current.status === "running") {
           if (this.store.hasPendingFollowup(task.id)) break;
-          if (context.requiresEvidence && this.store.getEvidence(task.id).length === 0) {
-            input.push({ role: "user", content: "This is an action request. Use a tool and verify the result, or report the exact blocker. Do not claim completion without evidence." });
-            continue;
-          }
-          this.store.setTaskStatus(task.id, "completed", { summary: lastText });
+          const evidenceCount = this.store.getEvidence(task.id).length;
+          input.push({
+            role: "user",
+            content: evidenceCount === 0
+              ? "This is an action request. Use a tool and verify the result, or report the exact blocker. Do not claim completion without evidence."
+              : "Evidence exists, but the objective is still open. Explicitly call complete_task with the verified outcome, schedule a justified follow-up, or report the exact blocker. Do not stop at analysis or a text-only claim.",
+          });
+          continue;
         }
         break;
       }
@@ -202,6 +205,7 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
       : followup
         ? `In motion. I will reassess automatically at ${followup.due_at}.`
         : settled.summary;
-    return enforceReply(lastText || fallback, { status: settled.status, evidenceCount: evidence.length, name: this.config.name, requiresEvidence: context.requiresEvidence, structured: isStructuredUpdateRequest(task.request_text) });
+    const replyText = settled.status === "blocked" ? fallback : lastText || fallback;
+    return enforceReply(replyText, { status: settled.status, evidenceCount: evidence.length, name: this.config.name, requiresEvidence: context.requiresEvidence, structured: isStructuredUpdateRequest(task.request_text) });
   }
 }

@@ -408,6 +408,25 @@ test("an unexpected tool exception becomes a recorded failure instead of escapin
   store.close();
 });
 
+test("action work cannot auto-complete from evidence plus a text-only claim", async () => {
+  const { store } = tempStore();
+  const model = scriptedModel([
+    call("system_health", {}),
+    { output_text: "The objective is complete.", output: [] },
+  ]);
+  const toolbox = createToolbox({ store, config: config(), slackApi: async () => ({ ok: true }), fetchImpl: fetch });
+  const agent = new CyrusAgent({ store, model, toolbox, config: config(), maxTurns: 3 });
+  const current = task(store, "Ev-text-only-completion", "Execute and verify the internal objective");
+  const reply = await agent.handleTask(current);
+
+  assert.equal(store.getTask(current.id).status, "blocked");
+  assert.match(store.getTask(current.id).blocker, /Execution limit reached/i);
+  assert.match(reply, /^Blocked\./);
+  assert.doesNotMatch(reply, /^The objective is complete/i);
+  assert.equal(store.getEvidence(current.id).length, 1);
+  store.close();
+});
+
 test("interrupted running task is recovered after restart", () => {
   const { dir, store } = tempStore();
   const db = path.join(dir, "cyrus.sqlite");
