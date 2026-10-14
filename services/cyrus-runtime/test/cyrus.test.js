@@ -605,13 +605,18 @@ test("restart closes work items whose parent task is terminal", () => {
   const db = path.join(dir, "cyrus.sqlite");
   const current = task(store, "Ev-terminal-plan", "Build and finish a plan");
   store.createWorkPlan(current.id, [{ id: "old-open-item", title: "Old step", owner: "malik" }]);
-  store.setTaskStatus(current.id, "completed", { summary: "Task settled" });
+  store.scheduleFollowup(current.id, { dueAt: new Date(Date.now() + 86_400_000).toISOString(), reason: "Legacy future check" });
+  // Simulate state written by a runtime version that did not clean child rows
+  // when it settled the task.
+  store.db.prepare("UPDATE tasks SET status='completed', summary='Task settled' WHERE id=?").run(current.id);
   store.close();
 
   const restarted = new CyrusStore(db);
   restarted.recoverInterruptedTasks();
   assert.equal(restarted.getWorkItems(current.id)[0].status, "completed");
   assert.equal(restarted.health().openWorkItems, 0);
+  assert.equal(restarted.nextFollowup(current.id), undefined);
+  assert.equal(restarted.health().pendingFollowups, 0);
   restarted.close();
 });
 

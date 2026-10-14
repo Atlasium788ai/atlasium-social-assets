@@ -573,6 +573,14 @@ export class CyrusStore {
       WHERE status!='completed'
         AND task_id IN (SELECT id FROM tasks WHERE status IN ('blocked','completed','failed'))
     `).run(cleanupAt);
+    this.db.prepare(`
+      UPDATE followups SET status='completed', completed_at=?
+      WHERE status!='completed'
+        AND (
+          task_id IN (SELECT id FROM tasks WHERE status IN ('blocked','completed','failed'))
+          OR task_id NOT IN (SELECT id FROM tasks)
+        )
+    `).run(cleanupAt);
 
     const internalOpen = this.db.prepare(`
       SELECT id, channel_id, requester_id, created_at
