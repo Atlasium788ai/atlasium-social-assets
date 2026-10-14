@@ -633,6 +633,22 @@ test("automatic follow-up survives restart and becomes due once", () => {
   restarted.close();
 });
 
+test("terminal task status closes stale work items and future follow-ups", () => {
+  const { store } = tempStore();
+  const current = task(store, "Ev-terminal-cleanup", "Resolve the objective");
+  store.createWorkPlan(current.id, [{ id: "step-1", title: "Do the work", owner: "Cyrus" }]);
+  store.scheduleFollowup(current.id, { dueAt: new Date(Date.now() + 86_400_000).toISOString(), reason: "Check again tomorrow" });
+  assert.equal(store.health().openWorkItems, 1);
+  assert.equal(store.health().pendingFollowups, 1);
+
+  store.setTaskStatus(current.id, "blocked", { blocker: "Missing external authorization" });
+  assert.equal(store.health().openWorkItems, 0);
+  assert.equal(store.health().pendingFollowups, 0);
+  assert.equal(store.getWorkItems(current.id)[0].status, "completed");
+  assert.equal(store.nextFollowup(current.id), undefined);
+  store.close();
+});
+
 test("an automatic follow-up cannot reschedule the same wait loop", async () => {
   const { store } = tempStore();
   const current = task(store, "Ev-follow-loop", "Reassess once and finish");

@@ -313,9 +313,23 @@ export class CyrusStore {
   }
 
   setTaskStatus(taskId, status, { summary = null, blocker = null } = {}) {
+    const now = new Date().toISOString();
     this.db.prepare(`
       UPDATE tasks SET status = ?, summary = COALESCE(?, summary), blocker = ?, updated_at = ? WHERE id = ?
-    `).run(status, summary, blocker, new Date().toISOString(), taskId);
+    `).run(status, summary, blocker, now, taskId);
+    if (["completed", "blocked", "failed"].includes(status)) {
+      this.db.prepare("UPDATE work_items SET status='completed', updated_at=? WHERE task_id=? AND status!='completed'").run(now, taskId);
+      this.db.prepare("UPDATE followups SET status='completed', completed_at=? WHERE task_id=? AND status!='completed'").run(now, taskId);
+    }
+  }
+
+  latestTaskBySourcePrefix(prefix) {
+    return this.db.prepare(`
+      SELECT * FROM tasks
+      WHERE source_event_id LIKE ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(`${String(prefix || "")}%`);
   }
 
   addStep(taskId, { attempt, toolName = null, status, detail }) {

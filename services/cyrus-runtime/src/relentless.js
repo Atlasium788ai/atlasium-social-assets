@@ -44,10 +44,18 @@ export function createRelentlessController({ runtime, logger = console, now = ()
     const bucket = Math.floor(now() / intervalMs);
     const generation = String(config.relentlessGeneration || "v1").replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 80) || "v1";
     const sourceEventId = `relentless:${config.role}:${generation}:${bucket}`;
+    const sourcePrefix = `relentless:${config.role}:${generation}:`;
     let task = null;
     try {
       const existing = store.getTaskBySourceEvent(sourceEventId);
       if (existing) return { skipped: true, reason: "deduplicated", taskId: existing.id };
+      const latest = store.latestTaskBySourcePrefix(sourcePrefix);
+      const blockedBackoffMs = Math.max(60 * 60_000, Number(config.relentlessBlockedBackoffMs || 6 * 60 * 60_000));
+      const latestAgeMs = latest?.updated_at ? now() - Date.parse(latest.updated_at) : Number.POSITIVE_INFINITY;
+      if (latest?.status === "blocked" && !/Execution limit reached/i.test(String(latest.blocker || ""))
+          && Number.isFinite(latestAgeMs) && latestAgeMs >= 0 && latestAgeMs < blockedBackoffMs) {
+        return { skipped: true, reason: "blocked_backoff", taskId: latest.id, retryAt: new Date(Date.parse(latest.updated_at) + blockedBackoffMs).toISOString() };
+      }
       ({ task } = store.createTask({
         sourceEventId,
         requesterId: "system:relentless",

@@ -88,6 +88,31 @@ test("a relentless pulse does not collide with an executive already handling wor
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test("a durable external blocker backs off instead of burning another hourly cycle", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-pulse-backoff-"));
+  const config = configFor("malik", dir, { RELENTLESS_BLOCKED_BACKOFF_MS: "21600000" });
+  const store = new CyrusStore(config.databasePath);
+  const previous = store.createTask({
+    sourceEventId: "relentless:malik:v1:previous",
+    requesterId: "system:relentless",
+    channelId: "internal:relentless:malik",
+    requestText: "Find the next legitimate revenue move",
+  }).task;
+  store.setTaskStatus(previous.id, "blocked", { blocker: "Original ReeVIQ CRM access is not authorized" });
+  let calls = 0;
+  const result = await createRelentlessController({
+    runtime: { config, store, agent: { isBusy: () => false, handleTask: async () => { calls += 1; } } },
+    logger: { info() {}, error() {} },
+  }).run();
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, "blocked_backoff");
+  assert.match(result.retryAt, /T/);
+  assert.equal(calls, 0);
+  assert.equal(store.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 1);
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("shared roles inherit autonomy without sharing databases or Slack identities", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-shared-autonomy-"));
   const primary = configFor("cyrus", dir);
