@@ -101,7 +101,8 @@ Current task work plan:
 ${JSON.stringify(workPlan)}
 Existing verified evidence:
 ${JSON.stringify(priorEvidence)}
-Request routing: ACTION. Execute with tools and require evidence. A phrase such as 'conversational exercise' or a restriction against external messaging limits the permitted actions; it does not turn an explicit internal diagnostic or execution request into conversation-only.${followupReason ? `
+Request routing: ACTION. Execute with tools and require evidence. A phrase such as 'conversational exercise' or a restriction against external messaging limits the permitted actions; it does not turn an explicit internal diagnostic or execution request into conversation-only.
+INTERNAL READ-ONLY ACCEPTANCE TESTS: When asked to prove that this executive can execute a harmless internal task, call system_health once. Its verified durable-store result is evidence for that specific health check only. If it succeeds, call complete_task with a narrow summary of the observed health result. Do not create work plans or unrelated operating-plan items for a simple diagnostic, and do not claim broader integrations, revenue work, or other executives passed. If the requested objective needs evidence unavailable from permitted tools, report_blocker with the precise missing evidence rather than looping through list_work_plan, recall_memory, or list_operating_plan. Never invent evidence or bypass completion guards.${followupReason ? `
 Automatic follow-up is due: ${followupReason}` : ""}`,
       },
       { role: "user", content: task.request_text },
