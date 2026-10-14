@@ -274,6 +274,81 @@ test("internal-only shared executives start without network calls or Slack apps"
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test("shared Slack identities start without waiting for durable task recovery", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-nonblocking-recovery-"));
+  const env = environment(dir, {
+    SHARED_BOT_ROLES: "clara",
+    CLARA_SLACK_APP_TOKEN: "xapp-clara-test",
+    CLARA_SLACK_BOT_TOKEN: "xoxb-clara-test",
+    CLARA_EXPECTED_SLACK_BOT_USER_ID: "U_CLARA",
+  });
+  const primary = loadConfig(env);
+  const claraConfig = loadSharedRoleConfigs(env, primary)[0];
+  const seed = new CyrusStore(claraConfig.databasePath);
+  const interrupted = task(seed, "clara-interrupted", "Resume the durable objective after restart");
+  seed.setTaskStatus(interrupted.id, "running");
+  seed.close();
+
+  let releaseRecovery;
+  const recoveryGate = new Promise((resolve) => { releaseRecovery = resolve; });
+  const baseModel = offlineExecutionModel();
+  let firstResponse = true;
+  const model = {
+    respond: async (request) => {
+      if (firstResponse) {
+        firstResponse = false;
+        await recoveryGate;
+      }
+      return baseModel.respond(request);
+    },
+  };
+  const dispatcher = createLocalAgentDispatcher();
+  const primaryStore = new CyrusStore(primary.databasePath);
+  dispatcher.register("cyrus", { config: primary, store: primaryStore, agent: { handleTask: async () => "unused" } });
+  const methods = [];
+  const shared = createSharedSwarmRuntime({
+    configs: [claraConfig],
+    model,
+    dispatcher,
+    fetchImpl: async (url) => {
+      const method = String(url).split("/").pop();
+      methods.push(method);
+      const body = method === "auth.test"
+        ? { ok: true, user_id: "U_CLARA", user: "clara-test", bot_id: "B_CLARA", team_id: "T_TEST" }
+        : { ok: true, url: "wss://slack.test/socket" };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    },
+    WebSocketImpl: class {
+      constructor() {
+        this.listeners = {};
+        queueMicrotask(() => this.listeners.open?.());
+      }
+      addEventListener(type, listener) { this.listeners[type] = listener; }
+      send() {}
+      close() { this.listeners.close?.(); }
+    },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const startup = await Promise.race([
+    shared.start().then(() => "started"),
+    new Promise((resolve) => setTimeout(() => resolve("timed-out"), 250)),
+  ]);
+  assert.equal(startup, "started", "shared startup waited for the model-driven recovery task");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(shared.health().clara.slackAuthenticated, true);
+  assert.ok(methods.includes("apps.connections.open"), "Clara's socket was not opened during recovery");
+
+  releaseRecovery();
+  for (let attempt = 0; attempt < 100 && shared.roles[0].store.getTask(interrupted.id).status === "running"; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(["completed", "blocked"].includes(shared.roles[0].store.getTask(interrupted.id).status), "background recovery never settled");
+  shared.stop();
+  primaryStore.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("a wrong shared Slack identity is isolated without disabling the executive", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-shared-identity-"));
   const env = environment(dir, {

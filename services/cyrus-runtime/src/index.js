@@ -110,8 +110,12 @@ const server = http.createServer((request, response) => {
 const internalServer = createInternalServer({ config, store, agent });
 server.listen(config.port, "0.0.0.0", () => console.info(`${config.name} health server listening on ${config.port}`));
 internalServer.listen(config.internalPort, "0.0.0.0", () => console.info(`${config.name} internal handoff server listening on ${config.internalPort}`));
-await socket.recover().catch((error) => console.error("Cyrus recovery deferred", { message: error.message }));
+// Bring every authorized Slack identity online before resuming potentially
+// long-running durable work. The socket runtime queues execution per role, so
+// a new DM cannot collide with the recovered task.
+if (config.slackSocketEnabled) void socket.start();
 await sharedSwarm.start();
+void socket.recover().catch((error) => console.error(`${config.name} recovery deferred`, { message: error.message }));
 const outboxTimer = setInterval(() => {
   socket.flushOutbox().catch((error) => console.error(`${config.name} reply retry failed`, { message: error.message }));
 }, 15_000);
@@ -126,7 +130,6 @@ const slackDmPollTimer = setInterval(() => {
 slackDmPollTimer.unref();
 socket.pollDirectMessages().catch((error) => console.error(`${config.name} initial Slack DM recovery failed`, { message: error.message }));
 
-if (config.slackSocketEnabled) socket.start();
 relentless.start(20_000);
 
 function shutdown(signal) {

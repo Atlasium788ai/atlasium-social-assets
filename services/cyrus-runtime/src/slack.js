@@ -48,11 +48,23 @@ export class SlackSocketRuntime {
     this.reconnectMs = 1_000;
     this.flushPromise = null;
     this.pollPromise = null;
+    // One executive may receive a recovered task, a socket event, and a DM
+    // poll at nearly the same time after a restart. Keep the transport live,
+    // but execute those objectives in order so the agent never works two
+    // tasks against the same durable store concurrently.
+    this.taskQueue = Promise.resolve();
     this.connected = false;
     this.lastPollAt = null;
     this.lastPollError = null;
     this.dmChannelId = null;
     this.reactionPermission = "unknown";
+  }
+
+  runAgentTask(task, options = {}) {
+    const execute = () => this.agent.handleTask(task, options);
+    const queued = this.taskQueue.then(execute, execute);
+    this.taskQueue = queued.catch(() => undefined);
+    return queued;
   }
 
   async start() {
@@ -74,7 +86,7 @@ export class SlackSocketRuntime {
   async recover() {
     for (const task of this.store.pendingTasks()) {
       if (this.store.hasPendingFollowup(task.id)) continue;
-      const reply = await this.agent.handleTask(task);
+      const reply = await this.runAgentTask(task);
       if (!task.channel_id.startsWith("internal:")) this.store.queueReply(task.id, task.channel_id, reply);
     }
     await this.flushOutbox();
@@ -88,7 +100,7 @@ export class SlackSocketRuntime {
         continue;
       }
       try {
-        const reply = await this.agent.handleTask(task, { followupReason: followup.reason });
+        const reply = await this.runAgentTask(task, { followupReason: followup.reason });
         this.store.completeFollowup(followup.id);
         if (!task.channel_id.startsWith("internal:")) this.store.queueReply(task.id, task.channel_id, reply);
       } catch (error) {
@@ -172,7 +184,7 @@ export class SlackSocketRuntime {
     await this.setMessageReaction(event, "eyes", false);
     let completed = false;
     try {
-      const reply = await this.agent.handleTask(task);
+      const reply = await this.runAgentTask(task);
       this.store.queueReply(task.id, event.channel, reply);
       await this.flushOutbox();
       completed = true;

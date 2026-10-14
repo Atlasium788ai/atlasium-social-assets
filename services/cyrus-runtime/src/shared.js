@@ -153,12 +153,15 @@ export function createSharedSwarmRuntime({
             logger.error(`${config.name} shared Slack disabled`, { message: error.message });
           }
         }
-        await runtime.socket.recover().catch((error) => {
+        if (runtime.slackAuthenticated && config.slackSocketEnabled && !stopped) void runtime.socket.start();
+        runtime.relentless.start(30_000 + index * 20_000);
+        // Recovery can require several model/tool turns. Do not hold this
+        // executive's Slack connection—or every role after it—offline while
+        // durable work resumes. SlackSocketRuntime serializes task execution.
+        void runtime.socket.recover().catch((error) => {
           runtime.slackError = error.message;
           logger.error(`${config.name} shared recovery deferred`, { message: error.message });
         });
-        if (runtime.slackAuthenticated && config.slackSocketEnabled && !stopped) runtime.socket.start();
-        runtime.relentless.start(30_000 + index * 20_000);
       }
       maintenanceTimer = setInterval(() => {
         for (const runtime of roles) void maintain(runtime);

@@ -47,6 +47,42 @@ test("direct Blair DM is accepted and staff DM is ignored", () => {
   assert.equal(shouldHandleMessage({ type: "message", channel_type: "im", user: "U_STAFF", text: "Check health" }, config()), false);
 });
 
+test("Slack task execution is serialized while the transport remains available", async () => {
+  const { store } = tempStore();
+  const first = task(store, "Ev-queue-1", "Recover the interrupted objective");
+  const second = task(store, "Ev-queue-2", "Handle the new Slack objective");
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const order = [];
+  let active = 0;
+  let maxActive = 0;
+  const runtime = new SlackSocketRuntime({
+    config: config(),
+    store,
+    agent: { handleTask: async (current) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      order.push(current.id);
+      if (current.id === first.id) await firstGate;
+      active -= 1;
+      return "Handled.";
+    } },
+    slackApi: async () => ({ ok: true }),
+    WebSocketImpl: class {},
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const firstRun = runtime.runAgentTask(first);
+  const secondRun = runtime.runAgentTask(second);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, [first.id], "the new objective started before recovery finished");
+  releaseFirst();
+  await Promise.all([firstRun, secondRun]);
+  assert.deepEqual(order, [first.id, second.id]);
+  assert.equal(maxActive, 1);
+  store.close();
+});
+
 test("explicit internal diagnostics remain actions despite conversational framing and no external messaging", async () => {
   const request = "This is a conversational exercise. Do not use external messaging. Perform internal diagnostics and report the results.";
   assert.equal(isConversationOnly(request), false);
