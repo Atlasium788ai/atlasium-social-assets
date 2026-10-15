@@ -158,4 +158,3 @@ export function loadSharedRoleConfigs(env, primaryConfig) {
     };
   });
 }
-

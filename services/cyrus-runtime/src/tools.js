@@ -872,7 +872,140 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
         if (campaign.allow_risky_contacts === true) return fail("Refusing activation: risky contacts are enabled");
         if (campaign.insert_unsubscribe_header === false) return fail("Refusing activation: unsubscribe header is disabled");
 
-        const leadRes = await fetchI…2676 tokens truncated…out(10_000) });
+        const leadRes = await fetchImpl(`${base}/leads/list`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ campaign: campaignId, in_campaign: true, limit: 100 }),
+          signal: AbortSignal.timeout(12_000)
+        });
+        if (!leadRes.ok) return fail(`Lead preflight returned HTTP ${leadRes.status}`, leadRes.status >= 500);
+        const leadBody = await leadRes.json().catch(() => ({}));
+        const rawLeads = Array.isArray(leadBody) ? leadBody : Array.isArray(leadBody?.items) ? leadBody.items : Array.isArray(leadBody?.data) ? leadBody.data : Array.isArray(leadBody?.leads) ? leadBody.leads : Array.isArray(leadBody?.data?.items) ? leadBody.data.items : [];
+        const leadCount = Number(leadBody?.total ?? leadBody?.count ?? leadBody?.data?.total ?? rawLeads.length);
+        const pilotCap = Math.max(1, Number(process.env.INSTANTLY_PILOT_CAP || 5));
+        if (leadCount < 1) return fail("Refusing activation: pilot has no leads");
+        if (leadCount > pilotCap) return fail(`Refusing activation: pilot has ${leadCount} leads above cap ${pilotCap}`);
+
+        const senders = (Array.isArray(campaign.email_list) ? campaign.email_list : [])
+          .map((item) => typeof item === "string" ? item : item?.email)
+          .filter(Boolean);
+        if (!senders.length) return fail("Refusing activation: no sending accounts configured");
+        const accountStates = [];
+        for (const email of senders) {
+          const accountRes = await fetchImpl(`${base}/accounts/${encodeURIComponent(email)}`, { headers: readHeaders, signal: AbortSignal.timeout(10_000) });
+          if (!accountRes.ok) return fail(`Sender preflight failed for ${email}: HTTP ${accountRes.status}`);
+          const account = await accountRes.json();
+          accountStates.push({ email, status: Number(account.status), warmupStatus: account.warmup_status ?? null });
+          if (Number(account.status) !== 1) return fail(`Refusing activation: sender ${email} is not active (status ${account.status})`);
+        }
+
+        const vitalsRes = await fetchImpl(`${base}/accounts/test/vitals`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ accounts: senders }),
+          signal: AbortSignal.timeout(15_000)
+        });
+        if (!vitalsRes.ok) return fail(`Sender vitals preflight returned HTTP ${vitalsRes.status}`, vitalsRes.status >= 500 || vitalsRes.status === 429);
+        const vitals = await vitalsRes.json();
+        const failures = Array.isArray(vitals?.failure_list) ? vitals.failure_list : [];
+        const successes = Array.isArray(vitals?.success_list) ? vitals.success_list : [];
+        if (failures.length) return fail(`Refusing activation: sender-domain vitals failed for ${failures.map((x)=>x.domain).filter(Boolean).join(", ") || failures.length + " domain(s)"}`);
+        if (successes.some((x) => x.allPass === false)) return fail("Refusing activation: one or more sender-domain vitals did not pass");
+
+        const activateRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}/activate`, {
+          method: "POST",
+          headers: jsonHeaders,
+          signal: AbortSignal.timeout(15_000)
+        });
+        const activateText = await activateRes.text();
+        let activateBody = {};
+        try { activateBody = activateText ? JSON.parse(activateText) : {}; } catch { activateBody = { raw: activateText.slice(0,500) }; }
+        if (!activateRes.ok) return fail(`Instantly activation returned HTTP ${activateRes.status}: ${String(activateBody?.message || activateBody?.error || activateText).slice(0,300)}`, activateRes.status >= 500 || activateRes.status === 429);
+
+        const verifyRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}`, { headers: readHeaders, signal: AbortSignal.timeout(10_000) });
+        if (!verifyRes.ok) return fail(`Activation verification returned HTTP ${verifyRes.status}`);
+        const verified = await verifyRes.json();
+        const afterStatus = Number(verified.status);
+        if (![1,4].includes(afterStatus)) return fail(`Campaign activation was not verified; resulting status ${afterStatus}`);
+
+        const sendingRes = await fetchImpl(`${base}/campaigns/${encodeURIComponent(campaignId)}/sending-status`, { headers: readHeaders, signal: AbortSignal.timeout(10_000) });
+        const sending = sendingRes.ok ? await sendingRes.json() : null;
+        const reason = sending?.diagnostics?.status ?? sending?.summary?.status ?? null;
+        const data = { campaignId, leadCount, pilotCap, senders: accountStates, status: afterStatus, sendingReason: reason };
+        return ok(data, { source: "instantly:campaign_activation", claim: `Activated verified Command88 pilot ${campaignId} with ${leadCount} lead(s); status ${afterStatus}; sending reason ${reason || "unknown"}`, detail: data });
+      } catch (error) {
+        return fail(`Instantly activation failed: ${error.message}`, true);
+      }
+    }
+    if (name === "instantly_pause_campaign") {
+      if (!config.instantlyApiKey || !config.instantlyCampaignId) return fail("Instantly campaign access is not configured");
+      const base = config.instantlyBaseUrl.replace(/\/$/, "");
+      const url = `${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+      const headers = { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" };
+      try {
+        const beforeRes = await fetchImpl(url, { headers, signal: AbortSignal.timeout(10000) });
+        if (!beforeRes.ok) return fail(`Instantly campaign read returned HTTP ${beforeRes.status}`);
+        const before = await beforeRes.json();
+        const beforeStatus = Number(before.status);
+        if ([0,2,3].includes(beforeStatus)) return ok({ beforeStatus, afterStatus: beforeStatus, changed: false }, { source: "instantly:campaign_pause", claim: `Campaign already non-sending at status ${beforeStatus}`, detail: { beforeStatus } });
+        if (![1,4].includes(beforeStatus)) return fail(`Unexpected campaign status ${beforeStatus}`);
+        const stopRes = await fetchImpl(`${url}/pause`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, signal: AbortSignal.timeout(12000) });
+        if (!stopRes.ok) return fail(`Instantly pause returned HTTP ${stopRes.status}`, stopRes.status >= 500 || stopRes.status === 429);
+        const verifyRes = await fetchImpl(url, { headers, signal: AbortSignal.timeout(10000) });
+        if (!verifyRes.ok) return fail(`Instantly pause verification returned HTTP ${verifyRes.status}`);
+        const after = await verifyRes.json();
+        const afterStatus = Number(after.status);
+        if ([1,4].includes(afterStatus)) return fail(`Campaign remained in sending state ${afterStatus}`);
+        return ok({ beforeStatus, afterStatus, changed: true }, { source: "instantly:campaign_pause", claim: `Campaign paused and verified non-sending at status ${afterStatus}`, detail: { beforeStatus, afterStatus } });
+      } catch (error) { return fail(`Instantly pause failed: ${error.message}`, true); }
+    }
+    if (name === "instantly_repair_cody_route") {
+      if (!config.instantlyApiKey) return fail("Instantly API key is not configured");
+      if (!config.instantlyCampaignId) return fail("Instantly campaign ID is not configured");
+      const cleanString = (value) => {
+        let out = String(value);
+        out = out
+          .replace(/([?&])rep=cody(?=(&|#|$))/gi, (match, sep, tail) => tail === "&" ? sep : "")
+          .replace(/\?&/g, "?")
+          .replace(/[?&]$/g, "");
+        out = out
+          .replace(/book(?:ing)?\s+(?:a\s+call\s+)?with\s+cody/gi, "book a time with our team")
+          .replace(/schedule(?:d|ing)?\s+(?:a\s+call\s+)?with\s+cody/gi, "schedule a time with our team")
+          .replace(/meet(?:ing)?\s+with\s+cody/gi, "meet with our team")
+          .replace(/\bcody\b/gi, "our team");
+        return out;
+      };
+      const transform = (value) => {
+        if (typeof value === "string") return cleanString(value);
+        if (Array.isArray(value)) return value.map(transform);
+        if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, transform(v)]));
+        return value;
+      };
+      try {
+        const base = config.instantlyBaseUrl.replace(/\/$/, "");
+        const getUrl = `${base}/campaigns/${encodeURIComponent(config.instantlyCampaignId)}`;
+        const response = await fetchImpl(getUrl, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+        if (!response.ok) return fail(`Instantly campaign read returned HTTP ${response.status}`, response.status >= 500);
+        const campaign = await response.json();
+        const status = Number(campaign.status);
+        if (![0, 2, 3].includes(status)) return fail(`Refusing route repair while campaign can send or has unknown status ${status}`);
+        if (!Array.isArray(campaign.sequences) || !campaign.sequences.length) return fail("Campaign has no editable sequence payload");
+        const before = JSON.stringify(campaign.sequences);
+        if (!/rep=cody|\bcody\b/i.test(before)) {
+          return ok({ changed: false, verified: true, status }, { source: "instantly:route_repair", claim: "Instantly campaign already has no Cody-specific routing", detail: { changed: false, status } });
+        }
+        const sequences = transform(campaign.sequences);
+        const after = JSON.stringify(sequences);
+        if (/rep=cody|\bcody\b/i.test(after)) return fail("Route repair could not remove all Cody-specific references; refusing partial update");
+        const patchResponse = await fetchImpl(getUrl, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ sequences }),
+          signal: AbortSignal.timeout(15_000)
+        });
+        const patchText = await patchResponse.text();
+        if (!patchResponse.ok) return fail(`Instantly route repair returned HTTP ${patchResponse.status}: ${patchText.slice(0, 300)}`, patchResponse.status >= 500 || patchResponse.status === 429);
+        const verifyResponse = await fetchImpl(getUrl, { headers: { Authorization: `Bearer ${config.instantlyApiKey}`, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
         if (!verifyResponse.ok) return fail(`Instantly repair verification returned HTTP ${verifyResponse.status}`, verifyResponse.status >= 500);
         const verifiedCampaign = await verifyResponse.json();
         const remaining = /rep=cody|\bcody\b/i.test(JSON.stringify(verifiedCampaign.sequences || []));
