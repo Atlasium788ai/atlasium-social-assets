@@ -36,6 +36,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
   const definitions = [
     {
       type: "function", name: "save_work_product",
+      strict: true,
       description: "Save a usable internal draft, such as copy, a proposal outline, test plan or checklist, in this executive's durable store. Update the same id when improving it. This does not publish, send, approve, deploy, create revenue or prove an external outcome.",
       parameters: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, content: { type: "string" } }, required: ["id", "title", "content"], additionalProperties: false },
     },
