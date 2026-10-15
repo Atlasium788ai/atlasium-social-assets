@@ -1,4 +1,5 @@
 import http from "node:http";
+import { receiveHandoff } from "./handoff.js";
 
 function send(response, status, body) {
   response.writeHead(status, { "content-type": "application/json" });
@@ -14,17 +15,6 @@ async function readJson(request) {
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
-}
-
-function snapshot(store, task) {
-  return {
-    ok: true,
-    taskId: task.id,
-    status: task.status,
-    summary: task.summary || null,
-    blocker: task.blocker || null,
-    evidenceCount: store.getEvidence(task.id).length,
-  };
 }
 
 export function createInternalServer({ config, store, agent, logger = console }) {
@@ -45,25 +35,8 @@ export function createInternalServer({ config, store, agent, logger = console })
       if (to !== config.role) throw new Error("wrong_target");
       if (!id || id.length > 128 || !message || message.length > 12_000) throw new Error("invalid_handoff");
 
-      const sourceEventId = `handoff:${from}:${id}`;
-      const existing = store.getTaskBySourceEvent(sourceEventId);
-      if (existing) {
-        send(response, 200, snapshot(store, existing));
-        return;
-      }
-      if (agent.isBusy?.()) {
-        send(response, 409, { ok: false, status: "busy", retryable: true, error: `${config.name} is executing another objective; retry or schedule a follow-up` });
-        return;
-      }
-      const { task } = store.createTask({
-        sourceEventId,
-        requesterId: `agent:${from}`,
-        channelId: `internal:${from}`,
-        requestText: `Internal handoff from ${from}: ${mode === "conversation" ? "CONVERSATION-ONLY: " : ""}${message}`,
-      });
-      const reply = await agent.handleTask(task);
-      const settled = store.getTask(task.id);
-      send(response, 200, { ...snapshot(store, settled), reply });
+      const result = await receiveHandoff({ config, store, agent, from, id, message, mode });
+      send(response, result.ok ? 200 : 409, result);
     } catch (error) {
       logger.error(`${config.name} internal handoff failed`, { message: error.message });
       const clientError = /^(payload_too_large|source_header_mismatch|source_not_connected|wrong_target|invalid_handoff)$/.test(error.message);
@@ -71,3 +44,4 @@ export function createInternalServer({ config, store, agent, logger = console })
     }
   });
 }
+

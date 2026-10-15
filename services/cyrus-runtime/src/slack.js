@@ -93,6 +93,9 @@ export class SlackSocketRuntime {
   }
 
   async processDueFollowups() {
+    // Internal handoffs and autonomous work share the same executive. Do not
+    // claim queued assignments until the current objective has released it.
+    if (this.agent.isBusy?.()) return;
     for (const followup of this.store.claimDueFollowups()) {
       const task = this.store.getTask(followup.task_id);
       if (!task || ["completed", "blocked", "failed"].includes(task.status)) {
@@ -281,3 +284,4 @@ export class SlackSocketRuntime {
     await this.processSlackMessage(event, eventId);
   }
 }
+

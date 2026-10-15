@@ -4,17 +4,7 @@ import { createSlackApi, SlackSocketRuntime } from "./slack.js";
 import { CyrusStore } from "./store.js";
 import { createToolbox } from "./tools.js";
 import { createRelentlessController } from "./relentless.js";
-
-function snapshot(store, task) {
-  return {
-    ok: true,
-    taskId: task.id,
-    status: task.status,
-    summary: task.summary || null,
-    blocker: task.blocker || null,
-    evidenceCount: store.getEvidence(task.id).length,
-  };
-}
+import { receiveHandoff } from "./handoff.js";
 
 export function createLocalAgentDispatcher() {
   const agents = new Map();
@@ -41,21 +31,7 @@ export function createLocalAgentDispatcher() {
       if (!handoffId || handoffId.length > 128 || !objective || objective.length > 12_000) throw new Error("Invalid local handoff");
 
       const runtime = agents.get(target);
-      const sourceEventId = `handoff:${source}:${handoffId}`;
-      const existing = runtime.store.getTaskBySourceEvent(sourceEventId);
-      if (existing) return snapshot(runtime.store, existing);
-      if (runtime.agent.isBusy?.()) {
-        return { ok: false, status: "busy", retryable: true, error: `${runtime.config.name} is executing another objective; retry or schedule a follow-up` };
-      }
-      const { task } = runtime.store.createTask({
-        sourceEventId,
-        requesterId: `agent:${source}`,
-        channelId: `internal:${source}`,
-        requestText: `Internal handoff from ${source}: ${mode === "conversation" ? "CONVERSATION-ONLY: " : ""}${objective}`,
-      });
-      const reply = await runtime.agent.handleTask(task);
-      const settled = runtime.store.getTask(task.id);
-      return { ...snapshot(runtime.store, settled), reply };
+      return receiveHandoff({ ...runtime, from: source, id: handoffId, message: objective, mode });
     },
   };
 }
@@ -193,3 +169,4 @@ export function createSharedSwarmRuntime({
     },
   };
 }
+
