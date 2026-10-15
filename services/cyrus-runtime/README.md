@@ -17,6 +17,10 @@ follow-ups and memory. No additional Railway service or volume is required.
 - Retryable tool failures are retried once and both attempts are recorded.
 - Automatic follow-ups persist through restarts and produce distinct deduplicated Slack replies.
 - Private Railway handoffs are idempotent and only accept configured peer roles.
+- Incoming action handoffs to a busy executive are saved with a durable follow-up
+  and run when the executive is free. Distinct assignments do not supersede one
+  another, and queue acceptance is never completion evidence. Busy conversations
+  stay read-only and must be retried rather than becoming background actions.
 - In-process handoffs use the same evidence contract and force every
   department-to-department objective through Cyrus.
 - Each bot can read only explicitly allowlisted HTTPS origins and non-DM Slack channels.
@@ -106,3 +110,4 @@ The recovered shared runtime and its Cyrus-socket handoff build are kept in
 ## Research support
 
 All dedicated executive runtimes built from this template inherit the read-only `ask_chatgpt` tool. It can use OpenAI web search for current factual, technical, product, vendor, documentation, and troubleshooting questions and returns source URLs. Agents should use research before escalating general-knowledge questions to Blair. Public research never authorizes side effects, spending, prospect contact, legal commitments, or changes to live systems.
+

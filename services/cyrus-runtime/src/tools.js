@@ -551,6 +551,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
             mode,
           });
           if (!body?.ok) return fail(body?.error || `Agent ${target} rejected the local handoff`, Boolean(body?.retryable));
+          if (body.queued || body.status === "received") return ok({ ...body, nextAction: "Queued durably, not completed. Recheck this same handoff on a bounded follow-up." });
           return ok(body, {
             source: `handoff:${target}`,
             claim: `Verified handoff to ${target}: ${body.status}`,
@@ -572,6 +573,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
         let body;
         try { body = await response.json(); } catch { return fail(`Agent ${target} returned invalid JSON`, response.status >= 500); }
         if (!response.ok || !body.ok) return fail(body.error || `Agent ${target} returned ${response.status}`, Boolean(body.retryable) || response.status >= 500);
+        if (body.queued || body.status === "received") return ok({ ...body, nextAction: "Queued durably, not completed. Recheck this same handoff on a bounded follow-up." });
         const claim = `Verified handoff to ${target}: ${body.status}`;
         return ok(body, { source: `handoff:${target}`, claim, detail: { handoffId, status: body.status, evidenceCount: body.evidenceCount || 0 } });
       } catch (error) {
@@ -1469,3 +1471,4 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
   });
   return { definitions: roleDefinitions, execute };
 }
+

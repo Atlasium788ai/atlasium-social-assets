@@ -154,7 +154,7 @@ test("Cyrus and shared executives exchange verified idempotent handoffs only thr
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("a busy executive rejects a colliding handoff without creating duplicate work", async () => {
+test("a busy executive durably queues a colliding handoff without creating duplicate work", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-busy-handoff-"));
   const primaryConfig = loadConfig(environment(path.join(dir, "cyrus")));
   const targetConfig = loadConfig(environment(path.join(dir, "mateo"), { BOT_ROLE: "mateo" }));
@@ -165,11 +165,14 @@ test("a busy executive rejects a colliding handoff without creating duplicate wo
   dispatcher.register("mateo", { config: targetConfig, store: mateoStore, agent: { isBusy: () => true } });
 
   const result = await dispatcher.dispatch({ id: "busy-one", from: "cyrus", to: "mateo", message: "Run a second objective" });
-  assert.equal(result.ok, false);
-  assert.equal(result.status, "busy");
-  assert.equal(result.retryable, true);
-  assert.match(result.error, /executing another objective/i);
-  assert.equal(mateoStore.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "received");
+  assert.equal(result.queued, true);
+  assert.equal(result.evidenceCount, 0);
+  assert.equal(mateoStore.hasPendingFollowup(result.taskId), true);
+  const repeated = await dispatcher.dispatch({ id: "busy-one", from: "cyrus", to: "mateo", message: "Run a second objective" });
+  assert.equal(repeated.taskId, result.taskId);
+  assert.equal(mateoStore.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 1);
 
   cyrusStore.close();
   mateoStore.close();
@@ -381,3 +384,4 @@ test("a wrong shared Slack identity is isolated without disabling the executive"
   primaryStore.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
