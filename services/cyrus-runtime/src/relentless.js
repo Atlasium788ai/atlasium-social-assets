@@ -57,7 +57,9 @@ export function createRelentlessController({ runtime, logger = console, now = ()
       const latestAgeMs = latest?.updated_at ? now() - Date.parse(latest.updated_at) : Number.POSITIVE_INFINITY;
       if (latest?.status === "blocked" && !/Execution limit reached/i.test(String(latest.blocker || ""))
           && Number.isFinite(latestAgeMs) && latestAgeMs >= 0 && latestAgeMs < blockedBackoffMs) {
-        sourceEventId = `relentless-alternative:${config.role}:${generation}:${latest.id}`;
+        // Back off the failing dependency, not the entire department. Keep one
+        // independent work item per normal cadence bucket, durable across restart.
+        sourceEventId = `relentless-alternative:${config.role}:${generation}:${latest.id}:${bucket}`;
         if (store.getTaskBySourceEvent(sourceEventId)) {
           return { skipped: true, reason: "blocked_backoff", taskId: latest.id, retryAt: new Date(Date.parse(latest.updated_at) + blockedBackoffMs).toISOString() };
         }
@@ -68,7 +70,7 @@ export function createRelentlessController({ runtime, logger = console, now = ()
         sourceEventId,
         requesterId: "system:relentless",
         channelId: `internal:relentless:${config.role}`,
-        requestText: relentlessPrompt(config) + (blockedObjective ? `\nALTERNATIVE WORK: The previous action remains blocked: ${blockedObjective}. Do not retry it, chase the same access, or turn it into another status handoff. Take one independent useful action now using existing tools. Save a usable internal draft if no external action is authorized. This is one bounded alternative per blocked objective; retain the original blocker and do not manufacture traction.` : ""),
+        requestText: relentlessPrompt(config) + (blockedObjective ? `\nALTERNATIVE WORK: The previous action remains blocked: ${blockedObjective}. Do not retry it, chase the same access, or turn it into another status handoff. Take one independent useful action now using existing tools. Inspect saved work first: advance the next unworked prospect or outstanding deliverable rather than recreate an existing draft. Save a usable internal draft if no external action is authorized. This is one bounded alternative in the normal cadence bucket; retain the original blocker and do not manufacture traction.` : ""),
       }));
       lastStartedAt = new Date(now()).toISOString();
       logger.info(JSON.stringify({ event: "relentless_tick_start", role: config.role, taskId: task.id, intervalMs }));

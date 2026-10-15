@@ -88,7 +88,7 @@ test("a relentless pulse does not collide with an executive already handling wor
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("an external blocker permits one independent alternative then backs off across restart", async () => {
+test("external dependencies back off while independent work continues once per cadence across restart", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-pulse-backoff-"));
   const config = configFor("malik", dir, { RELENTLESS_BLOCKED_BACKOFF_MS: "21600000" });
   const store = new CyrusStore(config.databasePath);
@@ -120,6 +120,20 @@ test("an external blocker permits one independent alternative then backs off acr
   assert.match(second.retryAt, /T/);
   assert.equal(calls, 1);
   assert.equal(store.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 2);
+  const nextCycle = await createRelentlessController({
+    runtime: { config, store, agent }, logger: { info() {}, error() {} },
+    now: () => Date.now() + config.relentlessIntervalMs,
+  }).run();
+  assert.equal(nextCycle.status, "completed");
+  assert.equal(calls, 2);
+  assert.equal(store.getTask(previous.id).status, "blocked");
+  assert.match(store.getTask(nextCycle.taskId).source_event_id, /^relentless-alternative:/);
+  const restartedCycle = await createRelentlessController({
+    runtime: { config, store, agent }, logger: { info() {}, error() {} },
+    now: () => Date.now() + config.relentlessIntervalMs,
+  }).run();
+  assert.equal(restartedCycle.reason, "blocked_backoff");
+  assert.equal(calls, 2);
   store.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
