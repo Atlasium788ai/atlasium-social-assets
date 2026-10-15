@@ -271,7 +271,7 @@ test("internal-only shared executives start without network calls or Slack apps"
   assert.equal(networkCalls, 0);
   assert.equal(Object.keys(health).length, 6);
   assert.ok(Object.values(health).every((item) => item.mode === "cyrus-mediated"));
-  assert.ok(Object.values(health).every((item) => item.schemaVersion === 4));
+  assert.ok(Object.values(health).every((item) => item.schemaVersion === 5));
   shared.stop();
   primaryStore.close();
   fs.rmSync(dir, { recursive: true, force: true });

@@ -3,7 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export class CyrusStore {
   constructor(databasePath) {
@@ -113,6 +113,16 @@ export class CyrusStore {
         next_action_at TEXT,
         evidence_summary TEXT,
         source_task_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS work_products (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK(status='draft'),
+        revision INTEGER NOT NULL DEFAULT 1,
+        source_task_id TEXT NOT NULL REFERENCES tasks(id),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -247,7 +257,24 @@ export class CyrusStore {
       openWorkItems: Number(openWorkItems.count),
       pendingFollowups: Number(pendingFollowups.count),
       outboundUnknown: Number(outboundUnknown.count),
+      savedDrafts: Number(this.db.prepare("SELECT count(*) AS count FROM work_products").get().count),
     };
+  }
+
+  saveWorkProduct({ id, title, content, sourceTaskId }) {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO work_products(id, title, content, source_task_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        revision=work_products.revision + CASE WHEN work_products.content!=excluded.content OR work_products.title!=excluded.title THEN 1 ELSE 0 END,
+        title=excluded.title, content=excluded.content, source_task_id=excluded.source_task_id, updated_at=excluded.updated_at
+    `).run(id, title, content, sourceTaskId, now, now);
+    return this.db.prepare("SELECT * FROM work_products WHERE id=?").get(id);
+  }
+
+  listWorkProducts(limit = 5) {
+    return this.db.prepare("SELECT * FROM work_products ORDER BY updated_at DESC, id LIMIT ?").all(Math.max(1, Math.min(10, Number(limit) || 5)));
   }
 
   acceptSlackEvent(eventId, payload) {
@@ -647,3 +674,4 @@ export class CyrusStore {
       .run(slackTs || null, new Date().toISOString(), replyId);
   }
 }
+
