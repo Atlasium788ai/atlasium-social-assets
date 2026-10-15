@@ -289,7 +289,8 @@ export class CyrusStore {
     if (existing) return { task: existing, created: false };
     const now = new Date().toISOString();
 
-    if (String(channelId || "").trim()) {
+    // Only recurring pulses replace their own obsolete pulse, never DMs or handoffs.
+    if (requesterId === "system:relentless" && String(channelId || "").startsWith("internal:relentless:")) {
       const superseded = this.db.prepare(`
         SELECT id FROM tasks
         WHERE channel_id=? AND status IN ('received','running')
@@ -352,9 +353,9 @@ export class CyrusStore {
   recentWorkStatus(excludeTaskId) {
     return this.db.prepare(`
       SELECT request_text, status, summary, blocker, updated_at FROM tasks
-      WHERE id!=? AND channel_id LIKE 'internal:%'
-      ORDER BY rowid DESC LIMIT 3
-    `).all(excludeTaskId).map(row => ({ ...row,
+      WHERE id!=? AND (channel_id LIKE 'internal:%' OR channel_id=(SELECT channel_id FROM tasks WHERE id=?))
+      ORDER BY CASE WHEN status IN ('received','running') THEN 0 ELSE 1 END, rowid DESC LIMIT 5
+    `).all(excludeTaskId, excludeTaskId).map(row => ({ ...row,
       request_text: row.request_text.slice(0, 500),
       summary: row.summary?.slice(0, 500), blocker: row.blocker?.slice(0, 300),
     }));
@@ -490,6 +491,15 @@ export class CyrusStore {
 
   nextFollowup(taskId) {
     return this.db.prepare("SELECT * FROM followups WHERE task_id=? AND status='pending' ORDER BY due_at LIMIT 1").get(taskId);
+  }
+
+  continuationCount(taskId) {
+    return Number(this.db.prepare("SELECT count(*) AS n FROM task_steps WHERE task_id=? AND status='continuation_scheduled'").get(taskId).n);
+  }
+
+  recentToolReceipts(taskId) {
+    return this.db.prepare("SELECT tool_name, status, detail_json FROM task_steps WHERE task_id=? AND tool_name IS NOT NULL ORDER BY id DESC LIMIT 8")
+      .all(taskId).reverse().map(row => ({ tool: row.tool_name, status: row.status, detail: row.detail_json.slice(0, 1600) }));
   }
 
   claimDueFollowups(now = new Date().toISOString(), limit = 5) {
@@ -655,6 +665,7 @@ export class CyrusStore {
     const closeFollowupsNow = this.db.prepare("UPDATE followups SET status='completed', completed_at=? WHERE task_id=? AND status!='completed'");
     for (const row of internalOpen) {
       const key = String(row.channel_id || "");
+      if (row.requester_id !== "system:relentless" || !key.startsWith("internal:relentless:")) continue;
       if (!seenInternal.has(key)) {
         seenInternal.add(key);
         continue;
@@ -670,7 +681,8 @@ export class CyrusStore {
       SELECT id FROM tasks
       WHERE status IN ('received','running')
         AND created_at < ?
-        AND (source_event_id LIKE 'relentless:%' OR source_event_id LIKE 'handoff:%' OR channel_id LIKE 'internal:%')
+        AND requester_id='system:relentless' AND channel_id LIKE 'internal:relentless:%'
+        AND NOT EXISTS (SELECT 1 FROM followups f WHERE f.task_id=tasks.id AND f.status='pending')
     `).all(cutoff);
     const staleTask = this.db.prepare("UPDATE tasks SET status='failed', blocker='Superseded by a newer machine-generated execution cycle', updated_at=? WHERE id=?");
     const staleItems = this.db.prepare("UPDATE work_items SET status='completed', updated_at=? WHERE task_id=? AND status!='completed'");
@@ -701,6 +713,17 @@ export class CyrusStore {
 
   pendingReplies() {
     return this.db.prepare("SELECT * FROM reply_outbox_messages WHERE status='pending' ORDER BY created_at").all();
+  }
+
+  queueProgressReply(taskId, channelId) {
+    const body = "I have your request. It is still in progress; I'll reply here with the result.";
+    const existing = this.db.prepare("SELECT id FROM reply_outbox_messages WHERE task_id=? AND channel_id=? AND body=? LIMIT 1").get(taskId, channelId, body);
+    if (existing) return existing.id;
+    const id = randomUUID();
+    this.db.prepare(`INSERT OR IGNORE INTO reply_outbox_messages(id, task_id, channel_id, body, status, created_at)
+      VALUES (?, ?, ?, ?, 'pending', ?)`)
+      .run(id, taskId, channelId, body, new Date().toISOString());
+    return id;
   }
 
   markReplySent(replyId, slackTs) {

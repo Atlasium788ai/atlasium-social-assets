@@ -25,6 +25,7 @@ export function isConversationOnly(text) {
   if (/^Internal handoff from [a-z-]+:\s*CONVERSATION-ONLY:/i.test(String(text || ""))) return true;
   const input = String(text || "").replace(internalPrefix, "").replace(namePrefix, "").trim();
   if (!input || isStructuredUpdateRequest(input)) return false;
+  if (/^recover\b/i.test(input)) return false;
   if (/^ask\s+(?:cyrus|malik|clara|mateo|kenji|amara|nadia|sloane)\b/i.test(input)) return false;
 
   const explicitConversation = /\b(?:conversational|personality|dialogue|roleplay|hypothetical|thought experiment)\s+(?:test|exercise|situation|scenario|only)\b|\b(?:this is|it's|it is)\s+(?:a\s+)?(?:conversation|hypothetical|roleplay|personality test)\b|\b(?:just|only)\s+(?:talk|chat|discuss|answer)\b|\b(?:what would you say|how would you respond|speak to me|talk to me like|respond in your own voice)\b/i.test(input);

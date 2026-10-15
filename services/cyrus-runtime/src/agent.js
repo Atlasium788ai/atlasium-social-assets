@@ -30,7 +30,7 @@ export class CyrusAgent {
     this.store.setTaskStatus(task.id, "running");
     const history = this.store.recentConversation(task.id);
     const handoffFollowup = isHandoffFollowup(task.request_text, history);
-    const continuity = "\n\nCONVERSATION CONTINUITY: Use the supplied recent turns to interpret short follow-ups and answers to your questions. The latest message controls scope. Do not re-execute an old instruction merely because it appears in history. When Blair names an executive after you asked which person, treat it as his answer, not an identity correction. For an explicit request to ask an executive, use the permitted internal handoff and include the resolved context; ask only for information still genuinely missing.\nLOCAL WORK STATUS: Background automation configured: " + Boolean(this.config.autonomyEnabled) + ". Other active executions in this role: " + Math.max(0, this.activeTasks - 1) + ". Recent internal work records (timestamps and statuses, not proof of external results): " + JSON.stringify(this.store.recentWorkStatus(task.id)) + ". Do not assert that no background work exists without checking this supplied state. Automation configured does not prove work is currently executing.";
+    const continuity = "\n\nCONVERSATION CONTINUITY: Use the supplied recent turns to interpret short follow-ups and answers to your questions. The latest message controls scope. Do not re-execute an old instruction merely because it appears in history. When Blair names an executive after you asked which person, treat it as his answer, not an identity correction. For an explicit request to ask an executive, use the permitted internal handoff and include the resolved context; ask only for information still genuinely missing.\nLOCAL WORK STATUS: Background automation configured: " + Boolean(this.config.autonomyEnabled) + ". Other active executions in this role: " + Math.max(0, this.activeTasks - 1) + ". Recent role-local work records (timestamps and statuses, not proof of external results): " + JSON.stringify(this.store.recentWorkStatus(task.id)) + ". Do not assert that no background work exists without checking this supplied state. Automation configured does not prove work is currently executing.";
     // Conversation-only mode applies to every executive, including dialogue
     // handed off via Cyrus. It is read-only at the API boundary.
     if (!followupReason && !handoffFollowup && isConversationOnly(task.request_text)) {
@@ -90,6 +90,8 @@ ${JSON.stringify(operatingPlan.slice(0, 20))}` },
     const operatingPlan = this.store.getOperatingItems();
     const workPlan = this.store.getWorkItems(task.id);
     const priorEvidence = this.store.getEvidence(task.id).map(({ id, source, claim, verified_at }) => ({ id, source, claim, verified_at }));
+    const evidenceSignature = row => JSON.stringify([row.source, row.claim, row.detail_json]);
+    const initialEvidenceSignatures = new Set(this.store.getEvidence(task.id).map(evidenceSignature));
     let input = [
       {
         role: "developer",
@@ -105,6 +107,8 @@ Current task work plan:
 ${JSON.stringify(workPlan)}
 Existing verified evidence:
 ${JSON.stringify(priorEvidence)}
+Recent tool receipts for this same task (do not repeat successful writes or sends; reconcile uncertain outcomes):
+${JSON.stringify(this.store.recentToolReceipts(task.id))}
 ${continuity}
 Request routing: ACTION. Execute with tools and require evidence. A phrase such as 'conversational exercise' or a restriction against external messaging limits the permitted actions; it does not turn an explicit internal diagnostic or execution request into conversation-only.
 INTERNAL READ-ONLY ACCEPTANCE TESTS: When asked to prove that this executive can execute a harmless internal task, call system_health once. Its verified durable-store result is evidence for that specific health check only. If it succeeds, call complete_task with a narrow summary of the observed health result. Do not create work plans or unrelated operating-plan items for a simple diagnostic, and do not claim broader integrations, revenue work, or other executives passed. If the requested objective needs evidence unavailable from permitted tools, report_blocker with the precise missing evidence rather than looping through list_work_plan, recall_memory, or list_operating_plan. Never invent evidence or bypass completion guards.${followupReason ? `
@@ -202,7 +206,16 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
 
     const finalTask = this.store.getTask(task.id);
     if (finalTask.status === "running" && !this.store.hasPendingFollowup(task.id)) {
-      this.store.setTaskStatus(task.id, "blocked", { blocker: "Execution limit reached before a verified result" });
+      const progressed = this.store.getEvidence(task.id).some(row => !initialEvidenceSignatures.has(evidenceSignature(row)));
+      const continuations = this.store.continuationCount(task.id);
+      if (progressed && continuations < 2) {
+        this.store.scheduleFollowup(task.id, { dueAt: new Date(Date.now() + 15_000).toISOString(), reason: "Continue the same assigned objective from saved work plan, evidence and tool receipts. Do not repeat completed writes or sends. Finish the next outstanding action, or record the exact remaining dependency." });
+        this.store.addStep(task.id, { attempt: this.maxTurns, status: "continuation_scheduled", detail: { continuation: continuations + 1, evidenceCount: this.store.getEvidence(task.id).length } });
+        console.info(JSON.stringify({ event: "task_continuation_scheduled", role: this.config.role, taskId: task.id, continuation: continuations + 1 }));
+        lastText = "The assignment has made progress and remains open. The next execution step is queued automatically.";
+      } else {
+        this.store.setTaskStatus(task.id, "blocked", { blocker: progressed ? "Execution limit reached after two bounded continuations; objective remains unverified" : "Execution limit reached without new verified progress" });
+      }
     }
     const settled = this.store.getTask(task.id);
     const evidence = this.store.getEvidence(task.id);
