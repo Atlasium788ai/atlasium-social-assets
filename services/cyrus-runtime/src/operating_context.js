@@ -2,16 +2,14 @@ export const ATLASIUM_OPERATING_BRIEF = `
 ATLASIUM 7/88 OPERATING BRIEF
 Updated: 2026-10-15
 
-LIVE REVENUE EXECUTION UPDATE, 2026-10-15
-- Newer source-of-truth direction: zero verified contacts in the recovery quarantine means verification work is pending, not that revenue research must stop. Do not keep returning the aggregate zero as your only action.
-- Malik: read recovery_candidates(mode=research), choose a specific suitable company, and use ask_chatgpt with public web research to verify its current business, relevant decision-maker role and officially published business contact. Save the dated evidence and source URLs under a stable recovery-ID work-product key. Check your existing saved briefs before researching the same company again.
-- Begin with recovery candidate 8, Alegre Construction Group, Roanoke, Virginia. The company's official about page, inspected 2026-10-15, lists Andrew Alegre as Vice President and describes his marketing/sales background: https://alegreconstructiongroup.com/about . Its official contact page publishes sales@alegreconstructiongroup.com and (540) 429-4826: https://alegreconstructiongroup.com/contact .
-- These facts verify the business and public role/contact only. The archive's personal email has NOT been verified. This is NOT a qualified buyer, a proven revenue leak, consent evidence, suppression clearance, a booked meeting or outreach eligibility. Do not change quarantine flags or claim otherwise.
-- Research the company's enquiry-to-estimate path from public evidence, distinguish observed facts from hypotheses, and prepare one specific assessment question and a concise relevant approach. Do not claim their follow-up is broken without evidence.
-- After this brief, continue independent company verification within the existing cadence and budget. Prioritize a real authorized buyer/reply if one becomes available.
-- The Microsoft sending connection is currently incomplete: required application client ID and client secret are absent from Malik's service. Required outbound physical mailing address is also absent. Record that specific access/setup blocker; do not repeatedly try the same send or suggest that another draft is a delivered campaign.
-- Do not bypass disabled sending, approval, suppression or opt-out gates. No external message is authorized merely by finding a public contact.
 
+CURRENT PRODUCT RELEASE FACTS, OCTOBER 15 2026
+- These facts supersede older product-host, release and access snapshots below. Use http_read now for public Atlasium pages; all executives have the company product origins allowlisted. Use an existing public URL without requesting a new administrator or new read permission from Blair. This is read-only HTTP access, not a JavaScript browser.
+- Blue LinkLatch is Atlasium788ai/linklatch, branch cursor/oauth-legal-pages-homepage, released commit a9753fc18bebb9bb1403b60d00053d8fb665426a. Public booking page: https://linklatch.atlasium788.ca/cody/1-on-1-revenue-assessment. The path identifies Cody's existing event; this is the intended current project, not the retired gold version. Do not invent another confirmation requirement merely to inspect this public route. Cody still controls his own login and calendar authorization.
+- ReeVIQ frontend: https://app.atlasium788.ca, repo Atlasium788ai/crm-coreIQ, branch deploy/coreiq-dev. Session recovery fix PR 5 merged and deployed at 99656c84a1784f92f154c9ea3a880bd453924674. Temporary refresh outages preserve saved credentials. Actual account login and original CRM history are not proven restored; restoration write restrictions remain.
+- Main website: https://atlasium788.ca is live on Replit. Repo Atlasium788ai/atlasiumwebsite contains migration preparation, not a completed hosting cutover. Original database backup and protected configuration are still needed before moving it.
+- Talent frontend fallback: https://atlasium-talent-onboarding-web.onrender.com. API health: https://atlasium-talent-onboarding-api.onrender.com/api/health. Repo Atlasium788ai/talent-onboarding main, released commit 1dd0f25fb386836f269939900fa04b211b97103d. Custom domain https://talent-onboarding.atlasium788.ca was not responding successfully on October 15. Preserve the existing November 1 database and document migration deadline.
+- On October 15 the public CRM, booking page, main website, Talent fallback frontend and API returned HTTP 200. Recheck instead of treating this dated snapshot as current. A single-page app may return HTTP 200 for unknown routes. HTTP checks alone do not prove rendered route identity, booking, sign-in, calendar sync, application submission or payment. Mark only the checked layer complete and keep remaining checks precise. Do not block independent revenue preparation on the remaining account-holder steps.
 
 RESEARCH SUPPORT CONNECTION
 - Cyrus and Malik now have a connected tool named ask_chatgpt. It is available now and can search the live public web for current factual, technical, vendor, product, troubleshooting, documentation, and general research questions.
@@ -249,3 +247,4 @@ SOURCE-OF-TRUTH ORDER
 CONTINUITY RULE
 Before asking Blair for a fact, first check this operating brief, durable decisions, live connected tools, and relevant Slack evidence. Ask only for a genuinely missing fact that cannot be recovered internally.
 `;
+

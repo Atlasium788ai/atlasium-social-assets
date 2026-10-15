@@ -1,4 +1,5 @@
 import path from "node:path";
+import { PRODUCT_READ_ORIGINS } from "./public-read.js";
 
 function required(env, name) {
   const value = env[name]?.trim();
@@ -74,7 +75,7 @@ export function loadConfig(env = process.env) {
     openAiMaxOutputTokens: Math.max(256, Math.min(4_000, Number(env.OPENAI_MAX_OUTPUT_TOKENS || 1_200))),
     httpReadAllowlist: new Set([
       ...csv(env.HTTP_READ_ALLOWLIST),
-      "https://linklatch.atlasium788.ca",
+      ...PRODUCT_READ_ORIGINS,
     ]),
     agentPeers: jsonObject(env.AGENT_PEERS_JSON, "AGENT_PEERS_JSON"),
     followupPollMs: Math.max(5_000, Number(env.FOLLOWUP_POLL_MS || 15_000)),
@@ -137,7 +138,7 @@ export function loadSharedRoleConfigs(env, primaryConfig) {
       slackAllowedChannelIds: csv(env[`${prefix}_SLACK_ALLOWED_CHANNEL_IDS`] || ""),
       httpReadAllowlist: new Set([
         ...csv(env[`${prefix}_HTTP_READ_ALLOWLIST`] || ""),
-        "https://linklatch.atlasium788.ca",
+        ...PRODUCT_READ_ORIGINS,
       ]),
       agentPeers: {},
       autonomyEnabled: bool(env[`${prefix}_AUTONOMY_ENABLED`], bool(env.SHARED_SWARM_AUTONOMY_ENABLED, false)),
@@ -157,3 +158,4 @@ export function loadSharedRoleConfigs(env, primaryConfig) {
     };
   });
 }
+
