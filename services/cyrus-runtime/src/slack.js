@@ -1,4 +1,5 @@
 const SLACK_API = "https://slack.com/api";
+import { isConversationOnly, isHandoffFollowup } from "./conversation.js";
 
 export function createSlackApi(token, fetchImpl = fetch) {
   return async function slackApi(method, payload = {}) {
@@ -62,6 +63,10 @@ export class SlackSocketRuntime {
 
   runAgentTask(task, options = {}) {
     const execute = () => this.agent.handleTask(task, options);
+    // A read-only conversational reply need not wait behind a multi-minute
+    // operational assignment. Tool-capable work remains serialized.
+    if (!options.followupReason && isConversationOnly(task.request_text)
+        && !isHandoffFollowup(task.request_text, this.store.recentConversation(task.id))) return execute();
     const queued = this.taskQueue.then(execute, execute);
     this.taskQueue = queued.catch(() => undefined);
     return queued;
@@ -186,13 +191,25 @@ export class SlackSocketRuntime {
     await this.setMessageReaction(event, "hourglass_flowing_sand", true);
     await this.setMessageReaction(event, "eyes", false);
     let completed = false;
+    let progress = null;
+    const progressTimer = setTimeout(() => {
+      progress = (async () => {
+        if (!['received', 'running'].includes(this.store.getTask(task.id)?.status)) return;
+        this.store.queueProgressReply(task.id, event.channel);
+        await this.flushOutbox();
+      })().catch(error => this.logger.warn('Progress acknowledgement deferred', { taskId: task.id, message: error.message }));
+    }, this.config.progressAckDelayMs ?? 12_000);
+    progressTimer.unref();
     try {
       const reply = await this.runAgentTask(task);
+      clearTimeout(progressTimer);
+      if (progress) await progress;
       this.store.queueReply(task.id, event.channel, reply);
       await this.flushOutbox();
       completed = true;
       return true;
     } finally {
+      clearTimeout(progressTimer);
       await this.setMessageReaction(event, "hourglass_flowing_sand", false);
       await this.setMessageReaction(event, completed ? "white_check_mark" : "warning", true);
     }

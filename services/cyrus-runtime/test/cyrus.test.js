@@ -455,9 +455,9 @@ test("action work cannot auto-complete from evidence plus a text-only claim", as
   const current = task(store, "Ev-text-only-completion", "Execute and verify the internal objective");
   const reply = await agent.handleTask(current);
 
-  assert.equal(store.getTask(current.id).status, "blocked");
-  assert.match(store.getTask(current.id).blocker, /Execution limit reached/i);
-  assert.match(reply, /^Blocked\./);
+  assert.equal(store.getTask(current.id).status, "running");
+  assert.equal(store.hasPendingFollowup(current.id), true);
+  assert.match(reply, /remains open/);
   assert.doesNotMatch(reply, /^The objective is complete/i);
   assert.equal(store.getEvidence(current.id).length, 1);
   store.close();
@@ -745,3 +745,4 @@ test("connected agent handoff returns verifiable evidence", async () => {
   assert.match(result.evidence.claim, /Verified handoff/);
   store.close();
 });
+
