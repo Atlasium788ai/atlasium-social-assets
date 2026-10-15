@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readPublicPage } from "./public-read.js";
 import { recordAndRouteBlocker } from "./blockers.js";
 import { createMicrosoftGraphTransport, createUnsubscribeToken, emailFingerprint, normalizeEmail } from "./outbound.js";
 
@@ -437,16 +438,12 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
       return ok(row, { source: "cyrus:operating_plan", claim: `Operating item updated: ${row.id} -> ${row.status}`, detail: row });
     }
     if (name === "http_read") {
-      let url;
-      try { url = new URL(args.url); } catch { return fail("Invalid URL"); }
-      if (url.protocol !== "https:" || !config.httpReadAllowlist.has(url.origin)) return fail(`URL origin is not allowlisted: ${url.origin}`);
       try {
-        const response = await fetchImpl(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(12_000) });
-        const body = (await response.text()).slice(0, 12_000);
-        if (!response.ok) return fail(`GET ${url} returned ${response.status}`, response.status >= 500);
-        return ok({ status: response.status, body }, { source: String(url), claim: `Read returned HTTP ${response.status}`, detail: { status: response.status, bodySample: body.slice(0, 500) } });
+        const result = await readPublicPage(args.url, config.httpReadAllowlist, fetchImpl);
+        if (result.status < 200 || result.status >= 300) return fail(`GET ${result.url} returned ${result.status}`, result.status >= 500);
+        return ok(result, { source: result.url, claim: `Read returned HTTP ${result.status} (HTTP availability only)`, detail: { status: result.status, bodySample: result.body.slice(0, 500), verificationScope: result.verificationScope } });
       } catch (error) {
-        return fail(`GET failed: ${error.message}`, true);
+        return fail(`GET failed: ${error.message}`, !/allowlisted|Invalid URL|redirect/i.test(error.message));
       }
     }
     if (name === "ask_chatgpt") {
