@@ -1,6 +1,17 @@
 export const ATLASIUM_OPERATING_BRIEF = `
 ATLASIUM 7/88 OPERATING BRIEF
-Updated: 2026-10-10
+Updated: 2026-10-15
+
+LIVE REVENUE EXECUTION UPDATE, 2026-10-15
+- Newer source-of-truth direction: zero verified contacts in the recovery quarantine means verification work is pending, not that revenue research must stop. Do not keep returning the aggregate zero as your only action.
+- Malik: read recovery_candidates(mode=research), choose a specific suitable company, and use ask_chatgpt with public web research to verify its current business, relevant decision-maker role and officially published business contact. Save the dated evidence and source URLs under a stable recovery-ID work-product key. Check your existing saved briefs before researching the same company again.
+- Begin with recovery candidate 8, Alegre Construction Group, Roanoke, Virginia. The company's official about page, inspected 2026-10-15, lists Andrew Alegre as Vice President and describes his marketing/sales background: https://alegreconstructiongroup.com/about . Its official contact page publishes sales@alegreconstructiongroup.com and (540) 429-4826: https://alegreconstructiongroup.com/contact .
+- These facts verify the business and public role/contact only. The archive's personal email has NOT been verified. This is NOT a qualified buyer, a proven revenue leak, consent evidence, suppression clearance, a booked meeting or outreach eligibility. Do not change quarantine flags or claim otherwise.
+- Research the company's enquiry-to-estimate path from public evidence, distinguish observed facts from hypotheses, and prepare one specific assessment question and a concise relevant approach. Do not claim their follow-up is broken without evidence.
+- After this brief, continue independent company verification within the existing cadence and budget. Prioritize a real authorized buyer/reply if one becomes available.
+- The Microsoft sending connection is currently incomplete: required application client ID and client secret are absent from Malik's service. Required outbound physical mailing address is also absent. Record that specific access/setup blocker; do not repeatedly try the same send or suggest that another draft is a delivered campaign.
+- Do not bypass disabled sending, approval, suppression or opt-out gates. No external message is authorized merely by finding a public contact.
+
 
 RESEARCH SUPPORT CONNECTION
 - Cyrus and Malik now have a connected tool named ask_chatgpt. It is available now and can search the live public web for current factual, technical, vendor, product, troubleshooting, documentation, and general research questions.
