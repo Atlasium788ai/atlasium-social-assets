@@ -23,8 +23,10 @@ export function isConversationOnly(text) {
   // Explicitly routed internal dialogue stays read-only even when it quotes
   // another executive saying "launch", "check", or "send".
   if (/^Internal handoff from [a-z-]+:\s*CONVERSATION-ONLY:/i.test(String(text || ""))) return true;
-  const input = String(text || "").replace(internalPrefix, "").replace(namePrefix, "").trim();
+  const input = String(text || "").replace(internalPrefix, "").replace(namePrefix, "").trim()
+    .replace(/^(?:(?:so|okay|ok|then|well|right|yes)[,!]?\s+)+/i, "");
   if (!input || isStructuredUpdateRequest(input)) return false;
+  if (/^(?:you\s+)?figure\s+(?:it|this|that)\s+out\b|^(?:keep|continue)\s+(?:working|going|moving)\b/i.test(input)) return false;
   if (/^recover\b/i.test(input)) return false;
   if (/^ask\s+(?:cyrus|malik|clara|mateo|kenji|amara|nadia|sloane)\b/i.test(input)) return false;
 

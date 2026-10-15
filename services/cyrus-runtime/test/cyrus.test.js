@@ -126,7 +126,8 @@ test("explicit internal diagnostics remain actions despite conversational framin
     assert.equal(store.getTask(current.id).status, "completed", `${role} treated the request as conversation-only`);
     assert.equal(store.getEvidence(current.id).length, 1, `${role} completed without diagnostic evidence`);
     assert.match(reply, /verified/i);
-    assert.ok(seenInstructions.every((prompt) => prompt === systemPrompt(role)), `${role} used the wrong personality`);
+    assert.ok(seenInstructions.every((prompt) => prompt.startsWith(systemPrompt(role))), `${role} used the wrong personality`);
+    assert.ok(seenInstructions.every((prompt) => prompt.includes('CURRENT TURN: ACTION')), `${role} lost execution-mode context`);
     store.close();
   }
 });
