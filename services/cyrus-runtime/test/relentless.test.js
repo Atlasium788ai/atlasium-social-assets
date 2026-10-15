@@ -88,7 +88,7 @@ test("a relentless pulse does not collide with an executive already handling wor
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("a durable external blocker backs off instead of burning another hourly cycle", async () => {
+test("an external blocker permits one independent alternative then backs off across restart", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "command88-pulse-backoff-"));
   const config = configFor("malik", dir, { RELENTLESS_BLOCKED_BACKOFF_MS: "21600000" });
   const store = new CyrusStore(config.databasePath);
@@ -100,15 +100,26 @@ test("a durable external blocker backs off instead of burning another hourly cyc
   }).task;
   store.setTaskStatus(previous.id, "blocked", { blocker: "Original ReeVIQ CRM access is not authorized" });
   let calls = 0;
+  const agent = { isBusy: () => false, handleTask: async (task) => {
+    calls += 1;
+    assert.match(task.request_text, /ALTERNATIVE WORK/);
+    assert.match(task.request_text, /Original ReeVIQ CRM access is not authorized/);
+    const draft = store.saveWorkProduct({ id: "buyer-followup", title: "Buyer follow-up draft", content: "Draft for an existing qualified buyer. Verify their name and context before use.", sourceTaskId: task.id });
+    store.addEvidence(task.id, { source: "malik_drafts", claim: "Internal draft saved", detail: { id: draft.id } });
+    store.setTaskStatus(task.id, "completed", { summary: "Saved an internal draft only" });
+    return "Internal draft saved, not sent.";
+  } };
   const result = await createRelentlessController({
-    runtime: { config, store, agent: { isBusy: () => false, handleTask: async () => { calls += 1; } } },
+    runtime: { config, store, agent },
     logger: { info() {}, error() {} },
   }).run();
-  assert.equal(result.skipped, true);
-  assert.equal(result.reason, "blocked_backoff");
-  assert.match(result.retryAt, /T/);
-  assert.equal(calls, 0);
-  assert.equal(store.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 1);
+  assert.equal(result.status, "completed");
+  assert.equal(store.getTask(previous.id).status, "blocked");
+  const second = await createRelentlessController({ runtime: { config, store, agent }, logger: { info() {}, error() {} } }).run();
+  assert.equal(second.reason, "blocked_backoff");
+  assert.match(second.retryAt, /T/);
+  assert.equal(calls, 1);
+  assert.equal(store.db.prepare("SELECT count(*) AS count FROM tasks").get().count, 2);
   store.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -131,3 +142,4 @@ test("shared roles inherit autonomy without sharing databases or Slack identitie
   assert.equal(configs.find((item) => item.role === "sloane").slackSocketEnabled, false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+

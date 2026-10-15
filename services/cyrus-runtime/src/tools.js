@@ -35,6 +35,16 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
   const microsoftGraph = createMicrosoftGraphTransport({ config, fetchImpl });
   const definitions = [
     {
+      type: "function", name: "save_work_product",
+      description: "Save a usable internal draft, such as copy, a proposal outline, test plan or checklist, in this executive's durable store. Update the same id when improving it. This does not publish, send, approve, deploy, create revenue or prove an external outcome.",
+      parameters: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, content: { type: "string" } }, required: ["id", "title", "content"], additionalProperties: false },
+    },
+    {
+      type: "function", name: "list_work_products",
+      description: "Read this executive's saved internal drafts before creating or improving work, to avoid repeating preparation. These are drafts, not evidence of business delivery.",
+      parameters: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 10 } }, additionalProperties: false },
+    },
+    {
       type: "function",
       name: "recall_memory",
       description: "Recall active decisions and durable context from previous tasks and restarts.",
@@ -372,6 +382,16 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
 
   async function execute(name, args, context) {
     if (!args || typeof args !== "object" || Array.isArray(args)) args = {};
+    if (name === "list_work_products") return ok(store.listWorkProducts(args.limit));
+    if (name === "save_work_product") {
+      const id = requiredString(args.id, "id", 120);
+      const title = requiredString(args.title, "title", 240);
+      const content = requiredString(args.content, "content", 20_000);
+      if (id.error || title.error || content.error) return fail(id.error || title.error || content.error);
+      const row = store.saveWorkProduct({ id: id.value, title: title.value, content: content.value, sourceTaskId: context.taskId });
+      const receipt = { id: row.id, title: row.title, revision: row.revision, status: "draft", published: false };
+      return ok(receipt, { source: `${config.role}_drafts`, claim: `Internal draft saved: ${row.title}. Not published or delivered.`, detail: receipt });
+    }
     if (config.role !== "malik" && REVENUE_TOOLS.has(name)) {
       return fail(`Tool ${name} is restricted to Malik's revenue runtime`);
     }

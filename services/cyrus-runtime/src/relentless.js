@@ -17,6 +17,7 @@ export function relentlessPrompt(config) {
     directive,
     "Inspect durable memory, open operating context, and available connected evidence before deciding.",
     "Take the next safe executable action now. Use a connected tool when it can materially advance or verify the objective.",
+    "A blocked action does not stop the department. Preserve its exact blocker, then select a different useful action within your existing authority. Read list_work_products first; produce or improve one usable internal draft with save_work_product when external execution is unavailable. Prefer a relevant proposal outline, buyer follow-up draft, marketing asset, technical test plan, delivery checklist or source-evidence map over another status report. Mark assumptions and missing inputs. Never call a draft published, sent, approved, deployed or revenue.",
     "When another executive owns the next action, hand off through Cyrus with a concrete objective, evidence requirement, and definition of done.",
     "Do not manufacture activity, repeat a known failed call, or send routine status chatter to Blair. Preserve the open loop and schedule a bounded follow-up when work cannot finish in this cycle.",
     "Never bypass consent, suppression, privacy, security, legal, spending, production-deployment, or human-approval gates.",
@@ -28,6 +29,8 @@ export function createRelentlessController({ runtime, logger = console, now = ()
   const { config, store, agent } = runtime;
   let timer = null;
   let initialTimer = null;
+  let alternativeTimer = null;
+  let stopped = false;
   let busy = false;
   let lastStartedAt = null;
   let lastFinishedAt = null;
@@ -43,24 +46,29 @@ export function createRelentlessController({ runtime, logger = console, now = ()
     const intervalMs = Math.max(15 * 60_000, Number(config.relentlessIntervalMs || 60 * 60_000));
     const bucket = Math.floor(now() / intervalMs);
     const generation = String(config.relentlessGeneration || "v1").replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 80) || "v1";
-    const sourceEventId = `relentless:${config.role}:${generation}:${bucket}`;
+    let sourceEventId = `relentless:${config.role}:${generation}:${bucket}`;
     const sourcePrefix = `relentless:${config.role}:${generation}:`;
     let task = null;
+    let blockedObjective = null;
     try {
       const existing = store.getTaskBySourceEvent(sourceEventId);
-      if (existing) return { skipped: true, reason: "deduplicated", taskId: existing.id };
       const latest = store.latestTaskBySourcePrefix(sourcePrefix);
       const blockedBackoffMs = Math.max(60 * 60_000, Number(config.relentlessBlockedBackoffMs || 6 * 60 * 60_000));
       const latestAgeMs = latest?.updated_at ? now() - Date.parse(latest.updated_at) : Number.POSITIVE_INFINITY;
       if (latest?.status === "blocked" && !/Execution limit reached/i.test(String(latest.blocker || ""))
           && Number.isFinite(latestAgeMs) && latestAgeMs >= 0 && latestAgeMs < blockedBackoffMs) {
-        return { skipped: true, reason: "blocked_backoff", taskId: latest.id, retryAt: new Date(Date.parse(latest.updated_at) + blockedBackoffMs).toISOString() };
+        sourceEventId = `relentless-alternative:${config.role}:${generation}:${latest.id}`;
+        if (store.getTaskBySourceEvent(sourceEventId)) {
+          return { skipped: true, reason: "blocked_backoff", taskId: latest.id, retryAt: new Date(Date.parse(latest.updated_at) + blockedBackoffMs).toISOString() };
+        }
+        blockedObjective = String(latest.blocker || "Unresolved external dependency").slice(0, 2_000);
       }
+      if (!blockedObjective && existing) return { skipped: true, reason: "deduplicated", taskId: existing.id };
       ({ task } = store.createTask({
         sourceEventId,
         requesterId: "system:relentless",
         channelId: `internal:relentless:${config.role}`,
-        requestText: relentlessPrompt(config),
+        requestText: relentlessPrompt(config) + (blockedObjective ? `\nALTERNATIVE WORK: The previous action remains blocked: ${blockedObjective}. Do not retry it, chase the same access, or turn it into another status handoff. Take one independent useful action now using existing tools. Save a usable internal draft if no external action is authorized. This is one bounded alternative per blocked objective; retain the original blocker and do not manufacture traction.` : ""),
       }));
       lastStartedAt = new Date(now()).toISOString();
       logger.info(JSON.stringify({ event: "relentless_tick_start", role: config.role, taskId: task.id, intervalMs }));
@@ -70,6 +78,11 @@ export function createRelentlessController({ runtime, logger = console, now = ()
       lastFinishedAt = new Date(now()).toISOString();
       lastStatus = settled.status;
       lastError = null;
+      if (settled.status === "blocked" && !blockedObjective && !stopped && !alternativeTimer) {
+        // One alternate after a genuine blocker, never a rapid retry loop.
+        alternativeTimer = setTimeout(() => { alternativeTimer = null; void run(); }, 15_000);
+        alternativeTimer.unref();
+      }
       logger.info(JSON.stringify({
         event: "relentless_tick_result",
         role: config.role,
@@ -94,6 +107,7 @@ export function createRelentlessController({ runtime, logger = console, now = ()
 
   function start(initialDelayMs = 20_000) {
     if (!config.autonomyEnabled || timer) return;
+    stopped = false;
     const intervalMs = Math.max(15 * 60_000, Number(config.relentlessIntervalMs || 60 * 60_000));
     timer = setInterval(() => void run(), intervalMs);
     timer.unref();
@@ -103,10 +117,13 @@ export function createRelentlessController({ runtime, logger = console, now = ()
   }
 
   function stop() {
+    stopped = true;
     if (timer) clearInterval(timer);
     if (initialTimer) clearTimeout(initialTimer);
+    if (alternativeTimer) clearTimeout(alternativeTimer);
     timer = null;
     initialTimer = null;
+    alternativeTimer = null;
   }
 
   function state() {
@@ -115,3 +132,4 @@ export function createRelentlessController({ runtime, logger = console, now = ()
 
   return { run, start, stop, state };
 }
+

@@ -32,6 +32,10 @@ follow-ups and memory. No additional Railway service or volume is required.
 - Every executive can run a separate, durable, role-specific execution pulse.
   Pulses create internal tasks only, skip busy runtimes, deduplicate by time
   bucket, require evidence, and route cross-department work through Cyrus.
+- A blocked objective permits one independent alternative, then backs off that
+  same blocker rather than retrying indefinitely. Internal work products are
+  durable, isolated per executive, versioned drafts. Saving one never means it
+  was published, delivered, approved, or converted into revenue.
 
 ## Supported role profiles
 
