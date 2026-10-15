@@ -143,6 +143,13 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
         return "Blocked. The model service is unavailable after a retry.";
       }
 
+      if (response.status === "incomplete") {
+        // Never execute a partial call or append an unfinished function item to
+        // the next API request. Recover within the existing turn budget.
+        this.store.addStep(task.id, { attempt, status: "incomplete_response", detail: { reason: response.incomplete_details?.reason || "unknown" } });
+        input.push({ role: "user", content: "Your previous response was incomplete. No tool from that response was executed. Continue with one concise tool call, including every required argument. For save_work_product include id, title and content; keep the draft under 300 words and improve it later if necessary. Do not repeat earlier successful actions." });
+        continue;
+      }
       lastText = outputText(response) || lastText;
       const calls = toolCalls(response);
       input = [...input, ...(response.output || [])];
@@ -163,10 +170,16 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
       }
 
       for (const call of calls) {
-        let args = {};
-        try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
-        let result;
+        let args;
+        let invalidArguments = false;
         try {
+          args = JSON.parse(call.arguments || "{}");
+          invalidArguments = !args || typeof args !== "object" || Array.isArray(args);
+        } catch { invalidArguments = true; }
+        let result;
+        if (invalidArguments) {
+          result = { ok: false, error: "Tool was not executed: arguments must be one complete JSON object. Reissue a concise call with all required fields.", retryable: false };
+        } else try {
           result = await this.toolbox.execute(call.name, args, context);
         } catch (error) {
           result = { ok: false, error: `Tool rejected invalid input: ${error.message}`, retryable: false };
