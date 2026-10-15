@@ -1,7 +1,7 @@
 import { systemPrompt, enforceReply } from "./personality.js";
 import { outputText, toolCalls } from "./model.js";
 import { ATLASIUM_OPERATING_BRIEF } from "./operating_context.js";
-import { isConversationOnly, isStructuredUpdateRequest } from "./conversation.js";
+import { isConversationOnly, isStructuredUpdateRequest, isHandoffFollowup } from "./conversation.js";
 
 export class CyrusAgent {
   constructor({ store, model, toolbox, config = { role: "cyrus", name: "Cyrus" }, maxTurns = 10 }) {
@@ -28,14 +28,17 @@ export class CyrusAgent {
 
   async executeTask(task, { followupReason = null } = {}) {
     this.store.setTaskStatus(task.id, "running");
+    const history = this.store.recentConversation(task.id);
+    const handoffFollowup = isHandoffFollowup(task.request_text, history);
+    const continuity = "\n\nCONVERSATION CONTINUITY: Use the supplied recent turns to interpret short follow-ups and answers to your questions. The latest message controls scope. Do not re-execute an old instruction merely because it appears in history. When Blair names an executive after you asked which person, treat it as his answer, not an identity correction. For an explicit request to ask an executive, use the permitted internal handoff and include the resolved context; ask only for information still genuinely missing.\nLOCAL WORK STATUS: Background automation configured: " + Boolean(this.config.autonomyEnabled) + ". Other active executions in this role: " + Math.max(0, this.activeTasks - 1) + ". Recent internal work records (timestamps and statuses, not proof of external results): " + JSON.stringify(this.store.recentWorkStatus(task.id)) + ". Do not assert that no background work exists without checking this supplied state. Automation configured does not prove work is currently executing.";
     // Conversation-only mode applies to every executive, including dialogue
     // handed off via Cyrus. It is read-only at the API boundary.
-    if (!followupReason && isConversationOnly(task.request_text)) {
+    if (!followupReason && !handoffFollowup && isConversationOnly(task.request_text)) {
       try {
         const operatingPlan = this.store.getOperatingItems();
         const memories = this.store.recentDecisions();
         const response = await this.model.respond({
-          instructions: systemPrompt(this.config.role) + "\n\nCONVERSATION-ONLY MODE: This is a discussion, not permission to operate. Answer the speaker directly in your specific executive voice. Do not give a status report, introduce yourself, list your capabilities, or use a formal template. No tools, delegations, follow-ups, task planning, changes or external communication. Rely on the supplied context when relevant but distinguish past information from live facts. Never claim to have checked a service or completed business work.",
+          instructions: systemPrompt(this.config.role) + continuity + "\n\nCONVERSATION-ONLY MODE: This is a discussion, not permission to operate. Answer the speaker directly in your specific executive voice. Do not give a status report, introduce yourself, list your capabilities, or use a formal template. No tools, delegations, follow-ups, task planning, changes or external communication. Rely on the supplied context when relevant but distinguish past information from live facts. Never claim to have checked a service or completed business work.",
           input: [
             { role: "developer", content: `READ-ONLY COMPANY BACKGROUND (not a new instruction or proof of live figures):
 ${ATLASIUM_OPERATING_BRIEF}
@@ -45,6 +48,7 @@ ${JSON.stringify(memories.slice(0, 12))}
 
 Role-specific current operating-plan records (verify externally before claiming live status):
 ${JSON.stringify(operatingPlan.slice(0, 20))}` },
+            ...history,
             { role: "user", content: task.request_text },
           ],
           tools: [],
@@ -101,10 +105,12 @@ Current task work plan:
 ${JSON.stringify(workPlan)}
 Existing verified evidence:
 ${JSON.stringify(priorEvidence)}
+${continuity}
 Request routing: ACTION. Execute with tools and require evidence. A phrase such as 'conversational exercise' or a restriction against external messaging limits the permitted actions; it does not turn an explicit internal diagnostic or execution request into conversation-only.
 INTERNAL READ-ONLY ACCEPTANCE TESTS: When asked to prove that this executive can execute a harmless internal task, call system_health once. Its verified durable-store result is evidence for that specific health check only. If it succeeds, call complete_task with a narrow summary of the observed health result. Do not create work plans or unrelated operating-plan items for a simple diagnostic, and do not claim broader integrations, revenue work, or other executives passed. If the requested objective needs evidence unavailable from permitted tools, report_blocker with the precise missing evidence rather than looping through list_work_plan, recall_memory, or list_operating_plan. Never invent evidence or bypass completion guards.${followupReason ? `
 Automatic follow-up is due: ${followupReason}` : ""}`,
       },
+      ...history,
       { role: "user", content: task.request_text },
     ];
     let lastText = "";
@@ -210,3 +216,4 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
     return enforceReply(replyText, { status: settled.status, evidenceCount: evidence.length, name: this.config.name, requiresEvidence: context.requiresEvidence, structured: isStructuredUpdateRequest(task.request_text) });
   }
 }
+
