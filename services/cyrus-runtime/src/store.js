@@ -326,6 +326,40 @@ export class CyrusStore {
     return this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId);
   }
 
+  recentConversation(taskId) {
+    const task = this.getTask(taskId);
+    // Only the current requester's own DM, never another role/channel or an
+    // internal handoff. rowid gives stable ordering even for equal timestamps.
+    if (!task?.channel_id?.startsWith("D")) return [];
+    const rows = this.db.prepare(`
+      SELECT t.request_text, (
+        SELECT r.body FROM reply_outbox_messages r
+        WHERE r.task_id=t.id AND r.channel_id=t.channel_id AND r.status='sent'
+        ORDER BY r.rowid DESC LIMIT 1
+      ) AS reply
+      FROM tasks t
+      WHERE t.channel_id=? AND t.requester_id=?
+        AND t.rowid < (SELECT rowid FROM tasks WHERE id=?)
+        AND julianday(t.created_at) >= julianday('now', '-1 day')
+      ORDER BY t.rowid DESC LIMIT 8
+    `).all(task.channel_id, task.requester_id, taskId).reverse();
+    return rows.flatMap(row => [
+      { role: "user", content: row.request_text.slice(0, 1200) },
+      ...(row.reply ? [{ role: "assistant", content: row.reply.slice(0, 1200) }] : []),
+    ]);
+  }
+
+  recentWorkStatus(excludeTaskId) {
+    return this.db.prepare(`
+      SELECT request_text, status, summary, blocker, updated_at FROM tasks
+      WHERE id!=? AND channel_id LIKE 'internal:%'
+      ORDER BY rowid DESC LIMIT 3
+    `).all(excludeTaskId).map(row => ({ ...row,
+      request_text: row.request_text.slice(0, 500),
+      summary: row.summary?.slice(0, 500), blocker: row.blocker?.slice(0, 300),
+    }));
+  }
+
   getTaskBySourceEvent(sourceEventId) {
     return this.db.prepare("SELECT * FROM tasks WHERE source_event_id = ?").get(sourceEventId);
   }

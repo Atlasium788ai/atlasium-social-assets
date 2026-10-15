@@ -4,6 +4,16 @@
 const namePrefix = /^(?:(?:cyrus|malik|clara|mateo|kenji|amara|nadia|sloane)\s*[:,]\s*)/i;
 const internalPrefix = /^Internal handoff from [a-z-]+:\s*/i;
 
+// Carry a short answer forward only when it resolves a recent clarification
+// about an explicit executive handoff. Do not promote ordinary chat/history.
+export function isHandoffFollowup(text, history) {
+  if (!/^(?:(?:cyrus|malik|clara|mateo|kenji|amara|nadia|sloane)[.!]?|about\b[^\n]{0,180})$/i.test(String(text).trim())) return false;
+  const recent = history.slice(-6);
+  const last = recent.at(-1);
+  if (last?.role !== "assistant" || !/\?/.test(last.content)) return false;
+  return recent.some(item => item.role === "user" && /^ask\s+(?:cyrus|malik|clara|mateo|kenji|amara|nadia|sloane)\b/i.test(item.content.trim()));
+}
+
 export function isStructuredUpdateRequest(text) {
   const input = String(text || "").replace(internalPrefix, "").replace(namePrefix, "").trim();
   return /\b(?:structured|formal|detailed|written|weekly|monthly|daily)\s+(?:update|report|brief|briefing|summary|dashboard)\b|\b(?:table|spreadsheet|scorecard|kpi|metrics report|breakdown|bullet(?:\s*point)?s?|point\s*form)\b|\b(?:give|show|pull|fetch|provide|prepare|generate|write)\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?(?:status\s+)?(?:update|report|dashboard|scorecard|metrics|numbers)\b/i.test(input);
@@ -15,6 +25,7 @@ export function isConversationOnly(text) {
   if (/^Internal handoff from [a-z-]+:\s*CONVERSATION-ONLY:/i.test(String(text || ""))) return true;
   const input = String(text || "").replace(internalPrefix, "").replace(namePrefix, "").trim();
   if (!input || isStructuredUpdateRequest(input)) return false;
+  if (/^ask\s+(?:cyrus|malik|clara|mateo|kenji|amara|nadia|sloane)\b/i.test(input)) return false;
 
   const explicitConversation = /\b(?:conversational|personality|dialogue|roleplay|hypothetical|thought experiment)\s+(?:test|exercise|situation|scenario|only)\b|\b(?:this is|it's|it is)\s+(?:a\s+)?(?:conversation|hypothetical|roleplay|personality test)\b|\b(?:just|only)\s+(?:talk|chat|discuss|answer)\b|\b(?:what would you say|how would you respond|speak to me|talk to me like|respond in your own voice)\b/i.test(input);
   const forbidsActions = /\b(?:do not|don't|without|no)\s+(?:use\s+)?(?:tools?|delegate|contact|send|spend|change|modify|execute|perform|take action|business systems|outreach|external\s+(?:messages?|messaging|communication))\b/i.test(input);
@@ -47,3 +58,4 @@ export function isConversationOnly(text) {
   if (/^(?:what(?:'s| is) (?:the )?(?:status|progress|update)|how far (?:are we|did you|get)|where are we at|any (?:new|latest) (?:replies|meetings|leads|sales|results))\b/i.test(input)) return false;
   return !/^(?:send|schedule|book|launch|start|stop|turn on|turn off|do|go|execute|deploy|check|verify|investigate|research|fix|update|create|make|build|draft|write|prepare|find|get|pull|contact|email|message|call|save|record|approve|reject|refund|hire|fire|remove|delete|archive|invite|run|enable|disable|upload|download|publish|analyze|audit)\b/i.test(input);
 }
+
