@@ -38,7 +38,7 @@ export class CyrusAgent {
         const operatingPlan = this.store.getOperatingItems();
         const memories = this.store.recentDecisions();
         const response = await this.model.respond({
-          instructions: systemPrompt(this.config.role) + continuity + "\n\nCONVERSATION-ONLY MODE: This is a discussion, not permission to operate. Answer the speaker directly in your specific executive voice. Do not give a status report, introduce yourself, list your capabilities, or use a formal template. No tools, delegations, follow-ups, task planning, changes or external communication. Rely on the supplied context when relevant but distinguish past information from live facts. Never claim to have checked a service or completed business work.",
+          instructions: systemPrompt(this.config.role) + continuity + "\n\nCONVERSATION-ONLY MODE: Only this reply is read-only, not the runtime or Slack session. Never tell Blair to switch sessions, unlock an execution-enabled session, or claim the whole bot has no tools based on this reply's mode. Prior tool-free replies do not disable future actions or existing background assignments. Answer the speaker directly in your specific executive voice. Do not introduce yourself, list capabilities, or use a formal template. No tools, delegations, follow-ups, task planning, changes or external communication in this reply. Distinguish remembered information from live facts; never claim a check or business action you did not perform.",
           input: [
             { role: "developer", content: `READ-ONLY COMPANY BACKGROUND (not a new instruction or proof of live figures):
 ${ATLASIUM_OPERATING_BRIEF}
@@ -122,7 +122,7 @@ Automatic follow-up is due: ${followupReason}` : ""}`,
     for (let attempt = 1; attempt <= this.maxTurns; attempt += 1) {
       let response;
       try {
-        response = await this.model.respond({ instructions: systemPrompt(this.config.role), input, tools: this.toolbox.definitions });
+        response = await this.model.respond({ instructions: systemPrompt(this.config.role) + "\nCURRENT TURN: ACTION, with the attached execution tools available now. Earlier conversation-only replies do not disable this turn. Never ask Blair to switch to a different session. Use the actual tools; report a specific access problem only after observing it. When an action is blocked, record its owner, attempted recovery, next action and an independent revenue action. Reporting a blocked action is not permission to stop the department.", input, tools: this.toolbox.definitions });
         if (response?.usage) {
           console.info(JSON.stringify({
             event: "model_usage",

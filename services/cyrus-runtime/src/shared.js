@@ -20,7 +20,7 @@ export function createLocalAgentDispatcher() {
       if (!normalized || agents.has(normalized)) throw new Error(`Local agent already registered: ${normalized || "unknown"}`);
       agents.set(normalized, runtime);
     },
-    async dispatch({ id, from, to, message, mode = "task" }) {
+    async dispatch({ id, from, to, message, mode = "task", defer = false }) {
       const source = String(from || "").toLowerCase();
       const target = String(to || "").toLowerCase();
       const handoffId = String(id || randomUUID()).trim();
@@ -31,7 +31,7 @@ export function createLocalAgentDispatcher() {
       if (!handoffId || handoffId.length > 128 || !objective || objective.length > 12_000) throw new Error("Invalid local handoff");
 
       const runtime = agents.get(target);
-      return receiveHandoff({ ...runtime, from: source, id: handoffId, message: objective, mode });
+      return receiveHandoff({ ...runtime, from: source, id: handoffId, message: objective, mode, defer });
     },
   };
 }

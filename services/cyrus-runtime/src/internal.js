@@ -35,7 +35,7 @@ export function createInternalServer({ config, store, agent, logger = console })
       if (to !== config.role) throw new Error("wrong_target");
       if (!id || id.length > 128 || !message || message.length > 12_000) throw new Error("invalid_handoff");
 
-      const result = await receiveHandoff({ config, store, agent, from, id, message, mode });
+      const result = await receiveHandoff({ config, store, agent, from, id, message, mode, defer: body.defer === true });
       send(response, result.ok ? 200 : 409, result);
     } catch (error) {
       logger.error(`${config.name} internal handoff failed`, { message: error.message });

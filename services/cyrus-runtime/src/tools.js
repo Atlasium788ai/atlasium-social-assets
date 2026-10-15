@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { recordAndRouteBlocker } from "./blockers.js";
 import { createMicrosoftGraphTransport, createUnsubscribeToken, emailFingerprint, normalizeEmail } from "./outbound.js";
 
 function ok(data, evidence) {
@@ -376,8 +377,8 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     {
       type: "function",
       name: "report_blocker",
-      description: "Stop only when a precise missing authority, access, credential, or decision prevents progress.",
-      parameters: { type: "object", properties: { blocker: { type: "string" } }, required: ["blocker"], additionalProperties: false },
+      description: "Record a specific blocked action, attempted recovery, next resolution step and independent revenue alternative. Persists an owned issue and queues connected internal resolution through Cyrus (software issues from Cyrus go to Kenji). This ends this task, not the department's work. Never claim an issue is resolved from queue acceptance.",
+      parameters: { type: "object", properties: { blocker: { type: "string" }, category: { type: "string", enum: ["software","access","decision","external"] }, attempted: { type: "string" }, next_action: { type: "string" }, alternative: { type: "string" } }, required: ["blocker"], additionalProperties: false },
     },
   ];
 
@@ -1479,8 +1480,12 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
     if (name === "report_blocker") {
       const blocker = requiredString(args.blocker, "blocker", 4_000);
       if (blocker.error) return fail(blocker.error);
+      if (/conversation[- ]only session|execution[- ]enabled session|no (?:execution|operating) tools/i.test(blocker.value)) {
+        return fail("Invalid blocker: this runtime has execution tools. No session switch is required. Use the attached tools and identify an observed, specific dependency instead.");
+      }
+      const resolution = await recordAndRouteBlocker({ store, config, taskId:context.taskId, blocker:blocker.value, args, agentDispatcher, fetchImpl });
       store.setTaskStatus(context.taskId, "blocked", { blocker: blocker.value });
-      return ok({ status: "blocked", blocker: blocker.value });
+      return ok({ status: "blocked", blocker: blocker.value, ...resolution });
     }
     return fail(`Unknown tool: ${name}`);
   }
