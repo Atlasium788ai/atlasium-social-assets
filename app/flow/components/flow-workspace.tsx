@@ -11,7 +11,7 @@ import { FlowSectionNavigation, type FlowSection } from "./flow-section-navigati
 
 function FlowIdentity() {
   return <div className="echo-identity">
-    <img className="echo-art-compact" src="/echoflow-social.png" alt="EchoFlow Social, powered by Atlasium 7/88 AI" width={1254} height={1254} />
+    <img className="echo-art-compact" src="/echoflow-social-blue.png" alt="EchoFlow Social, powered by Atlasium 7/88 AI" width={1254} height={1254} />
     <span><b>EchoFlow</b><em>Social</em></span>
   </div>;
 }

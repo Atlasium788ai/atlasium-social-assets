@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     url: "https://www.echoflowsocial.ca",
     siteName: "EchoFlow Social",
     images: [{
-      url: "/echoflow-social.png",
+      url: "/echoflow-social-blue.png",
       width: 1254,
       height: 1254,
       alt: "EchoFlow Social, powered by Atlasium 7/88 AI",
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "EchoFlow Social",
     description: "One prompt, every brand, one controlled publishing flow.",
-    images: ["/echoflow-social.png"],
+    images: ["/echoflow-social-blue.png"],
   },
 };
 

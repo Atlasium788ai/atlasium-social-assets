@@ -15,7 +15,7 @@ import { AmplifySectionNavigation, type AmplifySection } from "./amplify-section
 
 function AmplifyIdentity() {
   return <Link className="echo-identity" href="/amplify" aria-label="EchoFlow Social AMPLIFY home">
-    <img className="echo-art-compact" src="/echoflow-social.png" alt="EchoFlow Social, powered by Atlasium 7/88 AI" width={1254} height={1254} />
+    <img className="echo-art-compact" src="/echoflow-social-blue.png" alt="EchoFlow Social, powered by Atlasium 7/88 AI" width={1254} height={1254} />
     <span><b>EchoFlow</b><em>Social</em></span>
   </Link>;
 }

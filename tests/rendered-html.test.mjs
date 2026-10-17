@@ -50,7 +50,7 @@ test("renders the EchoFlow Social authenticated entry", async () => {
   assert.match(html, /<title>EchoFlow Social<\/title>/i);
   assert.match(html, /Powered by Atlasium 7\/88 AI/);
   assert.match(html, /Preparing your workspace/);
-  assert.match(html, /\/echoflow-social\.png/);
+  assert.match(html, /\/echoflow-social-blue\.png/);
   assert.match(html, /\/favicon\.svg/);
   assert.match(html, /noindex/i);
   assert.doesNotMatch(html, /codex-preview/);
@@ -133,7 +133,7 @@ test("client exposes brand tabs, four short setup steps, scoped draft saves, and
   assert.match(source, /echoflow-active-campaign:\$\{brand\.id\}/);
   assert.match(source, /No campaigns yet/);
   assert.match(source, /role="alert"/);
-  assert.match(source, /src="\/echoflow-social\.png"/);
+  assert.match(source, /src="\/echoflow-social-blue\.png"/);
   assert.match(source, /EchoFlow Social, powered by Atlasium 7\/88 AI/);
   assert.match(styles, /\.echo-art-full\{[^}]*object-fit:contain/);
   assert.match(styles, /\.echo-art-compact\{[^}]*object-fit:contain/);
