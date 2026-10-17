@@ -56,3 +56,193 @@
 .flow-reconciliation{margin:.1rem 0;padding:.65rem .8rem;border:1px solid rgba(142,217,176,.22);border-radius:.65rem;background:rgba(142,217,176,.05);color:#a9d9bd;font-size:.6rem}.flow-operations{display:grid;gap:1rem}.flow-refresh{min-width:8.6rem;min-height:2.55rem;padding:.55rem .8rem;border:1px solid var(--line-bright);border-radius:.65rem;background:#171612;color:var(--gold-soft);font-size:.62rem;font-weight:850}.flow-refresh:disabled{opacity:.5}.flow-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem}.flow-metrics article{display:grid;gap:.3rem;padding:.9rem;border:1px solid var(--line);border-radius:.75rem;background:#10100e}.flow-metrics span{color:var(--muted);font-size:.49rem;font-weight:900;letter-spacing:.09em}.flow-metrics b{font-size:1.55rem}.flow-metrics small{color:#8d887d;font-size:.52rem}.flow-job-list{display:grid;gap:.45rem}.flow-job-row{display:grid;grid-template-columns:10.5rem minmax(0,1fr) 8.5rem auto;align-items:center;gap:.8rem;padding:.85rem 1rem;border:1px solid var(--line);border-radius:.75rem;background:#0e0e0d}.flow-job-date{display:grid;gap:.18rem}.flow-job-date b{font-size:.6rem}.flow-job-date span,.flow-job-copy small{color:var(--muted);font-size:.54rem}.flow-job-copy{min-width:0}.flow-job-copy>span{color:var(--gold);font-size:.47rem;font-weight:900;letter-spacing:.08em}.flow-job-copy h3{overflow:hidden;margin:.2rem 0;font-size:.7rem;text-overflow:ellipsis;white-space:nowrap}.flow-delivery-status{display:flex;align-items:center;gap:.35rem;color:#c6bfaf;font-size:.56rem;font-weight:850;text-transform:capitalize}.flow-delivery-status i{width:.45rem;height:.45rem;border-radius:50%;background:#d8ad55}.flow-delivery-status.sent{color:#9dd9b4}.flow-delivery-status.sent i{background:#8ed9b0}.flow-delivery-status.failed{color:#ffaaa2}.flow-delivery-status.failed i{background:#ff7f76}.flow-job-row>a{color:var(--gold-soft);font-size:.55rem;font-weight:800}.flow-job-error{grid-column:2/-1;margin:0;color:#ffaaa2;font-size:.55rem}.flow-empty{display:grid;place-items:center;padding:2.5rem 1rem;border:1px dashed var(--line);border-radius:.8rem;text-align:center}.flow-empty>span{color:var(--gold);font-size:2.5rem;font-weight:900}.flow-empty h2{margin:.4rem 0}.flow-empty p{max-width:30rem;margin:0;color:var(--muted);font-size:.65rem}.flow-empty a{margin-top:.9rem;padding:.55rem .8rem;border:1px solid var(--line-bright);border-radius:.55rem;text-decoration:none;font-size:.58rem;font-weight:850}.flow-readonly-note{margin:0;color:#837e73;font-size:.53rem;text-align:right}
 @media(max-width:760px){.flow-metrics{grid-template-columns:1fr 1fr}.flow-job-row{grid-template-columns:1fr auto}.flow-job-date{grid-column:1}.flow-job-copy{grid-column:1}.flow-delivery-status{grid-column:2;grid-row:1/3}.flow-job-row>a{grid-column:1}.flow-job-error{grid-column:1/-1}}
 @media(max-width:520px){.app-header-actions{align-items:flex-end}.flow-section-heading{align-items:stretch;flex-direction:column}.flow-refresh{width:100%}.flow-metrics{grid-template-columns:1fr}.flow-job-row{grid-template-columns:1fr}.flow-delivery-status{grid-column:1;grid-row:auto}.flow-job-copy h3{white-space:normal}}
+
+/* Atlasium tool colour system: shared visual language without changing workflows. */
+:root{
+  --bg:#070b14;
+  --panel:#0b1220;
+  --panel-2:#111827;
+  --line:#2a3648;
+  --line-bright:#38506f;
+  --muted:#98a2b3;
+  --text:#f2f4f8;
+  --gold:#22d3ee;
+  --gold-soft:#a78bfa;
+  --danger:#fb7185;
+  --ok:#34d399;
+}
+
+html{scroll-behavior:smooth}
+body{
+  background:
+    radial-gradient(circle at 50% -15%,rgba(34,211,238,.12),transparent 34rem),
+    radial-gradient(circle at 100% 0,rgba(167,139,250,.08),transparent 30rem),
+    linear-gradient(180deg,#0b1220,#070b14 45rem);
+}
+::selection{background:rgba(34,211,238,.24);color:#fff}
+
+.welcome-card,
+.card,
+.wizard,
+.flow-access-card,
+.amplify-dialog{
+  background:rgba(11,18,32,.97);
+  box-shadow:0 30px 90px rgba(0,0,0,.38),0 0 0 1px rgba(255,255,255,.01);
+}
+
+.brand-nav{background:linear-gradient(180deg,rgba(7,11,20,.98) 75%,transparent)}
+.brand-tab,
+.product-nav,
+.options,
+.history-panel,
+.provider-panel,
+.channels button,
+.timing button,
+.secondary,
+.result,
+.history-list>div,
+.close,
+.assignment-list label,
+.flow-brand-bar,
+.flow-platform-tile,
+.flow-inactive-section,
+.flow-refresh,
+.flow-metrics article,
+.flow-job-row,
+.amplify-summary-card,
+.amplify-recent,
+.amplify-empty,
+.amplify-campaign-card,
+.amplify-result-filters,
+.amplify-metric-grid article,
+.amplify-provider-card,
+.amplify-organic-note,
+.amplify-stage,
+.amplify-review-grid article,
+.amplify-creative-source-review>div,
+.amplify-variations>article,
+.amplify-preflight,
+.amplify-dry-result,
+.echo-content-choice,
+.connection-status,
+.content-advanced,
+.editable-field,
+.document-sections,
+.featured-image-tools,
+.library-list>button{
+  background:#0b1220;
+}
+
+.active-brand-strip,
+.amplify-brand-bar{
+  background:linear-gradient(100deg,rgba(34,211,238,.09),#0b1220 45%);
+}
+.flow-connected-card{background:linear-gradient(110deg,rgba(52,211,153,.06),#0b1220 48%)}
+.flow-buffer-note,
+.amplify-policy-note,
+.amplify-audience-summary,
+.amplify-advanced,
+.repurpose-actions{background:#09101c}
+.amplify-hero{
+  background:
+    radial-gradient(circle at 88% 20%,rgba(34,211,238,.15),transparent 23rem),
+    radial-gradient(circle at 75% 100%,rgba(167,139,250,.09),transparent 22rem),
+    linear-gradient(145deg,#111827,#070b14 70%);
+}
+
+.echo-art-compact,
+.active-logo,
+.flow-brand-mark,
+.flow-connected-mark,
+.flow-platform-icon,
+.amplify-brand-mark,
+.amplify-provider-icon,
+.channel-icon{
+  background:#111c2d;
+  color:var(--gold);
+}
+
+.brand-search,
+.prompt-box,
+input[type="datetime-local"],
+.wizard input,
+.wizard textarea,
+.amplify-stage input,
+.amplify-stage textarea,
+.amplify-stage select,
+.amplify-result-filters select,
+.content-prompt-label textarea,
+.content-simple-settings input,
+.content-simple-settings select,
+.content-editor-head select,
+.editable-field input,
+.editable-field textarea,
+.featured-image-tools select,
+.library-filters select{
+  background:#070b14;
+}
+
+.brand-tab.active,
+.product-tab.active,
+.flow-section-nav a.active,
+.amplify-section-nav a.active,
+.channels button.selected,
+.timing button.active,
+.amplify-steps li.active,
+.amplify-source-picker>div>label.selected,
+.amplify-platform-picker>div>button.selected,
+.echo-content-choice.active{
+  border-color:rgba(34,211,238,.55);
+  background:rgba(34,211,238,.08);
+  box-shadow:inset 0 0 0 1px rgba(34,211,238,.08);
+}
+
+.primary,
+.access-login-link{
+  background:linear-gradient(135deg,#a78bfa,#22d3ee);
+  color:#07111d!important;
+  box-shadow:0 12px 30px rgba(34,211,238,.12);
+}
+.spinner{border-color:rgba(7,17,29,.28);border-top-color:#07111d}
+.prompt-box:focus,
+input:focus,
+textarea:focus,
+select:focus{
+  border-color:var(--gold);
+  box-shadow:0 0 0 3px rgba(34,211,238,.1);
+}
+
+.product-nav{grid-template-columns:repeat(3,minmax(0,1fr));gap:.42rem}
+button,
+a,
+summary,
+input,
+textarea,
+select{
+  transition:color .16s ease,background-color .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease;
+}
+.primary:not(:disabled):hover,
+.secondary:not(:disabled):hover,
+.flow-refresh:not(:disabled):hover,
+.brand-tab:hover,
+.product-tab:hover,
+.flow-platform-tile.enabled:hover,
+.echo-content-choice:hover,
+.amplify-provider-card:hover{
+  transform:translateY(-1px);
+  border-color:rgba(34,211,238,.48);
+  box-shadow:0 10px 28px rgba(0,0,0,.2);
+}
+.primary:not(:disabled):active,
+.secondary:not(:disabled):active,
+.flow-refresh:not(:disabled):active,
+.brand-tab:active,
+.product-tab:active{transform:translateY(0)}
+
+@media(max-width:600px){
+  .amplify-stage-actions{background:linear-gradient(180deg,transparent,#070b14 22%)}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  button,a,summary,input,textarea,select{transition:none!important}
+}
