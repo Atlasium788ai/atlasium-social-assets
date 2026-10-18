@@ -100,7 +100,7 @@ test("AMPLIFY routes render directly with three-section product navigation and f
   assert.match(html, /Powered by Atlasium 7\/88 AI/);
 });
 
-test("ECHO, FLOW, Buffer and existing organic publishing code remain outside AMPLIFY", async () => {
+test("ECHO, FLOW and direct organic publishing code remain outside AMPLIFY", async () => {
   const [echo, flow, worker, amplifyStore, amplifyClient] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/flow/components/flow-channels.tsx", import.meta.url), "utf8"),
@@ -109,8 +109,9 @@ test("ECHO, FLOW, Buffer and existing organic publishing code remain outside AMP
     readFile(new URL("../app/amplify/services/amplify-ad-service.ts", import.meta.url), "utf8"),
   ]);
   assert.match(echo, /Create &amp; Publish/);
-  assert.match(flow, /Buffer connections are live/);
-  assert.match(worker, /api\.buffer\.com/);
+  assert.match(flow, /Direct social connections/);
+  assert.doesNotMatch(worker, /api\.buffer\.com/);
+  assert.match(worker, /listDirectSocialDestinations/);
   assert.doesNotMatch(amplifyStore, /BUFFER_API_KEY|api\.buffer\.com|createBufferPost|publishJobs/);
   assert.doesNotMatch(amplifyClient, /\/api\/agent|\/api\/publish|\/api\/channels|Buffer/);
 });
