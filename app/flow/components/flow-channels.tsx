@@ -46,6 +46,6 @@ export function FlowChannels({ brand, previewMode, channels }: { brand: FlowBran
       })}
     </div>
 
-    <aside className="flow-buffer-note"><span className="dot active" /><div><strong>Buffer connections are live</strong><small>Create and schedule posts in ECHO. FLOW monitors the resulting queue and delivery state.</small></div></aside>
+    <aside className="flow-buffer-note"><div><strong>Direct social connections</strong><small>Accounts require platform authorization. ECHO currently supports immediate publishing to approved Facebook Pages and Instagram professional accounts. First-party scheduling is being developed.</small></div></aside>
   </section>;
 }
