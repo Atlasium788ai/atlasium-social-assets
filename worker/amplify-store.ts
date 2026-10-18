@@ -1,6 +1,6 @@
-import { ATLASIUM_BRAND_ID, WORKSPACE_ID, ensureBrandSystem, requireBrand, type BrandContext } from "./brand-store";
+import { ATLASIUM_BRAND_ID, ensureBrandSystem, requireBrand, workspaceId, type BrandContext, type WorkspaceScopedEnv } from "./brand-store";
 
-export type AmplifyEnv = {
+export type AmplifyEnv = WorkspaceScopedEnv & {
   DB?: D1Database;
   UPLOADS: R2Bucket;
   OPENAI_API_KEY?: string;
@@ -67,7 +67,7 @@ async function brandDirectory(env: AmplifyEnv) {
   }
   const rows = rowList(await env.DB.prepare(`SELECT b.id, b.name, b.logo_url, b.timezone, b.industry, b.location, p.main_offers, p.target_audience, p.primary_cta
     FROM brands b JOIN brand_profiles p ON p.brand_id = b.id
-    WHERE b.workspace_id = ? AND b.status = 'active' ORDER BY b.created_at`).bind(WORKSPACE_ID).all<Record<string, unknown>>());
+    WHERE b.workspace_id = ? AND b.status = 'active' ORDER BY b.created_at`).bind(workspaceId(env)).all<Record<string, unknown>>());
   return rows.map((row) => ({ id: value(row.id), name: value(row.name), logoUrl: value(row.logo_url), timezone: value(row.timezone), industry: value(row.industry), location: value(row.location), mainOffers: value(row.main_offers), targetAudience: value(row.target_audience), primaryCta: value(row.primary_cta) }));
 }
 
@@ -76,14 +76,14 @@ async function creativeSources(env: AmplifyEnv, brandId: string) {
   const [media, flowPosts, brandAssets, uploads] = await Promise.all([
     env.DB.prepare(`SELECT m.id, m.media_type, m.url, m.post_id, p.concept
       FROM media_assets m LEFT JOIN posts p ON p.id = m.post_id AND p.brand_id = m.brand_id
-      WHERE m.workspace_id = ? AND m.brand_id = ? ORDER BY m.created_at DESC LIMIT 30`).bind(WORKSPACE_ID, brandId).all<Record<string, unknown>>(),
+      WHERE m.workspace_id = ? AND m.brand_id = ? ORDER BY m.created_at DESC LIMIT 30`).bind(workspaceId(env), brandId).all<Record<string, unknown>>(),
     env.DB.prepare(`SELECT j.id, j.post_id, j.destination_id, j.scheduled_time, p.concept, m.url, m.media_type
       FROM publish_jobs j JOIN posts p ON p.id = j.post_id AND p.brand_id = j.brand_id
       LEFT JOIN media_assets m ON m.post_id = p.id AND m.brand_id = p.brand_id
       WHERE j.workspace_id = ? AND j.brand_id = ? AND j.status IN ('confirmed','scheduled','published')
-      GROUP BY j.post_id ORDER BY j.updated_at DESC LIMIT 30`).bind(WORKSPACE_ID, brandId).all<Record<string, unknown>>(),
-    env.DB.prepare("SELECT id, kind, url FROM brand_assets WHERE workspace_id = ? AND brand_id = ? ORDER BY created_at DESC LIMIT 20").bind(WORKSPACE_ID, brandId).all<Record<string, unknown>>(),
-    env.DB.prepare("SELECT id, source_type, label, media_type, url FROM advertising_assets WHERE workspace_id = ? AND brand_id = ? ORDER BY created_at DESC LIMIT 20").bind(WORKSPACE_ID, brandId).all<Record<string, unknown>>(),
+      GROUP BY j.post_id ORDER BY j.updated_at DESC LIMIT 30`).bind(workspaceId(env), brandId).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT id, kind, url FROM brand_assets WHERE workspace_id = ? AND brand_id = ? ORDER BY created_at DESC LIMIT 20").bind(workspaceId(env), brandId).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT id, source_type, label, media_type, url FROM advertising_assets WHERE workspace_id = ? AND brand_id = ? ORDER BY created_at DESC LIMIT 20").bind(workspaceId(env), brandId).all<Record<string, unknown>>(),
   ]);
   const echo = rowList(media).map((row) => ({ id: value(row.id), brandId, sourceType: value(row.media_type) === "video" ? "motion_asset" : "echo_asset", label: value(row.concept) || "ECHO creative", mediaType: value(row.media_type) === "video" ? "video" : "image", url: value(row.url), detail: "Original ECHO asset. AMPLIFY will not change it.", originalId: value(row.post_id) }));
   const flow = rowList(flowPosts).map((row) => ({ id: `flow_${value(row.post_id)}`, brandId, sourceType: "flow_post", label: value(row.concept) || "FLOW post", mediaType: "post", url: value(row.url), detail: `Existing organic post · ${value(row.scheduled_time)}`, originalId: value(row.post_id) }));
@@ -97,7 +97,7 @@ export async function loadAmplifyWorkspace(env: AmplifyEnv, brandId: string) {
   await ensureAmplifySystem(env);
   const activeBrand = await requireBrand(env, brandId);
   const draftRowsPromise = env.DB
-    ? env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE workspace_id = ? AND brand_id = ? ORDER BY updated_at DESC LIMIT 50").bind(WORKSPACE_ID, activeBrand.id).all<Record<string, unknown>>().then(rowList)
+    ? env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE workspace_id = ? AND brand_id = ? ORDER BY updated_at DESC LIMIT 50").bind(workspaceId(env), activeBrand.id).all<Record<string, unknown>>().then(rowList)
     : Promise.resolve([] as Record<string, unknown>[]);
   const [brands, sources, draftRows] = await Promise.all([
     brandDirectory(env),
@@ -144,10 +144,10 @@ async function assertCreativeOwnership(env: AmplifyEnv, brandId: string, source:
   const sourceType = value(source.sourceType);
   if (!sourceId || !sourceType) throw new Error("Choose a creative source before preparing the advertisement.");
   let found: Record<string, unknown> | null = null;
-  if (["echo_asset", "motion_asset"].includes(sourceType)) found = await env.DB.prepare("SELECT id FROM media_assets WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(sourceId, WORKSPACE_ID, brandId).first<Record<string, unknown>>();
-  else if (sourceType === "flow_post" || sourceType === "organic_post") found = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(value(source.originalId) || sourceId.replace(/^flow_/, ""), WORKSPACE_ID, brandId).first<Record<string, unknown>>();
-  else if (sourceType === "brand_asset") found = await env.DB.prepare("SELECT id FROM brand_assets WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(sourceId, WORKSPACE_ID, brandId).first<Record<string, unknown>>();
-  else if (["uploaded_image", "uploaded_video"].includes(sourceType)) found = await env.DB.prepare("SELECT id FROM advertising_assets WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(sourceId, WORKSPACE_ID, brandId).first<Record<string, unknown>>();
+  if (["echo_asset", "motion_asset"].includes(sourceType)) found = await env.DB.prepare("SELECT id FROM media_assets WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(sourceId, workspaceId(env), brandId).first<Record<string, unknown>>();
+  else if (sourceType === "flow_post" || sourceType === "organic_post") found = await env.DB.prepare("SELECT id FROM posts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(value(source.originalId) || sourceId.replace(/^flow_/, ""), workspaceId(env), brandId).first<Record<string, unknown>>();
+  else if (sourceType === "brand_asset") found = await env.DB.prepare("SELECT id FROM brand_assets WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(sourceId, workspaceId(env), brandId).first<Record<string, unknown>>();
+  else if (["uploaded_image", "uploaded_video"].includes(sourceType)) found = await env.DB.prepare("SELECT id FROM advertising_assets WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(sourceId, workspaceId(env), brandId).first<Record<string, unknown>>();
   if (!found) throw new Error("That creative does not belong to the selected brand.");
 }
 
@@ -218,10 +218,10 @@ export async function createAmplifyDraft(env: AmplifyEnv, brandId: string, rawIn
   const id = `ad_draft_${crypto.randomUUID()}`;
   const payload = { ...rawInput, prompt, offer, goal, destinationType, destination, callToAction, providerIds, audience, budget, schedule, creativeSource, campaignName: generated.campaignName, variations: generated.variations, explicitConfirmation: false };
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO advertising_campaign_drafts (id, workspace_id, brand_id, name, prompt, status, payload, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'ready_for_review', ?, 1, ?, ?)").bind(id, WORKSPACE_ID, brandId, generated.campaignName, prompt, JSON.stringify(payload), createdAt, createdAt),
-    env.DB.prepare("INSERT INTO advertising_status_events (id, workspace_id, brand_id, draft_id, provider_id, status, detail, created_at) VALUES (?, ?, ?, ?, NULL, 'ready_for_review', 'Draft prepared. No advertising platform contacted.', ?)").bind(`ad_event_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, id, createdAt),
+    env.DB.prepare("INSERT INTO advertising_campaign_drafts (id, workspace_id, brand_id, name, prompt, status, payload, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'ready_for_review', ?, 1, ?, ?)").bind(id, workspaceId(env), brandId, generated.campaignName, prompt, JSON.stringify(payload), createdAt, createdAt),
+    env.DB.prepare("INSERT INTO advertising_status_events (id, workspace_id, brand_id, draft_id, provider_id, status, detail, created_at) VALUES (?, ?, ?, ?, NULL, 'ready_for_review', 'Draft prepared. No advertising platform contacted.', ?)").bind(`ad_event_${crypto.randomUUID()}`, workspaceId(env), brandId, id, createdAt),
   ]);
-  const row = await env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(id, WORKSPACE_ID, brandId).first<Record<string, unknown>>();
+  const row = await env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(id, workspaceId(env), brandId).first<Record<string, unknown>>();
   return draftFromRow(row!);
 }
 
@@ -229,12 +229,12 @@ export async function updateAmplifyDraft(env: AmplifyEnv, brandId: string, draft
   await ensureAmplifySystem(env);
   if (!env.DB) throw new Error("AMPLIFY draft storage is unavailable.");
   await requireBrand(env, brandId);
-  const existing = await env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(draftId, WORKSPACE_ID, brandId).first<Record<string, unknown>>();
+  const existing = await env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(draftId, workspaceId(env), brandId).first<Record<string, unknown>>();
   if (!existing) throw new Error("That advertising draft is unavailable for this brand.");
   const current = safeJson<JsonRecord>(existing.payload, {});
   const merged = { ...current, ...payload, brandId: undefined };
-  await env.DB.prepare("UPDATE advertising_campaign_drafts SET payload = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(JSON.stringify(merged), nowIso(), draftId, WORKSPACE_ID, brandId).run();
-  const row = await env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(draftId, WORKSPACE_ID, brandId).first<Record<string, unknown>>();
+  await env.DB.prepare("UPDATE advertising_campaign_drafts SET payload = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(JSON.stringify(merged), nowIso(), draftId, workspaceId(env), brandId).run();
+  const row = await env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(draftId, workspaceId(env), brandId).first<Record<string, unknown>>();
   return draftFromRow(row!);
 }
 
@@ -258,7 +258,7 @@ export async function uploadAmplifyAsset(request: Request, env: AmplifyEnv, bran
   const url = `${new URL(request.url).origin}/i/${key}`;
   const sourceType = file.type.startsWith("video/") ? "uploaded_video" : "uploaded_image";
   await env.DB.prepare("INSERT INTO advertising_assets (id, workspace_id, brand_id, source_type, label, media_type, url, r2_key, content_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, WORKSPACE_ID, brandId, sourceType, file.name.slice(0, 200) || "Uploaded creative", file.type.startsWith("video/") ? "video" : "image", url, key, file.type, nowIso()).run();
+    .bind(id, workspaceId(env), brandId, sourceType, file.name.slice(0, 200) || "Uploaded creative", file.type.startsWith("video/") ? "video" : "image", url, key, file.type, nowIso()).run();
   return { id, brandId, sourceType, label: file.name, mediaType: file.type.startsWith("video/") ? "video" : "image", url, detail: "Uploaded for AMPLIFY" };
 }
 
@@ -287,9 +287,9 @@ export async function runAmplifyDryTest(env: AmplifyEnv, brandId: string, draftI
   await ensureAmplifySystem(env);
   if (!env.DB) throw new Error("AMPLIFY dry-test storage is unavailable.");
   await requireBrand(env, brandId);
-  const duplicate = await env.DB.prepare("SELECT result FROM advertising_dry_runs WHERE workspace_id = ? AND brand_id = ? AND idempotency_key = ? LIMIT 1").bind(WORKSPACE_ID, brandId, idempotencyKey).first<Record<string, unknown>>();
+  const duplicate = await env.DB.prepare("SELECT result FROM advertising_dry_runs WHERE workspace_id = ? AND brand_id = ? AND idempotency_key = ? LIMIT 1").bind(workspaceId(env), brandId, idempotencyKey).first<Record<string, unknown>>();
   if (duplicate) return { ...safeJson<JsonRecord>(duplicate.result, {}), duplicate: true };
-  const row = await env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(draftId, WORKSPACE_ID, brandId).first<Record<string, unknown>>();
+  const row = await env.DB.prepare("SELECT * FROM advertising_campaign_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(draftId, workspaceId(env), brandId).first<Record<string, unknown>>();
   if (!row) throw new Error("That advertising draft is unavailable for this brand.");
   const payload = safeJson<JsonRecord>(row.payload, {});
   const checks = validationChecks(payload);
@@ -297,9 +297,9 @@ export async function runAmplifyDryTest(env: AmplifyEnv, brandId: string, draftI
   const createdAt = nowIso();
   const result = { id: `ad_dry_${crypto.randomUUID()}`, draftId, brandId, status: failed ? "validation_failed" : "dry_test_passed", validationStatus: failed ? "Validation Failed" : checks.some((check) => check.status === "review") ? "Requires Compliance Review" : "Basic Validation Passed", checks, duplicate: false, createdAt };
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO advertising_dry_runs (id, workspace_id, brand_id, draft_id, idempotency_key, status, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(result.id, WORKSPACE_ID, brandId, draftId, idempotencyKey, result.status, JSON.stringify(result), createdAt),
-    env.DB.prepare("UPDATE advertising_campaign_drafts SET status = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(result.status, createdAt, draftId, WORKSPACE_ID, brandId),
-    env.DB.prepare("INSERT INTO advertising_status_events (id, workspace_id, brand_id, draft_id, provider_id, status, detail, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)").bind(`ad_event_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, draftId, result.status, failed ? "Dry test failed basic validation." : "Dry test completed. No platform was contacted and no money was spent.", createdAt),
+    env.DB.prepare("INSERT INTO advertising_dry_runs (id, workspace_id, brand_id, draft_id, idempotency_key, status, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(result.id, workspaceId(env), brandId, draftId, idempotencyKey, result.status, JSON.stringify(result), createdAt),
+    env.DB.prepare("UPDATE advertising_campaign_drafts SET status = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(result.status, createdAt, draftId, workspaceId(env), brandId),
+    env.DB.prepare("INSERT INTO advertising_status_events (id, workspace_id, brand_id, draft_id, provider_id, status, detail, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)").bind(`ad_event_${crypto.randomUUID()}`, workspaceId(env), brandId, draftId, result.status, failed ? "Dry test failed basic validation." : "Dry test completed. No platform was contacted and no money was spent.", createdAt),
   ]);
   return result;
 }

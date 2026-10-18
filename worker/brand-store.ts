@@ -40,7 +40,14 @@ export type BrandContext = BrandProfileInput & {
   draft?: { prompt: string; timing: string; selectedChannels: string[]; updatedAt: string };
 };
 
-type StoreEnv = {
+export type WorkspaceAccessContext = {
+  user: { id: string; email: string | null; displayName: string };
+  workspace: { id: string; name: string; role: "owner" | "admin" | "editor" | "viewer" };
+};
+
+export type WorkspaceScopedEnv = { ACCOUNT_CONTEXT?: WorkspaceAccessContext };
+
+type StoreEnv = WorkspaceScopedEnv & {
   DB?: D1Database;
   UPLOADS: R2Bucket;
 };
@@ -63,6 +70,14 @@ const nowIso = () => new Date().toISOString();
 const rowList = <T>(result: D1Result<T>) => result.results || [];
 const value = (input: unknown) => String(input || "").trim();
 
+export function workspaceId(env: WorkspaceScopedEnv) {
+  return env.ACCOUNT_CONTEXT?.workspace.id || WORKSPACE_ID;
+}
+
+function workspaceIdentity(env: WorkspaceScopedEnv) {
+  return env.ACCOUNT_CONTEXT?.workspace || { id: WORKSPACE_ID, name: "EchoFlow Social", role: "owner" as const };
+}
+
 function slugify(name: string) {
   return name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || `brand-${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -79,13 +94,14 @@ function atlasiumChannel(channel: BufferDestination) {
 
 export async function ensureBrandSystem(env: StoreEnv) {
   if (!env.DB) return;
+  if (workspaceId(env) !== WORKSPACE_ID) return;
   const createdAt = nowIso();
   await env.DB.batch([
-    env.DB.prepare("INSERT OR IGNORE INTO workspaces (id, name, created_at) VALUES (?, ?, ?)").bind(WORKSPACE_ID, "EchoFlow Social", createdAt),
+    env.DB.prepare("INSERT OR IGNORE INTO workspaces (id, name, created_at) VALUES (?, ?, ?)").bind(workspaceId(env), "EchoFlow Social", createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO users (id, email, display_name, created_at) VALUES (?, NULL, ?, ?)").bind(OWNER_ID, "Atlasium owner", createdAt),
-    env.DB.prepare("INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)").bind(WORKSPACE_ID, OWNER_ID, "owner", createdAt),
+    env.DB.prepare("INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)").bind(workspaceId(env), OWNER_ID, "owner", createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO brands (id, workspace_id, slug, name, logo_url, website, industry, location, timezone, status, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'active', ?, ?)")
-      .bind(ATLASIUM_BRAND_ID, WORKSPACE_ID, "atlasium-7-88-ai", "Atlasium 7/88 AI", "https://atlasium.ca", "AI revenue systems", "Toronto, Ontario", "America/Toronto", createdAt, createdAt),
+      .bind(ATLASIUM_BRAND_ID, workspaceId(env), "atlasium-7-88-ai", "Atlasium 7/88 AI", "https://atlasium.ca", "AI revenue systems", "Toronto, Ontario", "America/Toronto", createdAt, createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO brand_profiles (brand_id, what_it_does, target_audience, main_offers, primary_cta, tone, words_use, words_avoid, visual_style, instructions, routing_rules, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(ATLASIUM_BRAND_ID, "Builds practical AI-powered revenue and follow-up systems for businesses.", "Business owners and operators", "Revenue systems, automation and assessments", "Start a conversation with Atlasium", "Intelligent, direct, premium and modern", "clear, practical, revenue system", "generic AI hype, motivational fluff, cheesy slogans, unnecessary em dashes", "Dark, premium, black and gold, modern, clean", "Preserve facts. Never invent offers, proof, personal stories or claims.", JSON.stringify({ includePersonalLinkedIn: true, preferCompanyLinkedIn: true, tiktokRequiresCompatibleMedia: true }), createdAt),
   ]);
@@ -94,7 +110,7 @@ export async function ensureBrandSystem(env: StoreEnv) {
 
 async function migrateLegacyCampaigns(env: StoreEnv) {
   if (!env.DB || typeof env.UPLOADS.list !== "function") return;
-  const already = await env.DB.prepare("SELECT id FROM audit_logs WHERE workspace_id = ? AND action = ? LIMIT 1").bind(WORKSPACE_ID, "legacy_campaign_migration_complete").first();
+  const already = await env.DB.prepare("SELECT id FROM audit_logs WHERE workspace_id = ? AND action = ? LIMIT 1").bind(workspaceId(env), "legacy_campaign_migration_complete").first();
   if (already) return;
   let cursor: string | undefined;
   let migrated = 0;
@@ -109,7 +125,7 @@ async function migrateLegacyCampaigns(env: StoreEnv) {
         const createdAt = value(campaign.createdAt) || nowIso();
         const updatedAt = value(campaign.updatedAt) || createdAt;
         await env.DB.prepare("INSERT OR IGNORE INTO campaigns (id, workspace_id, brand_id, r2_key, prompt, status, timezone, schedule_summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .bind(id, WORKSPACE_ID, ATLASIUM_BRAND_ID, object.key, value(campaign.prompt), value(campaign.message) || "preserved", value(campaign.timeZone) || "America/Toronto", value(campaign.schedule?.timing?.label), createdAt, updatedAt).run();
+          .bind(id, workspaceId(env), ATLASIUM_BRAND_ID, object.key, value(campaign.prompt), value(campaign.message) || "preserved", value(campaign.timeZone) || "America/Toronto", value(campaign.schedule?.timing?.label), createdAt, updatedAt).run();
         migrated += 1;
       } catch {
         // Invalid legacy metadata stays untouched in R2 and is never resubmitted.
@@ -125,7 +141,7 @@ function destinationProvider(channel: BufferDestination) {
 }
 
 export async function syncAtlasiumChannels(env: StoreEnv, channels: BufferDestination[], directMode = false) {
-  if (!env.DB) return;
+  if (!env.DB || workspaceId(env) !== WORKSPACE_ID) return;
   const assignedAt = nowIso();
   if (directMode || channels.some((channel) => channel.provider && channel.provider !== "buffer")) {
     await env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ? AND provider = 'buffer'").bind(ATLASIUM_BRAND_ID).run();
@@ -133,7 +149,7 @@ export async function syncAtlasiumChannels(env: StoreEnv, channels: BufferDestin
   for (const channel of channels.filter(atlasiumChannel)) {
     const provider = destinationProvider(channel);
     await env.DB.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
-      .bind(`channel_${provider.replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, WORKSPACE_ID, ATLASIUM_BRAND_ID, provider, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, assignedAt).run();
+      .bind(`channel_${provider.replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, workspaceId(env), ATLASIUM_BRAND_ID, provider, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, assignedAt).run();
   }
 }
 
@@ -174,16 +190,14 @@ const brandSelect = `SELECT b.*, p.what_it_does, p.target_audience, p.main_offer
 export async function getBrand(env: StoreEnv, brandId: string): Promise<BrandContext | null> {
   if (!env.DB) return brandId && brandId !== ATLASIUM_BRAND_ID ? null : legacyAtlasium();
   await ensureBrandSystem(env);
-  const membership = await env.DB.prepare("SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1").bind(WORKSPACE_ID, OWNER_ID).first<Record<string, unknown>>();
-  if (!membership) return null;
-  const row = await env.DB.prepare(`${brandSelect} WHERE b.id = ? AND b.workspace_id = ? LIMIT 1`).bind(brandId, WORKSPACE_ID).first<Record<string, unknown>>();
+  const row = await env.DB.prepare(`${brandSelect} WHERE b.id = ? AND b.workspace_id = ? LIMIT 1`).bind(brandId, workspaceId(env)).first<Record<string, unknown>>();
   if (!row) return null;
   const channelRows = rowList(await env.DB.prepare("SELECT provider_channel_id AS id, service, account_name AS displayName FROM channel_connections WHERE brand_id = ? AND active = 1 ORDER BY service, account_name").bind(brandId).all<Record<string, unknown>>());
   return brandFromRow(row, channelRows.map((channel) => ({ id: value(channel.id), service: value(channel.service), displayName: value(channel.displayName) })));
 }
 
 export async function requireBrand(env: StoreEnv, brandId?: string | null) {
-  const id = value(brandId) || ATLASIUM_BRAND_ID;
+  const id = value(brandId) || (workspaceId(env) === WORKSPACE_ID ? ATLASIUM_BRAND_ID : "");
   const brand = await getBrand(env, id);
   if (!brand || brand.status !== "active") throw new Error("This brand is unavailable or you do not have access.");
   return brand;
@@ -194,23 +208,24 @@ export async function workspaceSnapshot(env: StoreEnv, connected: BufferDestinat
     const brand = legacyAtlasium();
     brand.channels = connected;
     brand.channelIds = connected.map((channel) => channel.id);
-    return { workspace: { id: WORKSPACE_ID, name: "EchoFlow Social", role: "owner" }, brands: [brand], connectedChannels: connected.map((channel) => ({ ...channel, assignedBrandId: ATLASIUM_BRAND_ID, assignedBrandName: brand.name })), publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: true } };
+    return { workspace: workspaceIdentity(env), brands: [brand], connectedChannels: connected.map((channel) => ({ ...channel, assignedBrandId: ATLASIUM_BRAND_ID, assignedBrandName: brand.name })), publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: true } };
   }
   await ensureBrandSystem(env);
-  await syncAtlasiumChannels(env, connected, directMode);
-  const brandRows = rowList(await env.DB.prepare(`${brandSelect} WHERE b.workspace_id = ? AND b.status != 'archived' ORDER BY CASE WHEN b.id = ? THEN 0 ELSE 1 END, b.created_at`).bind(WORKSPACE_ID, ATLASIUM_BRAND_ID).all<Record<string, unknown>>());
-  const channelRows = rowList(await env.DB.prepare("SELECT c.provider_channel_id AS id, c.service, c.account_name AS displayName, c.brand_id, b.name AS brand_name FROM channel_connections c JOIN brands b ON b.id = c.brand_id WHERE c.workspace_id = ? AND c.active = 1").bind(WORKSPACE_ID).all<Record<string, unknown>>());
+  const workspaceConnected = workspaceId(env) === WORKSPACE_ID ? connected : [];
+  await syncAtlasiumChannels(env, workspaceConnected, directMode);
+  const brandRows = rowList(await env.DB.prepare(`${brandSelect} WHERE b.workspace_id = ? AND b.status != 'archived' ORDER BY CASE WHEN b.id = ? THEN 0 ELSE 1 END, b.created_at`).bind(workspaceId(env), ATLASIUM_BRAND_ID).all<Record<string, unknown>>());
+  const channelRows = rowList(await env.DB.prepare("SELECT c.provider_channel_id AS id, c.service, c.account_name AS displayName, c.brand_id, b.name AS brand_name FROM channel_connections c JOIN brands b ON b.id = c.brand_id WHERE c.workspace_id = ? AND c.active = 1").bind(workspaceId(env)).all<Record<string, unknown>>());
   const brands = brandRows.map((row) => {
     const channels = channelRows.filter((channel) => value(channel.brand_id) === value(row.id)).map((channel) => ({ id: value(channel.id), service: value(channel.service), displayName: value(channel.displayName) }));
     return brandFromRow(row, channels);
   });
   const connectionMap = new Map(channelRows.map((row) => [value(row.id), row]));
-  const connectedChannels = connected.map((channel) => {
+  const connectedChannels = workspaceConnected.map((channel) => {
     const assignment = connectionMap.get(channel.id);
     return { ...channel, assignedBrandId: assignment ? value(assignment.brand_id) : null, assignedBrandName: assignment ? value(assignment.brand_name) : null };
   });
-  const recentCampaigns = rowList(await env.DB.prepare("SELECT id, brand_id AS brandId, prompt, status, timezone AS timeZone, schedule_summary AS scheduleSummary, created_at AS createdAt, updated_at AS updatedAt FROM campaigns WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 30").bind(WORKSPACE_ID).all<Record<string, unknown>>());
-  return { workspace: { id: WORKSPACE_ID, name: "EchoFlow Social", role: "owner" }, brands, connectedChannels, recentCampaigns, publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: true } };
+  const recentCampaigns = rowList(await env.DB.prepare("SELECT id, brand_id AS brandId, prompt, status, timezone AS timeZone, schedule_summary AS scheduleSummary, created_at AS createdAt, updated_at AS updatedAt FROM campaigns WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 30").bind(workspaceId(env)).all<Record<string, unknown>>());
+  return { workspace: workspaceIdentity(env), brands, connectedChannels, recentCampaigns, publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: workspaceId(env) === WORKSPACE_ID } };
 }
 
 export async function createBrand(env: StoreEnv, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null, brandId?: string, actorId = OWNER_ID) {
@@ -219,7 +234,6 @@ export async function createBrand(env: StoreEnv, input: BrandProfileInput, conne
   const name = value(input.name).slice(0, 100);
   if (!name) throw new Error("Enter the brand name.");
   const channelIds = [...new Set(input.channelIds.map(value).filter(Boolean))];
-  if (!channelIds.length) throw new Error("Assign at least one social destination before creating the brand.");
   const selected = connected.filter((channel) => channelIds.includes(channel.id));
   if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
@@ -231,12 +245,12 @@ export async function createBrand(env: StoreEnv, input: BrandProfileInput, conne
   const slug = `${slugify(name)}-${id.slice(-6)}`;
   await env.DB.batch([
     env.DB.prepare("INSERT INTO brands (id, workspace_id, slug, name, logo_url, website, industry, location, timezone, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)")
-      .bind(id, WORKSPACE_ID, slug, name, logo?.url || value(input.logoUrl), value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", createdAt, createdAt),
+      .bind(id, workspaceId(env), slug, name, logo?.url || value(input.logoUrl), value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", createdAt, createdAt),
     env.DB.prepare("INSERT INTO brand_profiles (brand_id, what_it_does, target_audience, main_offers, primary_cta, tone, words_use, words_avoid, visual_style, instructions, routing_rules, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(id, value(input.whatItDoes), value(input.targetAudience), value(input.mainOffers), value(input.primaryCta), value(input.tone), value(input.wordsUse), value(input.wordsAvoid), value(input.visualStyle), value(input.instructions), value(input.routingRules) || "{}", createdAt),
     ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)")
-      .bind(`channel_${destinationProvider(channel).replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, WORKSPACE_ID, id, destinationProvider(channel), channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, createdAt)),
-    ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, id, logo.url, logo.r2Key, createdAt)] : []),
+      .bind(`channel_${destinationProvider(channel).replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, workspaceId(env), id, destinationProvider(channel), channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, createdAt)),
+    ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, workspaceId(env), id, logo.url, logo.r2Key, createdAt)] : []),
   ]);
   await audit(env, id, "brand_created", { name, channelIds, logoUploaded: Boolean(logo) }, actorId);
   return requireBrand(env, id);
@@ -248,7 +262,6 @@ export async function updateBrand(env: StoreEnv, brandId: string, input: BrandPr
   const name = value(input.name).slice(0, 100);
   const channelIds = [...new Set(input.channelIds.map(value).filter(Boolean))];
   if (!name) throw new Error("Enter the brand name.");
-  if (!channelIds.length) throw new Error("Keep at least one social destination assigned to this brand.");
   const selected = connected.filter((channel) => channelIds.includes(channel.id));
   if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
@@ -258,13 +271,13 @@ export async function updateBrand(env: StoreEnv, brandId: string, input: BrandPr
   const updatedAt = nowIso();
   const statements = [
     env.DB.prepare("UPDATE brands SET name = ?, logo_url = COALESCE(?, logo_url), website = ?, industry = ?, location = ?, timezone = ?, updated_at = ? WHERE id = ? AND workspace_id = ?")
-      .bind(name, logo?.url || value(input.logoUrl) || null, value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", updatedAt, brandId, WORKSPACE_ID),
+      .bind(name, logo?.url || value(input.logoUrl) || null, value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", updatedAt, brandId, workspaceId(env)),
     env.DB.prepare("UPDATE brand_profiles SET what_it_does = ?, target_audience = ?, main_offers = ?, primary_cta = ?, tone = ?, words_use = ?, words_avoid = ?, visual_style = ?, instructions = ?, routing_rules = ?, updated_at = ? WHERE brand_id = ?")
       .bind(value(input.whatItDoes), value(input.targetAudience), value(input.mainOffers), value(input.primaryCta), value(input.tone), value(input.wordsUse), value(input.wordsAvoid), value(input.visualStyle), value(input.instructions), value(input.routingRules) || "{}", updatedAt, brandId),
     env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ?").bind(brandId),
     ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
-      .bind(`channel_${destinationProvider(channel).replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, WORKSPACE_ID, brandId, destinationProvider(channel), channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, updatedAt)),
-    ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, logo.url, logo.r2Key, updatedAt)] : []),
+      .bind(`channel_${destinationProvider(channel).replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, workspaceId(env), brandId, destinationProvider(channel), channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, updatedAt)),
+    ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, workspaceId(env), brandId, logo.url, logo.r2Key, updatedAt)] : []),
   ];
   await env.DB.batch(statements);
   await audit(env, brandId, "brand_updated", { name, channelIds, logoUploaded: Boolean(logo) }, actorId);
@@ -275,7 +288,7 @@ export async function saveDraft(env: StoreEnv, brandId: string, draft: { prompt:
   if (!env.DB) return;
   await requireBrand(env, brandId);
   await env.DB.prepare("INSERT INTO brand_drafts (brand_id, workspace_id, prompt, timing, selected_channels, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(brand_id) DO UPDATE SET prompt = excluded.prompt, timing = excluded.timing, selected_channels = excluded.selected_channels, updated_at = excluded.updated_at")
-    .bind(brandId, WORKSPACE_ID, draft.prompt.slice(0, 4000), draft.timing, JSON.stringify(draft.selectedChannels), nowIso()).run();
+    .bind(brandId, workspaceId(env), draft.prompt.slice(0, 4000), draft.timing, JSON.stringify(draft.selectedChannels), nowIso()).run();
 }
 
 export async function indexCampaign(env: StoreEnv, campaign: CampaignIndexRecord, r2Key: string) {
@@ -302,7 +315,7 @@ function mediaKey(url: string) {
 export async function campaignOwner(env: StoreEnv, campaignId: string) {
   if (!env.DB) return ATLASIUM_BRAND_ID;
   await ensureBrandSystem(env);
-  const row = await env.DB.prepare("SELECT brand_id FROM campaigns WHERE id = ? AND workspace_id = ? LIMIT 1").bind(campaignId, WORKSPACE_ID).first<Record<string, unknown>>();
+  const row = await env.DB.prepare("SELECT brand_id FROM campaigns WHERE id = ? AND workspace_id = ? LIMIT 1").bind(campaignId, workspaceId(env)).first<Record<string, unknown>>();
   return row ? value(row.brand_id) : null;
 }
 
@@ -310,7 +323,7 @@ export async function reservePublishJob(env: StoreEnv, input: { id: string; bran
   if (!env.DB) return true;
   const createdAt = nowIso();
   const result = await env.DB.prepare("INSERT OR IGNORE INTO publish_jobs (id, workspace_id, brand_id, campaign_id, post_id, destination_id, scheduled_time, provider, provider_post_id, status, error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'submitting', NULL, ?, ?)")
-    .bind(input.id, WORKSPACE_ID, input.brandId, input.campaignId, input.postId, input.destinationId, input.scheduledTime, input.provider, createdAt, createdAt).run();
+    .bind(input.id, workspaceId(env), input.brandId, input.campaignId, input.postId, input.destinationId, input.scheduledTime, input.provider, createdAt, createdAt).run();
   return Number(result.meta?.changes || 0) > 0;
 }
 
@@ -332,7 +345,7 @@ export async function pendingDirectPublishJobs(env: StoreEnv, limit = 10) {
     FROM publish_jobs
     WHERE workspace_id = ? AND provider = 'echoflow-direct' AND status IN ('queued','retrying') AND scheduled_time <= ?
     ORDER BY scheduled_time LIMIT ?`)
-    .bind(WORKSPACE_ID, nowIso(), Math.max(1, Math.min(25, limit))).all<Record<string, unknown>>();
+    .bind(workspaceId(env), nowIso(), Math.max(1, Math.min(25, limit))).all<Record<string, unknown>>();
   return rowList(result).map((row) => ({ id: value(row.id), brandId: value(row.brandId), scheduledTime: value(row.scheduledTime) }));
 }
 
@@ -346,21 +359,21 @@ export async function claimPublishJob(env: StoreEnv, id: string) {
 export async function recordDelivery(env: StoreEnv, input: { publishJobId: string; brandId: string; providerStatus?: string | null; publicUrl?: string | null; error?: string | null }) {
   if (!env.DB) return;
   await env.DB.prepare("INSERT INTO delivery_statuses (id, workspace_id, brand_id, publish_job_id, provider_status, public_url, error, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(publish_job_id) DO UPDATE SET provider_status = excluded.provider_status, public_url = excluded.public_url, error = excluded.error, checked_at = excluded.checked_at")
-    .bind(`delivery_${input.publishJobId}`, WORKSPACE_ID, input.brandId, input.publishJobId, input.providerStatus || null, input.publicUrl || null, input.error || null, nowIso()).run();
+    .bind(`delivery_${input.publishJobId}`, workspaceId(env), input.brandId, input.publishJobId, input.providerStatus || null, input.publicUrl || null, input.error || null, nowIso()).run();
 }
 
 export async function archiveBrand(env: StoreEnv, brandId: string, actorId = OWNER_ID) {
   if (!env.DB) throw new Error("Brand storage is not available yet.");
-  if (brandId === ATLASIUM_BRAND_ID) throw new Error("The default Atlasium brand cannot be archived.");
+  if (workspaceId(env) === WORKSPACE_ID && brandId === ATLASIUM_BRAND_ID) throw new Error("The default Atlasium brand cannot be archived.");
   await requireBrand(env, brandId);
-  await env.DB.prepare("UPDATE brands SET status = 'archived', updated_at = ? WHERE id = ? AND workspace_id = ?").bind(nowIso(), brandId, WORKSPACE_ID).run();
+  await env.DB.prepare("UPDATE brands SET status = 'archived', updated_at = ? WHERE id = ? AND workspace_id = ?").bind(nowIso(), brandId, workspaceId(env)).run();
   await audit(env, brandId, "brand_archived", { hardDelete: false }, actorId);
 }
 
 export async function audit(env: StoreEnv, brandId: string | null, action: string, details: Record<string, unknown>, actorId = OWNER_ID) {
   if (!env.DB) return;
   await env.DB.prepare("INSERT INTO audit_logs (id, workspace_id, brand_id, actor_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(`audit_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, actorId || OWNER_ID, action, JSON.stringify(details), nowIso()).run();
+    .bind(`audit_${crypto.randomUUID()}`, workspaceId(env), brandId, actorId || OWNER_ID, action, JSON.stringify(details), nowIso()).run();
 }
 
 export async function pendingDeliveryJobs(env: StoreEnv, brandId: string, limit = 50) {
@@ -375,7 +388,7 @@ export async function pendingDeliveryJobs(env: StoreEnv, brandId: string, limit 
       AND (d.checked_at IS NULL OR d.checked_at < ?)
     ORDER BY CASE WHEN d.checked_at IS NULL THEN 0 ELSE 1 END, COALESCE(d.checked_at, ''), j.scheduled_time
     LIMIT ?`)
-    .bind(WORKSPACE_ID, brandId, nowIso(), new Date(Date.now() - 15 * 60_000).toISOString(), Math.max(1, Math.min(100, limit))).all<Record<string, unknown>>();
+    .bind(workspaceId(env), brandId, nowIso(), new Date(Date.now() - 15 * 60_000).toISOString(), Math.max(1, Math.min(100, limit))).all<Record<string, unknown>>();
   return rowList(result).map((row) => ({ id: value(row.id), providerPostId: value(row.providerPostId) }));
 }
 
@@ -386,7 +399,7 @@ export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, conn
   const [channelResult, jobResult] = await Promise.all([
     env.DB.prepare(`SELECT id, provider_channel_id AS providerChannelId, service, account_name AS accountName
       FROM channel_connections WHERE workspace_id = ? AND brand_id = ? AND active = 1 ORDER BY service, account_name`)
-      .bind(WORKSPACE_ID, brand.id).all<Record<string, unknown>>(),
+      .bind(workspaceId(env), brand.id).all<Record<string, unknown>>(),
     env.DB.prepare(`SELECT j.id, j.campaign_id AS campaignId, j.post_id AS postId, j.destination_id AS destinationId,
         j.scheduled_time AS scheduledTime, j.provider, j.provider_post_id AS providerPostId, j.status, j.error,
         j.created_at AS createdAt, j.updated_at AS updatedAt, p.concept,
@@ -400,7 +413,7 @@ export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, conn
       LEFT JOIN delivery_statuses d ON d.publish_job_id = j.id
       WHERE j.workspace_id = ? AND j.brand_id = ?
       ORDER BY j.created_at DESC LIMIT 100`)
-      .bind(WORKSPACE_ID, brand.id).all<Record<string, unknown>>(),
+      .bind(workspaceId(env), brand.id).all<Record<string, unknown>>(),
   ]);
   const channels = rowList(channelResult).map((row) => ({
     id: value(row.id), brandId: brand.id, providerId: value(row.service), providerChannelId: value(row.providerChannelId),

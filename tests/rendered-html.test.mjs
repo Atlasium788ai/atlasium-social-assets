@@ -120,6 +120,57 @@ test("approved company users receive durable workspace accounts and role-based p
   assert.equal(denied.status, 401);
 });
 
+test("self-service customers receive isolated workspaces and cannot cross tenant boundaries", async () => {
+  const worker = await loadWorker();
+  const DB = await memoryD1();
+  const env = {
+    ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+    DB,
+    UPLOADS: { async get() { return null; }, async put() {}, async list() { return { objects: [], truncated: false }; } },
+    UPLOAD_KEY: "test-key",
+    AUTHORIZED_USER_EMAILS: "statusx22@gmail.com,info@atlasium788.ca",
+    SELF_SERVICE_SIGNUP_ENABLED: "true",
+    PUBLISHING_MODE: "direct",
+  };
+  const context = { waitUntil() {}, passThroughOnException() {} };
+  const customerHeaders = {
+    "oai-authenticated-user-id": "customer-user-a",
+    "oai-authenticated-user-email": "owner@northstar.example",
+  };
+  const customerWorkspaceResponse = await worker.fetch(new Request("http://localhost/api/workspace", { headers: customerHeaders }), env, context);
+  assert.equal(customerWorkspaceResponse.status, 200);
+  const customerWorkspace = await customerWorkspaceResponse.json();
+  assert.match(customerWorkspace.workspace.id, /^workspace_/);
+  assert.equal(customerWorkspace.workspace.role, "owner");
+  assert.deepEqual(customerWorkspace.brands, []);
+  assert.deepEqual(customerWorkspace.connectedChannels, []);
+
+  const profile = { name: "Northstar", timezone: "America/Toronto", channelIds: [], whatItDoes: "Helps service businesses follow up.", targetAudience: "Service businesses", mainOffers: "Follow-up systems", tone: "Clear", routingRules: "{}" };
+  const form = new FormData();
+  form.set("profile", JSON.stringify(profile));
+  const createdResponse = await worker.fetch(new Request("http://localhost/api/brands", { method: "POST", headers: customerHeaders, body: form }), env, context);
+  assert.equal(createdResponse.status, 201);
+  const created = (await createdResponse.json()).brand;
+  assert.equal(created.workspaceId, customerWorkspace.workspace.id);
+  assert.equal(created.channels.length, 0);
+
+  const otherHeaders = {
+    "oai-authenticated-user-id": "customer-user-b",
+    "oai-authenticated-user-email": "owner@otherco.example",
+  };
+  const otherWorkspaceResponse = await worker.fetch(new Request("http://localhost/api/workspace", { headers: otherHeaders }), env, context);
+  assert.equal(otherWorkspaceResponse.status, 200);
+  const otherWorkspace = await otherWorkspaceResponse.json();
+  assert.notEqual(otherWorkspace.workspace.id, customerWorkspace.workspace.id);
+  assert.deepEqual(otherWorkspace.brands, []);
+
+  const stolenUpdate = new FormData();
+  stolenUpdate.set("profile", JSON.stringify({ ...profile, name: "Stolen Northstar" }));
+  const crossTenantResponse = await worker.fetch(new Request(`http://localhost/api/brands/${created.id}`, { method: "PATCH", headers: { ...otherHeaders, "X-Brand-ID": created.id }, body: stolenUpdate }), env, context);
+  assert.equal(crossTenantResponse.status, 403);
+  assert.equal(DB.database.prepare("SELECT name FROM brands WHERE id = ?").get(created.id).name, "Northstar");
+});
+
 test("serves refresh-safe ECHO, FLOW and AMPLIFY routes with clear top-level navigation", async () => {
   const worker = await loadWorker();
   const env = {

@@ -184,7 +184,7 @@ export default function Home() {
     if (busy || !activeBrand) return;
     if (access !== "granted") { setBrandStatus(activeBrand.id, { kind: "error", text: "Sign in to enable publishing." }); return; }
     if (!prompt.trim()) { setBrandStatus(activeBrand.id, { kind: "error", text: "Enter a campaign prompt first." }); return; }
-    if (!channels.length) { setBrandStatus(activeBrand.id, { kind: "error", text: "Direct publishing needs Atlasium's Meta or LinkedIn app credentials before a destination can be assigned." }); return; }
+    if (!channels.length) { setBrandStatus(activeBrand.id, { kind: "error", text: "Connect at least one social destination in FLOW before publishing." }); return; }
     setBusy(true); setBrandStatus(activeBrand.id, null); setResultsByBrand((current) => ({ ...current, [activeBrand.id]: [] }));
     try {
       if (timing === "schedule" && !scheduleAt) throw new Error("Choose the exact date and time to schedule.");
@@ -218,7 +218,6 @@ export default function Home() {
   function nextWizardStep() {
     setWizardError("");
     if (wizardStep === 1 && !brandForm.name.trim()) { setWizardError("Add the brand name first."); return; }
-    if (wizardStep === 3 && !brandForm.channelIds.length) { setWizardError("Choose at least one available social destination."); return; }
     setWizardStep((step) => Math.min(4, step + 1));
   }
 
@@ -261,6 +260,13 @@ export default function Home() {
       </div>
       {(workspace?.brands.length || 0) > 5 && <input className="brand-search" value={brandSearch} onChange={(event) => setBrandSearch(event.target.value)} placeholder="Find a brand" aria-label="Find a brand" />}
     </nav>
+
+    {workspace && workspace.brands.length === 0 && <section className="empty-workspace card">
+      <p className="eyebrow">YOUR PRIVATE WORKSPACE</p>
+      <h1>Create your first brand.</h1>
+      <p>Add the business voice, audience and offers now. Social accounts can be connected later in FLOW.</p>
+      <button className="primary" type="button" onClick={() => openBrandWizard("create")}>Create First Brand <span>→</span></button>
+    </section>}
 
     {activeBrand && <>
       <section className="active-brand-strip">
@@ -317,7 +323,7 @@ export default function Home() {
 
       {wizardStep === 2 && <div className="wizard-body"><h3>Brand brain</h3><label>What does the company do?<textarea value={brandForm.whatItDoes} onChange={(event) => setBrandField("whatItDoes", event.target.value)} /></label><div className="field-grid"><label>Target audience<textarea value={brandForm.targetAudience} onChange={(event) => setBrandField("targetAudience", event.target.value)} /></label><label>Main offers<textarea value={brandForm.mainOffers} onChange={(event) => setBrandField("mainOffers", event.target.value)} /></label><label>Primary call to action<input value={brandForm.primaryCta} onChange={(event) => setBrandField("primaryCta", event.target.value)} /></label><label>Tone of voice<input value={brandForm.tone} onChange={(event) => setBrandField("tone", event.target.value)} /></label><label>Words to use<input value={brandForm.wordsUse} onChange={(event) => setBrandField("wordsUse", event.target.value)} /></label><label>Words to avoid<input value={brandForm.wordsAvoid} onChange={(event) => setBrandField("wordsAvoid", event.target.value)} /></label><label>Visual style<textarea value={brandForm.visualStyle} onChange={(event) => setBrandField("visualStyle", event.target.value)} /></label><label>Additional instructions<textarea value={brandForm.instructions} onChange={(event) => setBrandField("instructions", event.target.value)} /></label></div></div>}
 
-      {wizardStep === 3 && <div className="wizard-body"><h3>Social channels</h3><p className="wizard-help">Assign only destinations that belong to this brand. A destination cannot be shared across brands.</p><div className="assignment-list">{workspace?.connectedChannels.map((channel) => { const ownedHere = channel.assignedBrandId === activeBrand?.id && wizardMode === "edit"; const unavailable = Boolean(channel.assignedBrandId && !ownedHere); const checked = brandForm.channelIds.includes(channel.id); return <label key={channel.id} className={unavailable ? "unavailable" : ""}><input type="checkbox" disabled={unavailable} checked={checked} onChange={() => setBrandField("channelIds", checked ? brandForm.channelIds.filter((id) => id !== channel.id) : [...brandForm.channelIds, channel.id])} /><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}{unavailable ? ` · assigned to ${channel.assignedBrandName}` : ""}</small></span></label>})}</div></div>}
+      {wizardStep === 3 && <div className="wizard-body"><h3>Social channels</h3><p className="wizard-help">Assign destinations that belong to this brand, or continue and connect them later in FLOW.</p><div className="assignment-list">{workspace?.connectedChannels.map((channel) => { const ownedHere = channel.assignedBrandId === activeBrand?.id && wizardMode === "edit"; const unavailable = Boolean(channel.assignedBrandId && !ownedHere); const checked = brandForm.channelIds.includes(channel.id); return <label key={channel.id} className={unavailable ? "unavailable" : ""}><input type="checkbox" disabled={unavailable} checked={checked} onChange={() => setBrandField("channelIds", checked ? brandForm.channelIds.filter((id) => id !== channel.id) : [...brandForm.channelIds, channel.id])} /><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}{unavailable ? ` · assigned to ${channel.assignedBrandName}` : ""}</small></span></label>})}</div>{!workspace?.connectedChannels.length && <p className="empty">No social accounts are connected yet. You can finish this brand now and connect pages later.</p>}</div>}
 
       {wizardStep === 4 && <div className="wizard-body review"><h3>Review</h3><div><span>Brand</span><b>{brandForm.name}</b></div><div><span>Timezone</span><b>{brandForm.timezone}</b></div><div><span>Connected channels</span><b>{brandForm.channelIds.length}</b></div><div><span>Content direction</span><b>{brandForm.tone || brandForm.whatItDoes || "Clear and professional"}</b></div><div><span>Default routing</span><b>Prompt-led automatic routing</b></div></div>}
 

@@ -22,6 +22,7 @@ import {
   saveDraft,
   syncAtlasiumChannels,
   updateBrand,
+  workspaceId,
   workspaceSnapshot,
   type BrandContext,
   type BrandProfileInput,
@@ -45,7 +46,7 @@ import {
   undoEchoContentRevision,
   updateEchoContentDraft,
 } from "./content-store";
-import { accountSnapshot } from "./account-store";
+import { accountSnapshot, resolveWorkspaceAccount, type WorkspaceAccount } from "./account-store";
 
 interface Env {
   ASSETS: Fetcher;
@@ -53,6 +54,8 @@ interface Env {
   UPLOADS: R2Bucket;
   UPLOAD_KEY: string;
   AUTHORIZED_USER_EMAILS?: string;
+  SELF_SERVICE_SIGNUP_ENABLED?: string;
+  ACCOUNT_CONTEXT?: WorkspaceAccount;
   BUFFER_API_KEY?: string;
   PUBLISHING_MODE?: string;
   META_ACCESS_TOKEN?: string;
@@ -172,6 +175,7 @@ function statusFor(error: unknown, fallback: number) {
 }
 
 function authorized(request: Request, env: Env) {
+  if (env.ACCOUNT_CONTEXT) return true;
   const sharedKeyMatches = Boolean(env.UPLOAD_KEY && request.headers.get("X-Upload-Key") === env.UPLOAD_KEY);
   const signedInUserId = request.headers.get("oai-authenticated-user-id")?.trim();
   const signedInEmail = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
@@ -182,6 +186,11 @@ function authorized(request: Request, env: Env) {
 
 function actorId(request: Request) {
   return request.headers.get("oai-authenticated-user-id")?.trim() || OWNER_ID;
+}
+
+async function workspacePublishingDestinations(env: Env) {
+  if (env.ACCOUNT_CONTEXT && env.ACCOUNT_CONTEXT.workspace.id !== WORKSPACE_ID) return [];
+  return publishingProvider(env).listDestinations();
 }
 
 async function bufferRequest(env: Env, query: string, variables: Record<string, unknown> = {}) {
@@ -890,7 +899,7 @@ async function loadCampaign(env: Env, id: string, requestedBrandId?: string | nu
   if (!object) return null;
   const campaign = await new Response(object.body).json() as CampaignRecord;
   campaign.brandId ||= brandId;
-  campaign.workspaceId ||= WORKSPACE_ID;
+  campaign.workspaceId ||= workspaceId(env);
   return campaign;
 }
 
@@ -904,7 +913,7 @@ async function motionPreview(request: Request, env: Env) {
   const job = await provider.createJob(`Add a slow cinematic push-in and soft light sweep. ${prompt}`, 4);
   const id = crypto.randomUUID();
   const item: CampaignRecord["items"][number] = { id: `${id}-01`, itemIndex: 0, concept: "Motion preview", caption: "", imagePrompt: prompt, mediaType: "video", motionStyle: "slow cinematic push-in", motionPrompt: `Add a slow cinematic push-in and soft light sweep. ${prompt}`, duration: 4, aspectRatio: "9:16", imageUrl, hostedMediaUrl: undefined, state: job.status, videoJobId: job.id, retryCount: 0, providerName: provider.providerName, modelName: provider.modelName };
-  const campaign: CampaignRecord = { id, workspaceId: WORKSPACE_ID, brandId: brand.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), prompt, timeZone: brand.timezone, message: "PROCESSING MOTION", schedule: { timing: { mode: "auto", label: "Media-only proof", start: null, end: null, weekdaysOnly: false, postsPerWeek: null, launchDay: null }, times: [null] }, items: [item], results: [] };
+  const campaign: CampaignRecord = { id, workspaceId: workspaceId(env), brandId: brand.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), prompt, timeZone: brand.timezone, message: "PROCESSING MOTION", schedule: { timing: { mode: "auto", label: "Media-only proof", start: null, end: null, weekdaysOnly: false, postsPerWeek: null, launchDay: null }, times: [null] }, items: [item], results: [] };
   await saveCampaign(env, campaign);
   return json({ campaignId: id, mediaType: "video", duration: 4, aspectRatio: "9:16", imageUrl, videoJobId: job.id, status: job.status, providerName: provider.providerName, modelName: provider.modelName }, 202);
 }
@@ -971,17 +980,17 @@ async function runAgent(request: Request, env: Env) {
     const submissionId = `${stablePost.id}:${String(channel.id)}:${surface}`;
     const mediaUrl = surfaceMedia(stablePost, surface);
     if (surface === "story" && stablePost.mediaType === "image" && (!mediaUrl || stablePost.storyMediaError)) {
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: stablePost.mediaType, hostedMediaUrl: null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: `${stablePost.storyMediaError || "Story media could not be prepared."} Main publication was preserved.` });
+      results.push({ id: submissionId, workspaceId: workspaceId(env), brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: stablePost.imageUrl, mediaType: stablePost.mediaType, hostedMediaUrl: null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: `${stablePost.storyMediaError || "Story media could not be prepared."} Main publication was preserved.` });
       continue;
     }
     const pendingMotion = stablePost.mediaType === "video" && !stablePost.hostedMediaUrl?.endsWith(".mp4");
     if (pendingMotion) {
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: surface === "story" ? stablePost.storyImageUrl || stablePost.imageUrl : stablePost.imageUrl, mediaType: "video", motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: String(channel.service), surface, surfaceId, surfaceLabel, status: "PROCESSING MOTION", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
+      results.push({ id: submissionId, workspaceId: workspaceId(env), brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: surface === "story" ? stablePost.storyImageUrl || stablePost.imageUrl : stablePost.imageUrl, mediaType: "video", motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: stablePost.aspectRatio, hostedMediaUrl: null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: String(channel.service), surface, surfaceId, surfaceLabel, status: "PROCESSING MOTION", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
       continue;
     }
     const reserved = await reservePublishJob(env, { id: submissionId, brandId: brand.id, campaignId: runId, postId: stablePost.id, destinationId: `${String(channel.id)}#${surfaceId}`, scheduledTime: requestedDueAt || mode, provider: publisher.id });
     if (!reserved) {
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, hostedMediaUrl: mediaUrl, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "DUPLICATE PREVENTED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
+      results.push({ id: submissionId, workspaceId: workspaceId(env), brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, hostedMediaUrl: mediaUrl, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "DUPLICATE PREVENTED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone });
       continue;
     }
     try {
@@ -990,18 +999,18 @@ async function runAgent(request: Request, env: Env) {
       await finishPublishJob(env, submissionId, persistedStatus, created.id, null);
       if (persistedStatus === "sent") await recordDelivery(env, { publishJobId: submissionId, brandId: brand.id, providerStatus: "sent", publicUrl: created.externalLink || null });
       const confirmedChannel = available.find((item) => String(item.id) === created.channelId);
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: surface === "story" ? "9:16" : stablePost.aspectRatio, hostedMediaUrl: mediaUrl, motionError: stablePost.motionError || null, channelId: created.channelId, channel: confirmedChannel?.displayName || confirmedChannel?.name || channel.displayName || channel.name, service: confirmedChannel?.service || channel.service, surface, surfaceId, surfaceLabel, postId: created.id, status: env.PUBLISHING_MODE === "legacy-buffer" && mode === "shareNow" ? "PUBLISHING" : created.status === "sent" ? "SENT" : mode === "addToQueue" ? "QUEUED" : "SCHEDULED", providerStatus: created.status || null, bufferStatus: env.PUBLISHING_MODE === "legacy-buffer" ? created.status || null : null, requestedDueAt: requestedDueAt || null, dueAt: created.dueAt || null, timeZone, externalLink: created.externalLink || null });
+      results.push({ id: submissionId, workspaceId: workspaceId(env), brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: surface === "story" ? "9:16" : stablePost.aspectRatio, hostedMediaUrl: mediaUrl, motionError: stablePost.motionError || null, channelId: created.channelId, channel: confirmedChannel?.displayName || confirmedChannel?.name || channel.displayName || channel.name, service: confirmedChannel?.service || channel.service, surface, surfaceId, surfaceLabel, postId: created.id, status: env.PUBLISHING_MODE === "legacy-buffer" && mode === "shareNow" ? "PUBLISHING" : created.status === "sent" ? "SENT" : mode === "addToQueue" ? "QUEUED" : "SCHEDULED", providerStatus: created.status || null, bufferStatus: env.PUBLISHING_MODE === "legacy-buffer" ? created.status || null : null, requestedDueAt: requestedDueAt || null, dueAt: created.dueAt || null, timeZone, externalLink: created.externalLink || null });
     } catch (error) {
       const message = error instanceof Error ? error.message : "The social platform rejected this post.";
       await finishPublishJob(env, submissionId, "failed", null, message);
-      results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: surface === "story" ? "9:16" : stablePost.aspectRatio, hostedMediaUrl: mediaUrl, motionError: stablePost.motionError || null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: message });
+      results.push({ id: submissionId, workspaceId: workspaceId(env), brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: surface === "story" ? "9:16" : stablePost.aspectRatio, hostedMediaUrl: mediaUrl, motionError: stablePost.motionError || null, channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", bufferStatus: null, requestedDueAt: requestedDueAt || null, dueAt: null, timeZone, error: message });
     }
   }
   const usedChannels = new Set(results.map((result) => String(result.channel)));
   const failed = results.filter((result) => result.status === "FAILED").length;
   const pending = results.filter((result) => result.status === "PROCESSING MOTION").length;
   const message = pending ? `PROCESSING MOTION — ${pending} destination${pending === 1 ? "" : "s"} will enter EchoFlow's publishing queue only after the MP4 is hosted.` : failed ? `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"}; ${results.length - failed} destination submission${results.length - failed === 1 ? "" : "s"} confirmed and ${failed} failed.` : `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"} created with ${results.length} direct destination submission${results.length === 1 ? "" : "s"} across ${usedChannels.size} channels.`;
-  const campaign: CampaignRecord = { id: runId, workspaceId: WORKSPACE_ID, brandId: brand.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), prompt, timeZone, message, schedule, items: posts.map((post) => ({ ...post, state: ((post as PlannedPost & { state?: MotionState }).state || (post.mediaType === "video" ? "rendering" : "scheduled")) as MotionState, retryCount: (post as PlannedPost & { retryCount?: number }).retryCount || 0 })), results: results as CampaignResult[] };
+  const campaign: CampaignRecord = { id: runId, workspaceId: workspaceId(env), brandId: brand.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), prompt, timeZone, message, schedule, items: posts.map((post) => ({ ...post, state: ((post as PlannedPost & { state?: MotionState }).state || (post.mediaType === "video" ? "rendering" : "scheduled")) as MotionState, retryCount: (post as PlannedPost & { retryCount?: number }).retryCount || 0 })), results: results as CampaignResult[] };
   await saveCampaign(env, campaign);
   await audit(env, brand.id, "social_campaign_submitted", { campaignId: runId, campaignItems: plan.posts.length, destinationSubmissions: results.length, failed, pending, timing: schedule.timing.mode }, actorId(request));
   return json({ campaignId: runId, brandId: brand.id, message, campaign: plan.campaign, campaignItems: plan.posts.length, destinationSubmissions: results.length, postsCreated: results.length - failed - pending, channels: usedChannels.size, schedule: schedule.timing, results }, pending ? 202 : failed ? 207 : 201);
@@ -1243,7 +1252,7 @@ async function publish(request: Request, env: Env) {
 
 async function workspace(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
-  const connected = await publishingProvider(env).listDestinations();
+  const connected = await workspacePublishingDestinations(env);
   return json(await workspaceSnapshot(env, connected, env.PUBLISHING_MODE !== "legacy-buffer"));
 }
 
@@ -1251,7 +1260,7 @@ async function flowWorkspaceRoute(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This FLOW workspace is not authorized." }, 401);
   const brandId = request.headers.get("X-Brand-ID")?.trim() || "";
   if (!brandId) return json({ error: "A valid brand is required for FLOW." }, 400);
-  const connected = await publishingProvider(env).listDestinations();
+  const connected = await workspacePublishingDestinations(env);
   if (brandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected, env.PUBLISHING_MODE !== "legacy-buffer");
   let reconciliation = { checked: 0, sent: 0, failed: 0, pending: 0 };
   let refreshError = "";
@@ -1277,7 +1286,7 @@ async function brandPayload(request: Request, env: Env, brandId?: string) {
     await env.UPLOADS.put(key, logo.stream(), { httpMetadata: { contentType: logo.type, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: logo.name.slice(0, 200), brandId: brandId || "pending" } });
     hostedLogo = { r2Key: key, url: `${new URL(request.url).origin}/i/${key}` };
   }
-  const connected = await publishingProvider(env).listDestinations();
+  const connected = await workspacePublishingDestinations(env);
   return { profile, hostedLogo, connected };
 }
 
@@ -1454,6 +1463,11 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/echo/dispatch") {
+      const account = await resolveWorkspaceAccount(request, env);
+      if (account) env = { ...env, ACCOUNT_CONTEXT: account };
+    }
+
     if (url.pathname === "/api/echo/dispatch") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       const secret = request.headers.get("X-EchoFlow-Cron-Secret") || "";
@@ -1572,7 +1586,7 @@ const worker = {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
       try {
-        const connected = await publishingProvider(env).listDestinations();
+        const connected = await workspacePublishingDestinations(env);
         if (!connected.length) return json({ configured: false, mode: "direct", channels: [], setupRequired: ["Meta app credentials", "LinkedIn app credentials"] });
         const brandId = request.headers.get("X-Brand-ID") || url.searchParams.get("brandId") || ATLASIUM_BRAND_ID;
         if (brandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected, env.PUBLISHING_MODE !== "legacy-buffer");

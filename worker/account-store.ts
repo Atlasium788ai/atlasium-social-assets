@@ -4,6 +4,8 @@ type AccountEnv = {
   DB?: D1Database;
   UPLOAD_KEY?: string;
   AUTHORIZED_USER_EMAILS?: string;
+  SELF_SERVICE_SIGNUP_ENABLED?: string;
+  ACCOUNT_CONTEXT?: WorkspaceAccount;
 };
 
 export type WorkspaceRole = "owner" | "admin" | "editor" | "viewer";
@@ -37,32 +39,52 @@ function requestedIdentity(request: Request) {
 }
 
 export async function resolveWorkspaceAccount(request: Request, env: AccountEnv): Promise<WorkspaceAccount | null> {
+  if (env.ACCOUNT_CONTEXT) return env.ACCOUNT_CONTEXT;
   const sharedKeyMatches = Boolean(env.UPLOAD_KEY && request.headers.get("X-Upload-Key") === env.UPLOAD_KEY);
   const identity = requestedIdentity(request);
   const allowlist = allowedEmails(env);
-  if (!sharedKeyMatches && (!identity || !allowlist.includes(identity.email))) return null;
+  const isAtlasiumUser = Boolean(identity && allowlist.includes(identity.email));
+  const selfServiceEnabled = env.SELF_SERVICE_SIGNUP_ENABLED === "true";
+  if (!sharedKeyMatches && !isAtlasiumUser && (!identity || !selfServiceEnabled)) return null;
 
   const ownerEmail = allowlist[0] || null;
   const user = identity || { id: OWNER_ID, email: ownerEmail, displayName: "Atlasium owner" };
-  const requestedRole: WorkspaceRole = user.email && user.email === ownerEmail ? "owner" : "editor";
+  let targetWorkspaceId = WORKSPACE_ID;
+  let targetWorkspaceName = "EchoFlow Social";
+  let requestedRole: WorkspaceRole = user.email && user.email === ownerEmail ? "owner" : "editor";
   let role = requestedRole;
 
   if (env.DB) {
     const createdAt = new Date().toISOString();
+    if (!sharedKeyMatches && !isAtlasiumUser) {
+      const existing = await env.DB.prepare(`SELECT w.id, w.name, m.role
+        FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
+        WHERE m.user_id = ? ORDER BY m.created_at LIMIT 1`).bind(user.id).first<Record<string, unknown>>();
+      if (existing) {
+        targetWorkspaceId = value(existing.id);
+        targetWorkspaceName = value(existing.name) || "EchoFlow Workspace";
+        requestedRole = (["owner", "admin", "editor", "viewer"].includes(value(existing.role)) ? value(existing.role) : "owner") as WorkspaceRole;
+      } else {
+        targetWorkspaceId = `workspace_${crypto.randomUUID()}`;
+        const prefix = user.email?.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "New customer";
+        targetWorkspaceName = `${prefix.replace(/\b\w/g, (letter) => letter.toUpperCase())}'s EchoFlow`;
+        requestedRole = "owner";
+      }
+    }
     await env.DB.batch([
-      env.DB.prepare("INSERT OR IGNORE INTO workspaces (id, name, created_at) VALUES (?, ?, ?)").bind(WORKSPACE_ID, "EchoFlow Social", createdAt),
+      env.DB.prepare("INSERT OR IGNORE INTO workspaces (id, name, created_at) VALUES (?, ?, ?)").bind(targetWorkspaceId, targetWorkspaceName, createdAt),
       env.DB.prepare("INSERT INTO users (id, email, display_name, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name")
         .bind(user.id, user.email, user.displayName, createdAt),
       env.DB.prepare("INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = CASE WHEN workspace_members.role = 'owner' THEN 'owner' ELSE excluded.role END")
-        .bind(WORKSPACE_ID, user.id, requestedRole, createdAt),
+        .bind(targetWorkspaceId, user.id, requestedRole, createdAt),
     ]);
     const membership = await env.DB.prepare("SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1")
-      .bind(WORKSPACE_ID, user.id).first<Record<string, unknown>>();
+      .bind(targetWorkspaceId, user.id).first<Record<string, unknown>>();
     const storedRole = value(membership?.role);
     if (["owner", "admin", "editor", "viewer"].includes(storedRole)) role = storedRole as WorkspaceRole;
   }
 
-  return { authenticated: true, user, workspace: { id: WORKSPACE_ID, name: "EchoFlow Social", role } };
+  return { authenticated: true, user, workspace: { id: targetWorkspaceId, name: targetWorkspaceName, role } };
 }
 
 export async function accountSnapshot(request: Request, env: AccountEnv) {

@@ -1,8 +1,8 @@
-import { ATLASIUM_BRAND_ID, WORKSPACE_ID, requireBrand, saveDraft, type BrandContext } from "./brand-store";
+import { ATLASIUM_BRAND_ID, requireBrand, saveDraft, workspaceId, type BrandContext, type WorkspaceScopedEnv } from "./brand-store";
 
 type JsonRecord = Record<string, unknown>;
 
-type ContentEnv = {
+type ContentEnv = WorkspaceScopedEnv & {
   DB?: D1Database;
   UPLOADS: R2Bucket;
   OPENAI_API_KEY?: string;
@@ -188,7 +188,7 @@ async function ownedDraft(env: ContentEnv, brandId: string, draftId: string) {
   if (!env.DB) throw new Error("ECHO content storage is unavailable.");
   await requireBrand(env, brandId);
   await ensureContentSystem(env);
-  const row = await env.DB.prepare("SELECT * FROM echo_content_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(draftId, WORKSPACE_ID, brandId).first<Record<string, unknown>>();
+  const row = await env.DB.prepare("SELECT * FROM echo_content_drafts WHERE id = ? AND workspace_id = ? AND brand_id = ? LIMIT 1").bind(draftId, workspaceId(env), brandId).first<Record<string, unknown>>();
   if (!row) throw new Error("That content draft is unavailable for this brand.");
   return draftFromRow(row);
 }
@@ -198,9 +198,9 @@ export async function loadEchoContentWorkspace(env: ContentEnv, brandId: string)
   await requireBrand(env, brandId);
   await ensureContentSystem(env);
   const [draftRows, campaignRows, mediaRows] = await Promise.all([
-    env.DB.prepare("SELECT * FROM echo_content_drafts WHERE workspace_id = ? AND brand_id = ? ORDER BY updated_at DESC LIMIT 100").bind(WORKSPACE_ID, brandId).all<Record<string, unknown>>(),
-    env.DB.prepare("SELECT id, prompt AS title, status, updated_at AS updatedAt FROM campaigns WHERE workspace_id = ? AND brand_id = ? ORDER BY updated_at DESC LIMIT 30").bind(WORKSPACE_ID, brandId).all<Record<string, unknown>>(),
-    env.DB.prepare("SELECT id, url, media_type AS mediaType, created_at AS createdAt FROM media_assets WHERE workspace_id = ? AND brand_id = ? AND media_type IN ('image', 'motion') ORDER BY created_at DESC LIMIT 30").bind(WORKSPACE_ID, brandId).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT * FROM echo_content_drafts WHERE workspace_id = ? AND brand_id = ? ORDER BY updated_at DESC LIMIT 100").bind(workspaceId(env), brandId).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT id, prompt AS title, status, updated_at AS updatedAt FROM campaigns WHERE workspace_id = ? AND brand_id = ? ORDER BY updated_at DESC LIMIT 30").bind(workspaceId(env), brandId).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT id, url, media_type AS mediaType, created_at AS createdAt FROM media_assets WHERE workspace_id = ? AND brand_id = ? AND media_type IN ('image', 'motion') ORDER BY created_at DESC LIMIT 30").bind(workspaceId(env), brandId).all<Record<string, unknown>>(),
   ]);
   const drafts = rowList(draftRows).map(draftFromRow);
   const campaigns = rowList(campaignRows).map((row) => ({ id: value(row.id), brandId, contentType: "social" as const, title: value(row.title) || "Social campaign", status: value(row.status), updatedAt: value(row.updatedAt), source: "campaign" }));
@@ -227,7 +227,7 @@ export async function createEchoContentDraft(env: ContentEnv, brandId: string, r
   const createdAt = nowIso();
   const title = contentTitle(contentType, payload, prompt).slice(0, 180);
   await env.DB.prepare("INSERT INTO echo_content_drafts (id, workspace_id, brand_id, content_type, title, status, prompt, settings, payload, featured_image_url, source_draft_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, NULL, NULL, ?, ?)")
-    .bind(id, WORKSPACE_ID, brandId, contentType, title, prompt, JSON.stringify(settings), JSON.stringify(payload), createdAt, createdAt).run();
+    .bind(id, workspaceId(env), brandId, contentType, title, prompt, JSON.stringify(settings), JSON.stringify(payload), createdAt, createdAt).run();
   return ownedDraft(env, brandId, id);
 }
 
@@ -241,7 +241,7 @@ export async function updateEchoContentDraft(env: ContentEnv, brandId: string, d
   const updatedAt = nowIso();
   const title = contentTitle(current.contentType, payload, current.prompt).slice(0, 180);
   await env.DB.prepare("UPDATE echo_content_drafts SET title = ?, status = ?, payload = ?, featured_image_url = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?")
-    .bind(title, status, JSON.stringify(payload), featuredImageUrl, updatedAt, draftId, WORKSPACE_ID, brandId).run();
+    .bind(title, status, JSON.stringify(payload), featuredImageUrl, updatedAt, draftId, workspaceId(env), brandId).run();
   return ownedDraft(env, brandId, draftId);
 }
 
@@ -297,8 +297,8 @@ export async function reviseEchoContentSection(env: ContentEnv, brandId: string,
   const updatedAt = nowIso();
   const payload = normalizeEditedPayload(current.contentType, current.payload, setAtPath(current.payload, section, replacement));
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO echo_content_revisions (id, workspace_id, brand_id, draft_id, operation, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(`echo_revision_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, draftId, operation, JSON.stringify(current.payload), updatedAt),
-    env.DB.prepare("UPDATE echo_content_drafts SET title = ?, payload = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(contentTitle(current.contentType, payload, current.prompt).slice(0, 180), JSON.stringify(payload), updatedAt, draftId, WORKSPACE_ID, brandId),
+    env.DB.prepare("INSERT INTO echo_content_revisions (id, workspace_id, brand_id, draft_id, operation, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(`echo_revision_${crypto.randomUUID()}`, workspaceId(env), brandId, draftId, operation, JSON.stringify(current.payload), updatedAt),
+    env.DB.prepare("UPDATE echo_content_drafts SET title = ?, payload = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(contentTitle(current.contentType, payload, current.prompt).slice(0, 180), JSON.stringify(payload), updatedAt, draftId, workspaceId(env), brandId),
   ]);
   return ownedDraft(env, brandId, draftId);
 }
@@ -306,13 +306,13 @@ export async function reviseEchoContentSection(env: ContentEnv, brandId: string,
 export async function undoEchoContentRevision(env: ContentEnv, brandId: string, draftId: string) {
   if (!env.DB) throw new Error("ECHO content storage is unavailable.");
   const current = await ownedDraft(env, brandId, draftId);
-  const revision = await env.DB.prepare("SELECT * FROM echo_content_revisions WHERE workspace_id = ? AND brand_id = ? AND draft_id = ? ORDER BY created_at DESC LIMIT 1").bind(WORKSPACE_ID, brandId, draftId).first<Record<string, unknown>>();
+  const revision = await env.DB.prepare("SELECT * FROM echo_content_revisions WHERE workspace_id = ? AND brand_id = ? AND draft_id = ? ORDER BY created_at DESC LIMIT 1").bind(workspaceId(env), brandId, draftId).first<Record<string, unknown>>();
   if (!revision) throw new Error("There is no AI revision to undo.");
   const payload = safeJson<JsonRecord>(revision.payload, current.payload);
   const updatedAt = nowIso();
   await env.DB.batch([
-    env.DB.prepare("UPDATE echo_content_drafts SET title = ?, payload = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(contentTitle(current.contentType, payload, current.prompt), JSON.stringify(payload), updatedAt, draftId, WORKSPACE_ID, brandId),
-    env.DB.prepare("DELETE FROM echo_content_revisions WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(value(revision.id), WORKSPACE_ID, brandId),
+    env.DB.prepare("UPDATE echo_content_drafts SET title = ?, payload = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(contentTitle(current.contentType, payload, current.prompt), JSON.stringify(payload), updatedAt, draftId, workspaceId(env), brandId),
+    env.DB.prepare("DELETE FROM echo_content_revisions WHERE id = ? AND workspace_id = ? AND brand_id = ?").bind(value(revision.id), workspaceId(env), brandId),
   ]);
   return ownedDraft(env, brandId, draftId);
 }
@@ -323,7 +323,7 @@ export async function duplicateEchoContentDraft(env: ContentEnv, brandId: string
   const id = `echo_${source.contentType}_${crypto.randomUUID()}`;
   const createdAt = nowIso();
   await env.DB.prepare("INSERT INTO echo_content_drafts (id, workspace_id, brand_id, content_type, title, status, prompt, settings, payload, featured_image_url, source_draft_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, WORKSPACE_ID, brandId, source.contentType, `${source.title} — Copy`.slice(0, 180), source.prompt, JSON.stringify(source.settings), JSON.stringify(source.payload), source.featuredImageUrl, source.id, createdAt, createdAt).run();
+    .bind(id, workspaceId(env), brandId, source.contentType, `${source.title} — Copy`.slice(0, 180), source.prompt, JSON.stringify(source.settings), JSON.stringify(source.payload), source.featuredImageUrl, source.id, createdAt, createdAt).run();
   return ownedDraft(env, brandId, id);
 }
 
@@ -331,8 +331,8 @@ export async function deleteEchoContentDraft(env: ContentEnv, brandId: string, d
   if (!env.DB) throw new Error("ECHO content storage is unavailable.");
   await ownedDraft(env, brandId, draftId);
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM echo_content_revisions WHERE workspace_id = ? AND brand_id = ? AND draft_id = ?").bind(WORKSPACE_ID, brandId, draftId),
-    env.DB.prepare("DELETE FROM echo_content_drafts WHERE workspace_id = ? AND brand_id = ? AND id = ?").bind(WORKSPACE_ID, brandId, draftId),
+    env.DB.prepare("DELETE FROM echo_content_revisions WHERE workspace_id = ? AND brand_id = ? AND draft_id = ?").bind(workspaceId(env), brandId, draftId),
+    env.DB.prepare("DELETE FROM echo_content_drafts WHERE workspace_id = ? AND brand_id = ? AND id = ?").bind(workspaceId(env), brandId, draftId),
   ]);
   return { deleted: true, draftId };
 }
@@ -367,7 +367,7 @@ export async function repurposeEchoContentDraft(env: ContentEnv, brandId: string
     title = source.title;
   }
   await env.DB.prepare("INSERT INTO echo_content_drafts (id, workspace_id, brand_id, content_type, title, status, prompt, settings, payload, featured_image_url, source_draft_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, '{}', ?, ?, ?, ?, ?)")
-    .bind(id, WORKSPACE_ID, brandId, targetType, title.slice(0, 180), prompt, JSON.stringify(payload), source.featuredImageUrl, source.id, createdAt, createdAt).run();
+    .bind(id, workspaceId(env), brandId, targetType, title.slice(0, 180), prompt, JSON.stringify(payload), source.featuredImageUrl, source.id, createdAt, createdAt).run();
   return ownedDraft(env, brandId, id);
 }
 
