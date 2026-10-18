@@ -246,3 +246,29 @@ select{
   html{scroll-behavior:auto}
   button,a,summary,input,textarea,select{transition:none!important}
 }
+
+.account-shell{min-height:100vh;padding:24px;background:radial-gradient(circle at 12% 0%,rgba(0,116,255,.16),transparent 32%),#07090d;color:#f7f9ff}
+.account-topbar{max-width:1180px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:18px}
+.account-topbar .brand-mark{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;font-weight:760;letter-spacing:-.02em}
+.account-topbar .brand-mark img{width:44px;height:44px;object-fit:contain}
+.account-state,.account-workspace{max-width:1080px;margin:40px auto}
+.account-state{padding:64px 28px;text-align:center;border:1px solid rgba(82,155,255,.24);border-radius:28px;background:rgba(10,15,24,.88)}
+.account-state h1{font-size:clamp(2.2rem,6vw,4.5rem);margin:.25em 0}
+.account-login{display:inline-flex;margin-top:20px}
+.account-hero{position:relative;padding:46px;border:1px solid rgba(91,164,255,.28);border-radius:30px;background:linear-gradient(135deg,rgba(17,30,52,.98),rgba(7,10,17,.95));box-shadow:0 30px 90px rgba(0,0,0,.34)}
+.account-hero h1{font-size:clamp(2.4rem,6vw,5rem);margin:.08em 0 .16em;letter-spacing:-.055em}
+.account-hero>p:not(.eyebrow){color:#aebbd0}
+.account-role{position:absolute;right:34px;top:34px;padding:8px 13px;border:1px solid rgba(95,167,255,.45);border-radius:999px;color:#82baff;background:rgba(13,70,147,.18);font-size:.74rem;font-style:normal;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.account-role.owner{color:#f4d79a;border-color:rgba(224,184,96,.44);background:rgba(141,97,20,.16)}
+.account-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.account-card{padding:28px}.account-card h2,.account-team h2,.account-next h2{margin:.2em 0 .8em}
+.account-card ul{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.account-card li{display:grid;grid-template-columns:88px 1fr;gap:14px;padding:15px 0;border-top:1px solid rgba(255,255,255,.08)}
+.account-card li span{color:#9daabd;line-height:1.45}.permission-list li{grid-template-columns:28px 1fr}.permission-list li b{color:#4f9cff}
+.account-team{margin-top:18px;padding:28px}.account-team>header{display:flex;justify-content:space-between;align-items:center}.account-team>header>span{color:#6fa9ff}.account-team>div{display:grid;margin-top:12px}
+.account-team article{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:13px;padding:14px 0;border-top:1px solid rgba(255,255,255,.08)}
+.account-team article div{display:grid;gap:3px}.account-team small{color:#8f9caf}.account-team i{font-style:normal;text-transform:uppercase;font-size:.72rem;letter-spacing:.1em;color:#9dbce9}
+.account-avatar{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,#17366a,#0477ff);font-weight:800}
+.account-next{margin-top:18px;padding:28px;display:flex;align-items:center;justify-content:space-between;gap:28px}
+.account-next p:last-child{max-width:760px;color:#9eabbd;line-height:1.58}.account-next>a{flex:0 0 auto;color:#7db3ff;text-decoration:none;font-weight:750}
+@media(max-width:760px){.account-shell{padding:16px}.account-topbar{align-items:flex-start}.account-topbar .brand-mark span{display:none}.account-hero{padding:30px 22px}.account-role{position:static;display:inline-flex;margin-top:18px}.account-grid{grid-template-columns:1fr}.account-next{align-items:flex-start;flex-direction:column}.account-team article{grid-template-columns:42px 1fr}.account-team article i{grid-column:2}}

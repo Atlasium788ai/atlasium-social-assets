@@ -45,6 +45,7 @@ import {
   undoEchoContentRevision,
   updateEchoContentDraft,
 } from "./content-store";
+import { accountSnapshot } from "./account-store";
 
 interface Env {
   ASSETS: Fetcher;
@@ -1532,6 +1533,16 @@ const worker = {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       try { return await workspace(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load the EchoFlow workspace." }, statusFor(error, 502)); }
+    }
+
+    if (url.pathname === "/api/account") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      try {
+        const account = await accountSnapshot(request, env);
+        return account ? json(account) : json({ error: "Sign in with an approved company email to continue." }, 401);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Could not load this EchoFlow account." }, 500);
+      }
     }
 
     if (url.pathname === "/api/flow/workspace") {

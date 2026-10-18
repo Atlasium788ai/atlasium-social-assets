@@ -82,6 +82,44 @@ test("platform-authenticated visitors can use EchoFlow without the legacy shared
   assert.equal(wrongAccount.status, 401);
 });
 
+test("approved company users receive durable workspace accounts and role-based permissions", async () => {
+  const worker = await loadWorker();
+  const DB = await memoryD1();
+  const env = {
+    ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+    DB,
+    UPLOADS: { get: async () => null },
+    UPLOAD_KEY: "test-key",
+    AUTHORIZED_USER_EMAILS: "statusx22@gmail.com,info@atlasium788.ca",
+  };
+  const context = { waitUntil() {}, passThroughOnException() {} };
+  const owner = await worker.fetch(new Request("http://localhost/api/account", { headers: {
+    "oai-authenticated-user-id": "owner-account-user",
+    "oai-authenticated-user-email": "statusx22@gmail.com",
+  } }), env, context);
+  assert.equal(owner.status, 200);
+  const ownerAccount = await owner.json();
+  assert.equal(ownerAccount.workspace.role, "owner");
+  assert.equal(ownerAccount.permissions.manageWorkspace, true);
+
+  const editor = await worker.fetch(new Request("http://localhost/api/account", { headers: {
+    "oai-authenticated-user-id": "company-info-user",
+    "oai-authenticated-user-email": "info@atlasium788.ca",
+  } }), env, context);
+  assert.equal(editor.status, 200);
+  const editorAccount = await editor.json();
+  assert.equal(editorAccount.workspace.role, "editor");
+  assert.equal(editorAccount.permissions.createContent, true);
+  assert.equal(editorAccount.permissions.manageConnections, false);
+  assert.equal(DB.database.prepare("SELECT COUNT(*) AS count FROM workspace_members WHERE workspace_id = 'workspace_atlasium'").get().count, 2);
+
+  const denied = await worker.fetch(new Request("http://localhost/api/account", { headers: {
+    "oai-authenticated-user-id": "unknown-account-user",
+    "oai-authenticated-user-email": "unknown@example.com",
+  } }), env, context);
+  assert.equal(denied.status, 401);
+});
+
 test("serves refresh-safe ECHO, FLOW and AMPLIFY routes with clear top-level navigation", async () => {
   const worker = await loadWorker();
   const env = {

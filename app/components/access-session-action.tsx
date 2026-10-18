@@ -9,6 +9,7 @@ export function AccessSessionAction() {
   }, []);
   if (!available) return null;
   return <div className="access-session-links">
+    <a className="access-session-action" href="/account">Account</a>
     <a className="access-session-action" href="/EchoFlow-Assistant-Quick-Guide.pdf" target="_blank" rel="noreferrer">Quick guide</a>
     <button type="button" className="access-session-action" onClick={() => {
       localStorage.removeItem("echoflow-access-key");
