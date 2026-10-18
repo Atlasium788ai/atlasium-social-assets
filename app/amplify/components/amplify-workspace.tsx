@@ -15,7 +15,7 @@ import { AmplifySectionNavigation, type AmplifySection } from "./amplify-section
 
 function AmplifyIdentity() {
   return <Link className="echo-identity" href="/amplify" aria-label="EchoFlow Social AMPLIFY home">
-    <img className="echo-art-compact" src="/echoflow-social.png" alt="EchoFlow Social, powered by Atlasium 7/88 AI" width={1254} height={1254} />
+    <img className="echo-art-compact" src="/echoflow-social.png" alt="EchoFlow Social, powered by Atlasium 7/88" width={1254} height={1254} />
     <span><b>EchoFlow</b><em>Social</em></span>
   </Link>;
 }
@@ -24,7 +24,7 @@ export function AmplifyWorkspace({ activeSection }: { activeSection: AmplifySect
   const amplify = useAmplifyWorkspace();
   const workspace = amplify.workspace;
   return <main className="app-shell amplify-shell">
-    <header className="app-header"><AmplifyIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88 AI</span><AccessSessionAction /></div></header>
+    <header className="app-header"><AmplifyIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88</span><AccessSessionAction /></div></header>
     <ProductNavigation active="amplify" />
     <AmplifySectionNavigation active={activeSection} />
 
