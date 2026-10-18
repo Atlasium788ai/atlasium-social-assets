@@ -944,8 +944,9 @@ async function publish(request: Request, env: Env) {
       if (!reserved) { results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, channelId: String(channel.id), service: channel.service, surface, surfaceId, surfaceLabel, status: "DUPLICATE PREVENTED" }); continue; }
       try {
         const post = await publisher.createPost({ brandId: brand.id, channelId: String(channel.id), service: String(channel.service), text, mediaUrl, mediaType: "image", surface, mode, dueAt, aiAssisted: refine });
-        await finishPublishJob(env, jobId, "confirmed", post.id, null);
-        results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, channelId: String(channel.id), service: channel.service, surface, surfaceId, surfaceLabel, postId: post.id, status: "CONFIRMED" });
+        await finishPublishJob(env, jobId, "sent", post.id, null);
+        await recordDelivery(env, { publishJobId: jobId, brandId: brand.id, providerStatus: "sent" });
+        results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, channelId: String(channel.id), service: channel.service, surface, surfaceId, surfaceLabel, postId: post.id, status: "SENT" });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Direct platform rejected this post.";
         await finishPublishJob(env, jobId, "failed", null, message);
