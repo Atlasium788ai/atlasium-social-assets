@@ -19,6 +19,7 @@ type EchoContentMode = "social" | "blog" | "newsletter";
 type AccessState = "checking" | "granted" | "missing";
 type Result = { id: string; brandId?: string; concept: string; caption: string; imageUrl: string; hostedMediaUrl?: string; mediaType?: "image" | "video"; motionStyle?: string | null; motionError?: string | null; channel: string; service: string; surface?: string; surfaceId?: string; surfaceLabel?: string; status: string; bufferStatus?: string | null; requestedDueAt?: string | null; dueAt?: string | null; timeZone?: string; error?: string; externalLink?: string | null };
 type CampaignSummary = { id: string; brandId: string; prompt: string; status: string; timeZone: string; scheduleSummary?: string; createdAt: string; updatedAt: string };
+type ScheduledPost = { id: string; campaignId: string; channelId: string; service: string; caption: string; dueAt: string; state: string; providerPostId?: string | null; error?: string | null };
 type WorkspaceData = { schedulerEnabled?: boolean; workspace: { id: string; name: string; role: string }; brands: Brand[]; connectedChannels: Channel[]; recentCampaigns?: CampaignSummary[]; publishingProviders: Array<{ id: string; name: string; status: string }>; migration: { legacyCampaignsPreserved: boolean } };
 type BrandForm = Omit<Brand, "id" | "status" | "channels" | "channelIds" | "draft"> & { channelIds: string[] };
 
@@ -62,6 +63,9 @@ export default function Home() {
   const [statusByBrand, setStatusByBrand] = useState<Record<string, { kind: "ok" | "error"; text: string }>>({});
   const [resultsByBrand, setResultsByBrand] = useState<Record<string, Result[]>>({});
   const [campaigns, setCampaigns] = useState<Record<string, string>>({});
+  const [scheduledByBrand, setScheduledByBrand] = useState<Record<string, ScheduledPost[]>>({});
+  const [scheduleNotice, setScheduleNotice] = useState("");
+  const [scheduleBusyId, setScheduleBusyId] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardMode, setWizardMode] = useState<"create" | "edit">("create");
   const [wizardStep, setWizardStep] = useState(1);
@@ -78,9 +82,38 @@ export default function Home() {
   const campaignId = campaigns[activeBrandId] || "";
   const visibleBrands = useMemo(() => (workspace?.brands || []).filter((brand) => !brandSearch || brand.name.toLowerCase().includes(brandSearch.toLowerCase())), [workspace, brandSearch]);
   const campaignHistory = (workspace?.recentCampaigns || []).filter((campaign) => campaign.brandId === activeBrandId);
+  const scheduledPosts = scheduledByBrand[activeBrandId] || [];
 
   function authHeaders(brandId?: string) { return { "X-Upload-Key": key, ...(brandId ? { "X-Brand-ID": brandId } : {}) }; }
   function setBrandStatus(brandId: string, next: { kind: "ok" | "error"; text: string } | null) { setStatusByBrand((current) => { const copy = { ...current }; if (next) copy[brandId] = next; else delete copy[brandId]; return copy; }); }
+
+  async function loadSchedules(brandId: string, authKey = key) {
+    if (!brandId || !authKey && access !== "granted") return;
+    try {
+      const response = await fetch("/api/direct-schedule", { headers: { "X-Upload-Key": authKey, "X-Brand-ID": brandId } });
+      const result = await response.json() as { posts?: ScheduledPost[]; error?: string };
+      if (!response.ok) throw new Error(result.error || "Schedule could not be loaded.");
+      setScheduledByBrand((current) => ({ ...current, [brandId]: result.posts || [] }));
+    } catch (error) {
+      setScheduleNotice(error instanceof Error ? error.message : "Schedule could not be refreshed.");
+    }
+  }
+
+  async function cancelScheduled(id: string) {
+    if (!activeBrandId || scheduleBusyId) return;
+    setScheduleBusyId(id);
+    setScheduleNotice("");
+    try {
+      const response = await fetch(`/api/direct-schedule/${encodeURIComponent(id)}`, {
+        method: "DELETE", headers: authHeaders(activeBrandId),
+      });
+      const result = await response.json() as { cancelled?: boolean; error?: string };
+      if (!response.ok || !result.cancelled) throw new Error(result.error || "Post is already processing or cannot be cancelled.");
+      setScheduleNotice("Scheduled post cancelled.");
+      await loadSchedules(activeBrandId);
+    } catch (error) { setScheduleNotice(error instanceof Error ? error.message : "Could not cancel post."); }
+    finally { setScheduleBusyId(""); }
+  }
 
   async function loadWorkspace(authKey = key, preferredBrandId?: string) {
     const response = await fetch("/api/workspace", { headers: { "X-Upload-Key": authKey } });
@@ -122,6 +155,12 @@ export default function Home() {
     // This bridges AMPLIFY to the existing New Brand workflow without changing it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace]);
+
+  useEffect(() => {
+    if (access === "granted" && activeBrandId && workspace?.schedulerEnabled) void loadSchedules(activeBrandId);
+    // Refresh when the active brand changes, never expose another brand's schedule.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access, activeBrandId, workspace?.schedulerEnabled]);
 
   useEffect(() => {
     const entries = Object.entries(campaigns);
@@ -193,6 +232,7 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error || "Campaign creation failed.");
       const returned = data.results || [];
       setResultsByBrand((current) => ({ ...current, [activeBrand.id]: returned }));
+      if (timing === "schedule") await loadSchedules(activeBrand.id);
       if (data.campaignId && returned.some((result) => result.status === "PROCESSING MOTION")) {
         localStorage.setItem(`echoflow-active-campaign:${activeBrand.id}`, data.campaignId);
         setCampaigns((current) => ({ ...current, [activeBrand.id]: data.campaignId! }));
@@ -297,6 +337,21 @@ export default function Home() {
         {status && <p className={`message ${status.kind}`} role="status">{status.kind === "ok" ? "✓ " : "! "}{status.text}</p>}
         <button className="primary agent-button" disabled={busy || Boolean(campaignId)} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : campaignId ? <><span className="spinner" /> Processing campaign…</> : <>Create &amp; Publish <span>→</span></>}</button>
       </section>
+
+      {workspace?.schedulerEnabled && <section className="card" aria-label="First-party publishing schedule">
+        <div className="results-head"><p className="eyebrow">FIRST-PARTY SCHEDULE</p><h2>Scheduled posts</h2></div>
+        <p className="surface-help">Posts go directly to the connected social platform. A post already being sent cannot be cancelled or automatically retried.</p>
+        {scheduleNotice && <p className="message" role="status">{scheduleNotice}</p>}
+        <button type="button" className="text-button" onClick={() => void loadSchedules(activeBrandId)}>Refresh schedule</button>
+        {!scheduledPosts.length && <p className="empty">No scheduled posts for this brand.</p>}
+        {scheduledPosts.map((item) => <div className="result" key={item.id}>
+          <div><strong>{item.service.toUpperCase()}</strong><p>{item.caption}</p>
+          <small>{formatTime(item.dueAt, activeBrand.timezone)} · {item.state.replaceAll("_", " ")}</small>
+          {item.error && <p className="result-error">{item.error}</p>}
+          {item.state === "pending" && <button className="secondary" type="button" disabled={Boolean(scheduleBusyId)} onClick={() => void cancelScheduled(item.id)}>{scheduleBusyId === item.id ? "Cancelling…" : "Cancel scheduled post"}</button>}
+          </div>
+        </div>)}
+      </section>}
 
       {results.length > 0 && <section className="results"><div className="results-head"><p className="eyebrow">{activeBrand.name.toUpperCase()} · DELIVERY</p><h2>Confirmed campaign status</h2></div>{results.map((result) => <article className={`result ${result.status === "FAILED" ? "failed" : ""}`} key={result.id}>{result.mediaType === "video" && result.hostedMediaUrl ? <video src={result.hostedMediaUrl} poster={result.imageUrl} controls playsInline muted /> : <img src={result.imageUrl} alt="Generated social media creative" />}<div><span className="result-status">{result.status} · {result.mediaType === "video" ? "MOTION VIDEO" : "STATIC IMAGE"}</span><h3>{result.surfaceLabel || `${result.service} post`}</h3><p>{result.caption}</p><small>{result.surfaceLabel || result.service} · {result.channel}{confirmedTime(result) ? ` · ${confirmedTime(result)}` : ""}{result.bufferStatus ? ` · Platform: ${result.bufferStatus}` : ""}</small>{result.externalLink && <a className="post-link" href={result.externalLink} target="_blank" rel="noreferrer">View published post</a>}{result.motionError && <p className="result-error">Motion fallback: {result.motionError}</p>}{result.error && <p className="result-error">{result.error}{result.requestedDueAt ? ` Requested: ${formatTime(result.requestedDueAt, result.timeZone)}.` : ""}</p>}</div></article>)}</section>}
 
