@@ -461,7 +461,7 @@ function publishingProvider(env: Env): PublishingProvider {
     name: "Direct social platforms",
     listDestinations: async () => listDirectSocialDestinations(env),
     createPost: (input) => publishDirectSocial(env, input),
-    getPostStatus: async (id) => ({ id, channelId: "", status: "sent" }),
+    getPostStatus: async () => { throw new Error("Direct-platform status polling is not enabled. Preserve the original confirmation."); },
   };
 }
 
@@ -710,7 +710,8 @@ async function runAgent(request: Request, env: Env) {
     }
     try {
       const created = await publisher.createPost({ brandId: brand.id, channelId: String(channel.id), service: String(channel.service), text: caption, mediaUrl: mediaUrl!, mediaType: stablePost.mediaType, surface, mode, dueAt: requestedDueAt || undefined, aiAssisted: true });
-      await finishPublishJob(env, submissionId, "confirmed", created.id, null);
+      await finishPublishJob(env, submissionId, "sent", created.id, null);
+      await recordDelivery(env, { publishJobId: submissionId, brandId: brand.id, providerStatus: "sent" });
       const confirmedChannel = available.find((item) => String(item.id) === created.channelId);
       results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, mediaType: stablePost.mediaType, motionStyle: stablePost.motionStyle, motionPrompt: stablePost.motionPrompt, duration: stablePost.duration, aspectRatio: surface === "story" ? "9:16" : stablePost.aspectRatio, hostedMediaUrl: mediaUrl, motionError: stablePost.motionError || null, channelId: created.channelId, channel: confirmedChannel?.displayName || confirmedChannel?.name || channel.displayName || channel.name, service: confirmedChannel?.service || channel.service, surface, surfaceId, surfaceLabel, postId: created.id, status: mode === "shareNow" ? "SENT" : mode === "addToQueue" ? "QUEUED" : "SCHEDULED", bufferStatus: created.status || null, requestedDueAt: requestedDueAt || null, dueAt: created.dueAt || null, timeZone });
     } catch (error) {
@@ -792,7 +793,8 @@ async function processCampaign(request: Request, env: Env, id: string) {
         const mediaUrl = surfaceMedia(item, surface);
         if (!mediaUrl) throw new Error(`${result.surfaceLabel} media is unavailable.`);
         const created = await publisher.createPost({ brandId: campaign.brandId, channelId: result.channelId, service: result.service, text: result.caption, mediaUrl, mediaType: item.mediaType, surface, mode, dueAt, aiAssisted: true });
-        await finishPublishJob(env, result.id, "confirmed", created.id, null);
+        await finishPublishJob(env, result.id, "sent", created.id, null);
+        await recordDelivery(env, { publishJobId: result.id, brandId: campaign.brandId, providerStatus: "sent" });
         Object.assign(result, { imageUrl: surface === "story" ? item.storyImageUrl || item.imageUrl : item.imageUrl, mediaType: item.mediaType, hostedMediaUrl: mediaUrl, motionError: item.motionError || null, postId: created.id, status: mode === "shareNow" ? "SENT" : mode === "addToQueue" ? "QUEUED" : item.mediaType === "image" && item.motionError ? "STATIC FALLBACK" : "SCHEDULED", bufferStatus: created.status || null, dueAt: created.dueAt || null });
       } catch (error) { result.status = "FAILED"; result.error = error instanceof Error ? error.message : "Direct platform rejected this post."; await finishPublishJob(env, result.id, "failed", null, String(result.error)); }
       await saveCampaign(env, campaign);
@@ -879,7 +881,7 @@ async function publish(request: Request, env: Env) {
   const refine = form.get("refine") === "true";
   const requestedSurfaceMode = String(form.get("surfaceMode") || "");
   const surfaceMode = surfaceModeFor(notes, requestedSurfaceMode, Boolean(requestedSurfaceMode));
-  let mode = String(form.get("mode") || "addToQueue");
+  let mode = String(form.get("mode") || "shareNow");
   let dueAt = String(form.get("dueAt") || "") || undefined;
   let channelIds: string[] = [];
   try { channelIds = JSON.parse(String(form.get("channels") || "[]")); } catch { return json({ error: "Invalid channel selection." }, 400); }
