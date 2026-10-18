@@ -33,4 +33,5 @@ The original permanent public media URLs remain available through `/i/*`, and th
 - Meta: `META_ACCESS_TOKEN`, `META_PAGE_ID`, `META_INSTAGRAM_ACCOUNT_ID` and optional account-name / Graph-version variables.
 - LinkedIn: `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_AUTHOR_URN` and optional `LINKEDIN_ACCOUNT_NAME` / `LINKEDIN_VERSION`.
 - TikTok: `TIKTOK_ACCESS_TOKEN`, `TIKTOK_OPEN_ID` and `TIKTOK_DIRECT_ENABLED=true` only after app review.
+- Scheduler: `CRON_SECRET` protects `POST /api/echo/dispatch`; the external scheduler must also pass the Site access bypass header.
 - Secrets are server-side bindings. Never place tokens in browser code or commit them to the repository.

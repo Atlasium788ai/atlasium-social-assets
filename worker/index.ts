@@ -68,6 +68,7 @@ interface Env {
   TIKTOK_OPEN_ID?: string;
   TIKTOK_ACCOUNT_NAME?: string;
   TIKTOK_DIRECT_ENABLED?: string;
+  CRON_SECRET?: string;
   OPENAI_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
   OPENAI_IMAGE_MODEL?: string;
@@ -1451,6 +1452,16 @@ async function serveImage(request: Request, env: Env, key: string) {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/echo/dispatch") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      const secret = request.headers.get("X-EchoFlow-Cron-Secret") || "";
+      if (!env.CRON_SECRET || secret !== env.CRON_SECRET) return json({ error: "Unauthorized scheduler request." }, 401);
+      if (env.PUBLISHING_MODE === "legacy-buffer") return json({ error: "Direct scheduling is disabled in legacy mode." }, 409);
+      try { return json(await dispatchDirectQueue(env)); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "The direct queue could not be dispatched." }, 502); }
+    }
+
     if (url.pathname.startsWith("/api/") && env.PUBLISHING_MODE !== "legacy-buffer" && env.DB) {
       ctx.waitUntil(dispatchDirectQueue(env).catch(() => undefined));
     }

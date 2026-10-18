@@ -641,6 +641,7 @@ test("EchoFlow owns scheduled publishing and dispatches Instagram directly witho
       META_INSTAGRAM_ACCOUNT_ID: "ig-1",
       META_INSTAGRAM_ACCOUNT_NAME: "atlasium788ai",
       META_GRAPH_VERSION: "v24.0",
+      CRON_SECRET: "cron-test-secret",
     };
     const workspaceResponse = await worker.fetch(new Request("http://localhost/api/workspace", { headers: { "X-Upload-Key": "test-key" } }), env, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(workspaceResponse.status, 200);
@@ -664,9 +665,11 @@ test("EchoFlow owns scheduled publishing and dispatches Instagram directly witho
     assert.equal(queued.status, "queued");
 
     DB.database.prepare("UPDATE publish_jobs SET scheduled_time = ? WHERE id = ?").run(new Date(Date.now() - 60_000).toISOString(), queued.id);
-    let dispatch;
-    await worker.scheduled({}, env, { waitUntil(promise) { dispatch = promise; }, passThroughOnException() {} });
-    await dispatch;
+    const unauthorized = await worker.fetch(new Request("http://localhost/api/echo/dispatch", { method: "POST" }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(unauthorized.status, 401);
+    const dispatch = await worker.fetch(new Request("http://localhost/api/echo/dispatch", { method: "POST", headers: { "X-EchoFlow-Cron-Secret": "cron-test-secret" } }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(dispatch.status, 200);
+    assert.equal((await dispatch.json()).sent, 1);
     const delivered = DB.database.prepare("SELECT status, provider_post_id FROM publish_jobs WHERE id = ?").get(queued.id);
     assert.deepEqual({ ...delivered }, { status: "sent", provider_post_id: "ig-media-1" });
     assert.equal(DB.database.prepare("SELECT provider_status FROM delivery_statuses WHERE publish_job_id = ?").get(queued.id).provider_status, "sent");
