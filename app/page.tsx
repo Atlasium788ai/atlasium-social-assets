@@ -36,7 +36,7 @@ function EchoFlowIdentity({ full = false }: { full?: boolean }) {
   return <div className={`echo-identity ${full ? "echo-identity-full" : ""}`}>
     <img
       className={full ? "echo-art-full" : "echo-art-compact"}
-      src="/echoflow-social-blue.png"
+      src="/echoflow-social-chrome-blue.png"
       alt="EchoFlow Social, powered by Atlasium 7/88 AI"
       width={1254}
       height={1254}

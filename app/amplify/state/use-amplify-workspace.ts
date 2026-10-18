@@ -18,8 +18,8 @@ function previewWorkspace(brandId: string): AmplifyWorkspaceData {
     brands: previewBrands,
     activeBrand,
     creativeSources: [
-      { id: `preview_echo_${activeBrand.id}`, brandId: activeBrand.id, sourceType: "echo_asset", label: `${activeBrand.name} approved ECHO creative`, mediaType: "image", url: "/echoflow-social-blue.png", detail: "MOCK PREVIEW source · original remains unchanged" },
-      { id: `preview_flow_${activeBrand.id}`, brandId: activeBrand.id, sourceType: "flow_post", label: `${activeBrand.name} FLOW post`, mediaType: "post", url: "/echoflow-social-blue.png", detail: "MOCK PREVIEW organic post", originalId: `preview_post_${activeBrand.id}` },
+      { id: `preview_echo_${activeBrand.id}`, brandId: activeBrand.id, sourceType: "echo_asset", label: `${activeBrand.name} approved ECHO creative`, mediaType: "image", url: "/echoflow-social-chrome-blue.png", detail: "MOCK PREVIEW source · original remains unchanged" },
+      { id: `preview_flow_${activeBrand.id}`, brandId: activeBrand.id, sourceType: "flow_post", label: `${activeBrand.name} FLOW post`, mediaType: "post", url: "/echoflow-social-chrome-blue.png", detail: "MOCK PREVIEW organic post", originalId: `preview_post_${activeBrand.id}` },
     ],
     drafts: [],
     featureFlags: { interfaceEnabled: true, dryRunEnabled: true, liveSubmissionEnabled: false },
