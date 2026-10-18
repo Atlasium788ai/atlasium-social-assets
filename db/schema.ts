@@ -138,6 +138,28 @@ export const publishJobs = sqliteTable("publish_jobs", {
   index("idx_publish_jobs_campaign").on(table.campaignId),
 ]);
 
+export const scheduledSocialPosts = sqliteTable("scheduled_social_posts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  campaignId: text("campaign_id").notNull(),
+  postId: text("post_id").notNull(),
+  channelId: text("channel_id").notNull(),
+  service: text("service").notNull(),
+  caption: text("caption").notNull(),
+  imageUrl: text("image_url").notNull(),
+  dueAt: text("due_at").notNull(),
+  state: text("state").notNull().default("pending"),
+  providerPostId: text("provider_post_id"),
+  error: text("error"),
+  attemptedAt: text("attempted_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_direct_schedule_idempotency").on(table.brandId, table.campaignId, table.postId, table.channelId, table.dueAt),
+  index("idx_direct_schedule_due").on(table.state, table.dueAt),
+]);
+
 export const deliveryStatuses = sqliteTable("delivery_statuses", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull(),
