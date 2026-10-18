@@ -354,8 +354,8 @@ test("AUTO routes every item to TikTok and personal LinkedIn without duplicate d
   const channels = [
     { id: "ig", service: "instagram", displayName: "atlasium788ai" },
     { id: "li1", service: "linkedin", displayName: "Blair Ryan Barton" },
-    { id: "li2", service: "linkedin", displayName: "Atlasium 7/88 AI" },
-    { id: "fb", service: "facebook", displayName: "Atlasium 7/88 AI Facebook" },
+    { id: "li2", service: "linkedin", displayName: "Atlasium 7/88" },
+    { id: "fb", service: "facebook", displayName: "Atlasium 7/88 Facebook" },
     { id: "tt", service: "tiktok", displayName: "atlasium.788.ai" },
   ];
   const named = await preview(worker, "Create posts for Instagram and LinkedIn", 2, { channels });
@@ -365,7 +365,7 @@ test("AUTO routes every item to TikTok and personal LinkedIn without duplicate d
   for (let itemIndex = 0; itemIndex < 8; itemIndex++) {
     const destinations = campaign.assignments.filter((item) => item.itemIndex === itemIndex);
     assert.ok(destinations.some((item) => item.channel === "Blair Ryan Barton"));
-    assert.ok(destinations.some((item) => item.channel === "Atlasium 7/88 AI"));
+    assert.ok(destinations.some((item) => item.channel === "Atlasium 7/88"));
     assert.ok(destinations.some((item) => item.channel === "atlasium.788.ai"));
     assert.equal(new Set(destinations.map((item) => `${item.channelId}:${item.surfaceId}`)).size, destinations.length);
     assert.match(destinations.find((item) => item.channel === "Blair Ryan Barton").caption, /Professional founder version/);
@@ -380,7 +380,7 @@ test.skip("agent suppresses effectively identical same-time Buffer submissions",
   globalThis.fetch = async (url, init) => {
     const request = JSON.parse(init.body);
     if (String(url).includes("api.buffer.com") && request.query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org", name: "Atlasium" }] } } });
-    if (String(url).includes("api.buffer.com") && request.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "li", name: "Atlasium", displayName: "Atlasium 7/88 AI", service: "linkedin" }, { id: "ig", name: "Atlasium", displayName: "atlasium788ai", service: "instagram" }] } });
+    if (String(url).includes("api.buffer.com") && request.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "li", name: "Atlasium", displayName: "Atlasium 7/88", service: "linkedin" }, { id: "ig", name: "Atlasium", displayName: "atlasium788ai", service: "instagram" }] } });
     if (String(url).includes("api.openai.com/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Duplicate guard", timing: "now", posts: [{ concept: "One", caption: "Same message!", imagePrompt: "One" }, { concept: "Two", caption: "same message", imagePrompt: "Two" }] }) }] }] });
     if (String(url).includes("api.openai.com/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
     mutations.push(request.variables.input);
@@ -405,8 +405,8 @@ test.skip("preserves the exact 15-post Toronto campaign schedule and stable Buff
   const channels = [
     { id: "ig", name: "Instagram", displayName: "atlasium788ai", service: "instagram" },
     { id: "lip", name: "LinkedIn", displayName: "Blair Ryan Barton", service: "linkedin" },
-    { id: "lic", name: "LinkedIn", displayName: "Atlasium 7/88 AI", service: "linkedin" },
-    { id: "fb", name: "Facebook", displayName: "Atlasium 7/88 AI", service: "facebook" },
+    { id: "lic", name: "LinkedIn", displayName: "Atlasium 7/88", service: "linkedin" },
+    { id: "fb", name: "Facebook", displayName: "Atlasium 7/88", service: "facebook" },
     { id: "tt", name: "TikTok", displayName: "atlasium.788.ai", service: "tiktok" },
   ];
   const posts = Array.from({ length: 15 }, (_, index) => ({ concept: `Concept ${index + 1}`, caption: `Unique Atlasium company post ${index + 1}`, imagePrompt: `Image ${index + 1}` }));
@@ -533,7 +533,7 @@ test.skip("Buffer rejection stays attached to its stable post and displays FAILE
   globalThis.fetch = async (url, init) => {
     const request = JSON.parse(init.body);
     if (String(url).includes("api.buffer.com") && request.query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org", name: "Atlasium" }] } } });
-    if (String(url).includes("api.buffer.com") && request.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "lic", name: "LinkedIn", displayName: "Atlasium 7/88 AI", service: "linkedin" }] } });
+    if (String(url).includes("api.buffer.com") && request.query.includes("query Channels")) return Response.json({ data: { channels: [{ id: "lic", name: "LinkedIn", displayName: "Atlasium 7/88", service: "linkedin" }] } });
     if (String(url).includes("api.openai.com/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Failure", timing: "now", posts: [{ concept: "One", caption: "One unique post", imagePrompt: "One" }] }) }] }] });
     if (String(url).includes("api.openai.com/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
     return Response.json({ data: { createPost: { __typename: "MutationError", message: "Schedule rejected" } } });
@@ -798,7 +798,7 @@ test.skip("async motion persists, resumes, hosts MP4, schedules once, and surviv
   const mp4 = new Uint8Array([0,0,0,24,102,116,121,112,105,115,111,109,0,0,2,0,105,115,111,109,109,112,52,50,0,0,0,8,109,100,97,116]);
   const channels = [
     { id: "lip", displayName: "Blair Ryan Barton", service: "linkedin" },
-    { id: "lic", displayName: "Atlasium 7/88 AI", service: "linkedin" },
+    { id: "lic", displayName: "Atlasium 7/88", service: "linkedin" },
     { id: "tt", displayName: "atlasium.788.ai", service: "tiktok" },
     { id: "ig", displayName: "atlasium788ai", service: "instagram" },
     { id: "fb", displayName: "Atlasium Facebook", service: "facebook" },
@@ -883,10 +883,10 @@ test.skip("migrates Atlasium history, creates an isolated brand, restores its dr
   await r2.put(".atlasium-campaigns/legacy-campaign-1.json", new TextEncoder().encode(JSON.stringify(legacy)), { httpMetadata: { contentType: "application/json" } });
   const connected = [
     { id: "lip", displayName: "Blair Ryan Barton", service: "linkedin" },
-    { id: "lic", displayName: "Atlasium 7/88 AI", service: "linkedin" },
+    { id: "lic", displayName: "Atlasium 7/88", service: "linkedin" },
     { id: "tt", displayName: "atlasium.788.ai", service: "tiktok" },
     { id: "ig", displayName: "atlasium788ai", service: "instagram" },
-    { id: "fb", displayName: "Atlasium 7/88 AI", service: "facebook" },
+    { id: "fb", displayName: "Atlasium 7/88", service: "facebook" },
     { id: "client-ig", displayName: "Northstar Studio", service: "instagram" },
   ];
   const bufferMutations = [];
