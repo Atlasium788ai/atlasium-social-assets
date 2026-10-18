@@ -52,10 +52,10 @@ export default function Home() {
   const [activeBrandId, setActiveBrandId] = useState("");
   const [brandSearch, setBrandSearch] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [timing, setTiming] = useState("auto");
+  const [timing, setTiming] = useState("now");
   const [scheduleAt, setScheduleAt] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-  const [surfaceMode, setSurfaceMode] = useState<SurfaceMode>("main_and_story");
+  const [surfaceMode, setSurfaceMode] = useState<SurfaceMode>("main");
   const [surfaceModeManual, setSurfaceModeManual] = useState(false);
   const [contentMode, setContentMode] = useState<EchoContentMode>("social");
   const [busy, setBusy] = useState(false);
@@ -175,7 +175,7 @@ export default function Home() {
     setPrompt(brand.draft?.prompt || "");
     setTiming(brand.draft?.timing || "auto");
     setSelected((brand.draft?.selectedChannels || []).filter((id) => brand.channelIds.includes(id)));
-    setSurfaceMode("main_and_story");
+    setSurfaceMode("main");
     setSurfaceModeManual(false);
     setScheduleAt("");
   }
@@ -197,10 +197,10 @@ export default function Home() {
         localStorage.setItem(`echoflow-active-campaign:${activeBrand.id}`, data.campaignId);
         setCampaigns((current) => ({ ...current, [activeBrand.id]: data.campaignId! }));
       }
-      setBrandStatus(activeBrand.id, { kind: returned.some((result) => result.status === "FAILED") ? "error" : "ok", text: data.message || "Campaign sent to Buffer." });
+      setBrandStatus(activeBrand.id, { kind: returned.some((result) => result.status === "FAILED") ? "error" : "ok", text: data.message || "Direct campaign submitted." });
       await persistDraft(activeBrand.id, { prompt: "", timing: "auto", selectedChannels: [] }, false);
-      setPrompt(""); setTiming("auto"); setSelected([]);
-      setSurfaceMode("main_and_story"); setSurfaceModeManual(false);
+      setPrompt(""); setTiming("now"); setSelected([]);
+      setSurfaceMode("main"); setSurfaceModeManual(false);
     } catch (error) { setBrandStatus(activeBrand.id, { kind: "error", text: error instanceof Error ? error.message : "Campaign creation failed." }); }
     finally { setBusy(false); }
   }
@@ -218,7 +218,7 @@ export default function Home() {
   function nextWizardStep() {
     setWizardError("");
     if (wizardStep === 1 && !brandForm.name.trim()) { setWizardError("Add the brand name first."); return; }
-    if (wizardStep === 3 && !brandForm.channelIds.length) { setWizardError("Choose at least one available social destination."); return; }
+    
     setWizardStep((step) => Math.min(4, step + 1));
   }
 
@@ -281,7 +281,7 @@ export default function Home() {
         <p className="eyebrow">ONE PROMPT → DELIVERED</p>
         <h1>What should<br />we create?</h1>
         <p className="lede">EchoFlow uses {activeBrand.name}&apos;s voice, visuals, channels and timezone. Running jobs stay locked to this brand even if you switch tabs.</p>
-        <textarea className="prompt-box" rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={`Create 4 ${activeBrand.name} social posts and schedule them this week.`} aria-label="Campaign prompt" />
+        <textarea className="prompt-box" rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={`Create a ${activeBrand.name} social post for today.`} aria-label="Campaign prompt" />
 
         <details className="options">
           <summary>Options <span>{selected.length ? `${selected.length} chosen` : "auto channels"} · {timing === "auto" ? "automatic timing" : timing}</span></summary>
@@ -289,8 +289,8 @@ export default function Home() {
             {channels.map((channel) => <button type="button" key={channel.id} className={selected.includes(channel.id) ? "selected" : ""} onClick={() => toggleChannel(channel.id)}><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}</small></span><i>{selected.includes(channel.id) ? "✓" : ""}</i></button>)}
             {!channels.length ? <p className="empty">Add at least one destination in Brand settings.</p> : <p className="empty">Leave all unselected for automatic routing. Selecting channels overrides it.</p>}
           </div></div>
-          <div className="option-block"><span className="option-label">Timing</span><div className="timing">{[["auto","From prompt / Auto"],["now","Post now"],["queue","Buffer queue"],["schedule","Exact date/time"]].map(([value,label]) => <button type="button" key={value} className={timing === value ? "active" : ""} onClick={() => setTiming(value)}>{label}</button>)}</div></div>
-          {channels.some((channel) => ["instagram", "facebook"].includes(channel.service.toLowerCase())) && <div className="option-block"><span className="option-label">Instagram &amp; Facebook surfaces</span><div className="timing surface-options">{[["main","Main Post"],["story","Story"],["main_and_story","Main Post + Story"]].map(([value,label]) => <button type="button" key={value} className={surfaceMode === value ? "active" : ""} onClick={() => { setSurfaceMode(value as SurfaceMode); setSurfaceModeManual(true); }}>{label}</button>)}</div><p className="surface-help">Default: the native main publication plus its companion Story. A Story never replaces the main post unless you choose Story.</p></div>}
+          <div className="option-block"><span className="option-label">Timing</span><div className="timing">{[["now","Post now"]].map(([value,label]) => <button type="button" key={value} className={timing === value ? "active" : ""} onClick={() => setTiming(value)}>{label}</button>)}</div></div>
+          {channels.some((channel) => ["instagram", "facebook"].includes(channel.service.toLowerCase())) && <div className="option-block"><span className="option-label">Instagram &amp; Facebook surfaces</span><div className="timing surface-options">{[["main","Main Post"]].map(([value,label]) => <button type="button" key={value} className={surfaceMode === value ? "active" : ""} onClick={() => { setSurfaceMode(value as SurfaceMode); setSurfaceModeManual(true); }}>{label}</button>)}</div><p className="surface-help">Direct Stories and Reels will appear after platform approval.</p></div>}
           {timing === "schedule" && <div className="option-block"><label className="option-label" htmlFor="schedule-at">Exact date and time · {activeBrand.timezone}</label><input id="schedule-at" type="datetime-local" value={scheduleAt} onChange={(event) => setScheduleAt(event.target.value)} /></div>}
         </details>
 
@@ -298,7 +298,7 @@ export default function Home() {
         <button className="primary agent-button" disabled={busy || Boolean(campaignId)} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : campaignId ? <><span className="spinner" /> Processing campaign…</> : <>Create &amp; Publish <span>→</span></>}</button>
       </section>
 
-      {results.length > 0 && <section className="results"><div className="results-head"><p className="eyebrow">{activeBrand.name.toUpperCase()} · DELIVERY</p><h2>Confirmed campaign status</h2></div>{results.map((result) => <article className={`result ${result.status === "FAILED" ? "failed" : ""}`} key={result.id}>{result.mediaType === "video" && result.hostedMediaUrl ? <video src={result.hostedMediaUrl} poster={result.imageUrl} controls playsInline muted /> : <img src={result.imageUrl} alt="Generated social media creative" />}<div><span className="result-status">{result.status} · {result.mediaType === "video" ? "MOTION VIDEO" : "STATIC IMAGE"}</span><h3>{result.surfaceLabel || `${result.service} post`}</h3><p>{result.caption}</p><small>{result.surfaceLabel || result.service} · {result.channel}{confirmedTime(result) ? ` · ${confirmedTime(result)}` : ""}{result.bufferStatus ? ` · Buffer: ${result.bufferStatus}` : ""}</small>{result.externalLink && <a className="post-link" href={result.externalLink} target="_blank" rel="noreferrer">View published post</a>}{result.motionError && <p className="result-error">Motion fallback: {result.motionError}</p>}{result.error && <p className="result-error">{result.error}{result.requestedDueAt ? ` Requested: ${formatTime(result.requestedDueAt, result.timeZone)}.` : ""}</p>}</div></article>)}</section>}
+      {results.length > 0 && <section className="results"><div className="results-head"><p className="eyebrow">{activeBrand.name.toUpperCase()} · DELIVERY</p><h2>Confirmed campaign status</h2></div>{results.map((result) => <article className={`result ${result.status === "FAILED" ? "failed" : ""}`} key={result.id}>{result.mediaType === "video" && result.hostedMediaUrl ? <video src={result.hostedMediaUrl} poster={result.imageUrl} controls playsInline muted /> : <img src={result.imageUrl} alt="Generated social media creative" />}<div><span className="result-status">{result.status} · {result.mediaType === "video" ? "MOTION VIDEO" : "STATIC IMAGE"}</span><h3>{result.surfaceLabel || `${result.service} post`}</h3><p>{result.caption}</p><small>{result.surfaceLabel || result.service} · {result.channel}{confirmedTime(result) ? ` · ${confirmedTime(result)}` : ""}{result.bufferStatus ? ` · Platform: ${result.bufferStatus}` : ""}</small>{result.externalLink && <a className="post-link" href={result.externalLink} target="_blank" rel="noreferrer">View published post</a>}{result.motionError && <p className="result-error">Motion fallback: {result.motionError}</p>}{result.error && <p className="result-error">{result.error}{result.requestedDueAt ? ` Requested: ${formatTime(result.requestedDueAt, result.timeZone)}.` : ""}</p>}</div></article>)}</section>}
 
       <details className="history-panel"><summary>Recent {activeBrand.name} campaigns <span>{campaignHistory.length}</span></summary>{campaignHistory.length ? <div className="history-list">{campaignHistory.slice(0, 8).map((campaign) => <div key={campaign.id}><b>{campaign.prompt || "Preserved Atlasium campaign"}</b><small>{campaign.status} · {campaign.scheduleSummary || campaign.timeZone} · {formatTime(campaign.updatedAt, campaign.timeZone)}</small></div>)}</div> : <p className="empty">No campaigns yet. Your first campaign will appear here.</p>}</details>
       <details className="provider-panel"><summary>Publishing connections</summary><div>{workspace?.publishingProviders.map((provider) => <p key={provider.id}><span className={provider.status === "ACTIVE" ? "dot active" : "dot"} />{provider.name}<b>{provider.status}</b></p>)}</div></details>
@@ -317,7 +317,7 @@ export default function Home() {
 
       {wizardStep === 2 && <div className="wizard-body"><h3>Brand brain</h3><label>What does the company do?<textarea value={brandForm.whatItDoes} onChange={(event) => setBrandField("whatItDoes", event.target.value)} /></label><div className="field-grid"><label>Target audience<textarea value={brandForm.targetAudience} onChange={(event) => setBrandField("targetAudience", event.target.value)} /></label><label>Main offers<textarea value={brandForm.mainOffers} onChange={(event) => setBrandField("mainOffers", event.target.value)} /></label><label>Primary call to action<input value={brandForm.primaryCta} onChange={(event) => setBrandField("primaryCta", event.target.value)} /></label><label>Tone of voice<input value={brandForm.tone} onChange={(event) => setBrandField("tone", event.target.value)} /></label><label>Words to use<input value={brandForm.wordsUse} onChange={(event) => setBrandField("wordsUse", event.target.value)} /></label><label>Words to avoid<input value={brandForm.wordsAvoid} onChange={(event) => setBrandField("wordsAvoid", event.target.value)} /></label><label>Visual style<textarea value={brandForm.visualStyle} onChange={(event) => setBrandField("visualStyle", event.target.value)} /></label><label>Additional instructions<textarea value={brandForm.instructions} onChange={(event) => setBrandField("instructions", event.target.value)} /></label></div></div>}
 
-      {wizardStep === 3 && <div className="wizard-body"><h3>Social channels</h3><p className="wizard-help">Assign only destinations that belong to this brand. A destination cannot be shared across brands.</p><div className="assignment-list">{workspace?.connectedChannels.map((channel) => { const ownedHere = channel.assignedBrandId === activeBrand?.id && wizardMode === "edit"; const unavailable = Boolean(channel.assignedBrandId && !ownedHere); const checked = brandForm.channelIds.includes(channel.id); return <label key={channel.id} className={unavailable ? "unavailable" : ""}><input type="checkbox" disabled={unavailable} checked={checked} onChange={() => setBrandField("channelIds", checked ? brandForm.channelIds.filter((id) => id !== channel.id) : [...brandForm.channelIds, channel.id])} /><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}{unavailable ? ` · assigned to ${channel.assignedBrandName}` : ""}</small></span></label>})}</div></div>}
+      {wizardStep === 3 && <div className="wizard-body"><h3>Social channels</h3><p className="wizard-help">Direct channels will appear here after the brand is authorized with the social platform.</p><div className="assignment-list">{workspace?.connectedChannels.map((channel) => { const ownedHere = channel.assignedBrandId === activeBrand?.id && wizardMode === "edit"; const unavailable = Boolean(channel.assignedBrandId && !ownedHere); const checked = brandForm.channelIds.includes(channel.id); return <label key={channel.id} className={unavailable ? "unavailable" : ""}><input type="checkbox" disabled={unavailable} checked={checked} onChange={() => setBrandField("channelIds", checked ? brandForm.channelIds.filter((id) => id !== channel.id) : [...brandForm.channelIds, channel.id])} /><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}{unavailable ? ` · assigned to ${channel.assignedBrandName}` : ""}</small></span></label>})}</div></div>}
 
       {wizardStep === 4 && <div className="wizard-body review"><h3>Review</h3><div><span>Brand</span><b>{brandForm.name}</b></div><div><span>Timezone</span><b>{brandForm.timezone}</b></div><div><span>Connected channels</span><b>{brandForm.channelIds.length}</b></div><div><span>Content direction</span><b>{brandForm.tone || brandForm.whatItDoes || "Clear and professional"}</b></div><div><span>Default routing</span><b>Prompt-led automatic routing</b></div></div>}
 
