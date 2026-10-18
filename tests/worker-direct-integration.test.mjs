@@ -50,7 +50,7 @@ async function worker() {
 }
 
 function agentRequest(overrides = {}) {
-  return new Request("http://localhost/api/agent", {
+  return new Request("https://echo.example.test/api/agent", {
     method: "POST",
     headers: { "X-Upload-Key": "test-key", "X-Brand-ID": ATLASIUM_BRAND, "Content-Type": "application/json" },
     body: JSON.stringify({
