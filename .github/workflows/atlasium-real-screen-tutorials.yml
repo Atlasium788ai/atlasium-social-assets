@@ -1,0 +1,47 @@
+name: Build Atlasium real-screen tutorials (review only)
+
+on:
+  push:
+    branches:
+      - content/atlasium-product-tutorials-20261018
+    paths:
+      - scripts/build_real_product_tutorials.py
+      - .github/workflows/atlasium-real-screen-tutorials.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    name: Capture public screens and render mobile videos
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install browser and renderer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python -m pip install --disable-pip-version-check pillow playwright
+          python -m playwright install --with-deps chromium
+      - name: Record public Atlasium pages in dark mode and render video drafts
+        run: python scripts/build_real_product_tutorials.py
+      - name: Verify videos exist and are playable
+        run: |
+          test -f product-video-drafts/capture-report.json
+          for f in product-video-drafts/*REAL_SCREEN_Tutorial_REVIEW.mp4; do
+            ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 "$f" | grep duration=
+            test $(stat -c%s "$f") -gt 20000
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Atlasium-real-screen-tutorials-review
+          path: |
+            product-video-drafts/*REAL_SCREEN_Tutorial_REVIEW.mp4
+            product-video-drafts/Captions_And_Approval_Guide.md
+            product-video-drafts/capture-report.json
+          retention-days: 30
