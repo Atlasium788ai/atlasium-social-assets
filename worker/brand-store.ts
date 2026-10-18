@@ -85,10 +85,13 @@ export async function ensureBrandSystem(env: StoreEnv) {
     env.DB.prepare("INSERT OR IGNORE INTO users (id, email, display_name, created_at) VALUES (?, NULL, ?, ?)").bind(OWNER_ID, "Atlasium owner", createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)").bind(WORKSPACE_ID, OWNER_ID, "owner", createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO brands (id, workspace_id, slug, name, logo_url, website, industry, location, timezone, status, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'active', ?, ?)")
-      .bind(ATLASIUM_BRAND_ID, WORKSPACE_ID, "atlasium-7-88-ai", "Atlasium 7/88 AI", "https://atlasium.ca", "AI revenue systems", "Toronto, Ontario", "America/Toronto", createdAt, createdAt),
+      .bind(ATLASIUM_BRAND_ID, WORKSPACE_ID, "atlasium-7-88-ai", "Atlasium 7/88", "https://atlasium788.ca", "Revenue intelligence", "Toronto, Ontario", "America/Toronto", createdAt, createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO brand_profiles (brand_id, what_it_does, target_audience, main_offers, primary_cta, tone, words_use, words_avoid, visual_style, instructions, routing_rules, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(ATLASIUM_BRAND_ID, "Builds practical AI-powered revenue and follow-up systems for businesses.", "Business owners and operators", "Revenue systems, automation and assessments", "Start a conversation with Atlasium", "Intelligent, direct, premium and modern", "clear, practical, revenue system", "generic AI hype, motivational fluff, cheesy slogans, unnecessary em dashes", "Dark, premium, black and gold, modern, clean", "Preserve facts. Never invent offers, proof, personal stories or claims.", JSON.stringify({ includePersonalLinkedIn: true, preferCompanyLinkedIn: true, tiktokRequiresCompatibleMedia: true }), createdAt),
+      .bind(ATLASIUM_BRAND_ID, "Diagnoses revenue leaks and installs systems that help businesses recover missed opportunities.", "Business owners and operators", "Revenue systems, automation and assessments", "Start a conversation with Atlasium", "Intelligent, direct, premium and modern", "clear, practical, revenue system", "generic AI hype, motivational fluff, cheesy slogans, unnecessary em dashes", "Deep navy, chrome and electric-blue accents, premium and clean", "Preserve facts. Never invent offers, proof, personal stories or claims.", JSON.stringify({ includePersonalLinkedIn: true, preferCompanyLinkedIn: true, tiktokRequiresCompatibleMedia: true }), createdAt),
   ]);
+  // Update only untouched legacy seed labels. Client-customized names remain intact.
+  await env.DB.prepare("UPDATE brands SET name = 'Atlasium 7/88' WHERE id = ? AND name = 'Atlasium 7/88 AI'").bind(ATLASIUM_BRAND_ID).run();
+  await env.DB.prepare("UPDATE brands SET website = 'https://atlasium788.ca' WHERE id = ? AND website = 'https://atlasium.ca'").bind(ATLASIUM_BRAND_ID).run();
   await migrateLegacyCampaigns(env);
 }
 
@@ -402,20 +405,20 @@ function legacyAtlasium(): BrandContext {
     id: ATLASIUM_BRAND_ID,
     workspaceId: WORKSPACE_ID,
     slug: "atlasium-7-88-ai",
-    name: "Atlasium 7/88 AI",
-    website: "https://atlasium.ca",
-    industry: "AI revenue systems",
+    name: "Atlasium 7/88",
+    website: "https://atlasium788.ca",
+    industry: "Revenue intelligence",
     location: "Toronto, Ontario",
     timezone: "America/Toronto",
     status: "active",
-    whatItDoes: "Builds practical AI-powered revenue and follow-up systems for businesses.",
+    whatItDoes: "Diagnoses revenue leaks and installs systems that help businesses recover missed opportunities.",
     targetAudience: "Business owners and operators",
     mainOffers: "Revenue systems, automation and assessments",
     primaryCta: "Start a conversation with Atlasium",
     tone: "Intelligent, direct, premium and modern",
     wordsUse: "clear, practical, revenue system",
     wordsAvoid: "generic AI hype, motivational fluff, cheesy slogans, unnecessary em dashes",
-    visualStyle: "Dark, premium, black and gold, modern, clean",
+    visualStyle: "Deep navy, chrome and electric-blue accents, premium and clean",
     instructions: "Preserve facts. Never invent offers, proof, personal stories or claims.",
     routingRules: JSON.stringify({ includePersonalLinkedIn: true, preferCompanyLinkedIn: true, tiktokRequiresCompatibleMedia: true }),
     channelIds: [],
