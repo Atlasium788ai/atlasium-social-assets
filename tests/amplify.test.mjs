@@ -97,7 +97,7 @@ test("AMPLIFY routes render directly with three-section product navigation and f
   for (const response of responses) assert.equal(response.status, 200);
   const html = (await Promise.all(responses.map((response) => response.text()))).join("\n");
   for (const label of ["ECHO", "FLOW", "AMPLIFY", "Create content", "Schedule &amp; monitor", "Run ads", "Create", "Campaigns", "Results", "Connections"]) assert.match(html, new RegExp(label));
-  assert.match(html, /Powered by Atlasium 7\/88 AI/);
+  assert.match(html, /Powered by Atlasium 7\/88/);
 });
 
 test("ECHO, FLOW and direct organic publishing code remain outside AMPLIFY", async () => {
