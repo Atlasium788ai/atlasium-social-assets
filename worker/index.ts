@@ -25,6 +25,7 @@ import {
   type SocialDestination,
 } from "./brand-store";
 import { listDirectSocialDestinations, publishDirectSocial } from "./direct-social";
+import { scheduleIsEnabled, enqueueDirectPost, dispatchDueDirectPosts, listScheduledDirectPosts, cancelScheduledDirectPost } from "./direct-schedule";
 import {
   createAmplifyDraft,
   loadAmplifyWorkspace,
@@ -51,6 +52,7 @@ interface Env {
   UPLOAD_KEY: string;
   AUTHORIZED_USER_EMAILS?: string;
   DIRECT_SOCIAL_CONNECTIONS?: string;
+  DIRECT_SOCIAL_SCHEDULER_ENABLED?: string;
   OPENAI_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
   OPENAI_IMAGE_MODEL?: string;
@@ -636,7 +638,9 @@ async function runAgent(request: Request, env: Env) {
   if (!env.DIRECT_SOCIAL_CONNECTIONS) return json({ error: "Connect an approved direct social account before publishing." }, 503);
   if (!env.OPENAI_API_KEY) return json({ error: "OpenAI connection required." }, 503);
   const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string; timeZone?: string; selectedDueAt?: string; selectedLocalTime?: string; brandId?: string; surfaceMode?: string; surfaceModeManual?: boolean };
-  if (body.timing !== "now") return json({ error: "First-party scheduling is not enabled yet. Select Post now." }, 400);
+  if (body.timing !== "now" && body.timing !== "schedule") return json({ error: "Choose Post now or exact scheduled time." }, 400);
+  if (body.timing === "schedule" && !scheduleIsEnabled(env)) return json({ error: "First-party scheduling is not enabled on this deployment." }, 503);
+  if (body.timing === "schedule" && !body.selectedLocalTime) return json({ error: "Choose an exact posting date and time." }, 400);
   if (body.surfaceMode && body.surfaceMode !== "main") return json({ error: "Direct Stories and Reels are not enabled yet. Select main post." }, 400);
   const prompt = String(body.prompt || "").trim();
   if (!prompt || prompt.length > 4000) return json({ error: "Enter a clear prompt under 4,000 characters." }, 400);
@@ -666,7 +670,7 @@ async function runAgent(request: Request, env: Env) {
   }
   const runId = crypto.randomUUID();
   let posts: PlannedPost[] = plan.posts.map((post, index) => ({ ...post, id: `${runId}-${String(index + 1).padStart(2, "0")}`, itemIndex: index, mediaType: "image", motionStyle: null, motionPrompt: null, duration: null, aspectRatio: "4:5" }));
-  posts = addMotionPlan(prompt, posts, brand);
+  if (timing !== "schedule") posts = addMotionPlan(prompt, posts, brand);
   const provider = motionProvider(env);
   posts = await Promise.all(posts.map(async (post) => {
     const imagePromise = generateAndHostImages(request, env, post.imagePrompt, brand.id, includeStoryMedia);
@@ -709,6 +713,16 @@ async function runAgent(request: Request, env: Env) {
       continue;
     }
     try {
+      if (mode === "customScheduled") {
+        const scheduled = await enqueueDirectPost(env, {
+          id: submissionId, brandId: brand.id, campaignId: runId, postId: stablePost.id,
+          channelId: String(channel.id), service: String(channel.service), caption, imageUrl: mediaUrl!, dueAt: requestedDueAt!,
+        }, scheduleNow);
+        if (!scheduled.queued) throw new Error("The scheduled publication already exists.");
+        await finishPublishJob(env, submissionId, "scheduled", null, null);
+        results.push({ id: submissionId, workspaceId: WORKSPACE_ID, brandId: brand.id, itemId: stablePost.id, itemIndex: stablePost.itemIndex, concept: post.concept, caption, imageUrl: mediaUrl || stablePost.imageUrl, hostedMediaUrl: mediaUrl, mediaType: "image", channelId: String(channel.id), channel: channel.displayName || channel.name, service: channel.service, surface, surfaceId, surfaceLabel, status: "SCHEDULED", requestedDueAt, dueAt: requestedDueAt, timeZone });
+        continue;
+      }
       const created = await publisher.createPost({ brandId: brand.id, channelId: String(channel.id), service: String(channel.service), text: caption, mediaUrl: mediaUrl!, mediaType: stablePost.mediaType, surface, mode, dueAt: requestedDueAt || undefined, aiAssisted: true });
       await finishPublishJob(env, submissionId, "sent", created.id, null);
       await recordDelivery(env, { publishJobId: submissionId, brandId: brand.id, providerStatus: "sent" });
@@ -963,7 +977,7 @@ async function publish(request: Request, env: Env) {
 async function workspace(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
   const connected = await publishingProvider(env).listDestinations();
-  return json(await workspaceSnapshot(env, connected));
+  return json({ ...await workspaceSnapshot(env, connected), schedulerEnabled: scheduleIsEnabled(env) });
 }
 
 async function flowWorkspaceRoute(request: Request, env: Env) {
@@ -1264,6 +1278,25 @@ const worker = {
       } catch (error) { return json({ error: error instanceof Error ? error.message : "Could not update the brand." }, statusFor(error, 400)); }
     }
 
+    if (url.pathname === "/api/direct-schedule" && request.method === "GET") {
+      if (!authorized(request, env)) return json({ error: "Unauthorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID") || url.searchParams.get("brandId") || "";
+      try {
+        await requireBrand(env, brandId);
+        return json({ schedulerEnabled: scheduleIsEnabled(env), posts: await listScheduledDirectPosts(env, brandId) });
+      } catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load scheduled posts." }, 400); }
+    }
+    if (url.pathname.startsWith("/api/direct-schedule/") && request.method === "DELETE") {
+      if (!authorized(request, env)) return json({ error: "Unauthorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID") || "";
+      const jobId = decodeURIComponent(url.pathname.slice("/api/direct-schedule/".length));
+      try {
+        await requireBrand(env, brandId);
+        const result = await cancelScheduledDirectPost(env, brandId, jobId);
+        return json(result, result.cancelled ? 200 : 409);
+      } catch (error) { return json({ error: error instanceof Error ? error.message : "Could not cancel." }, 400); }
+    }
+
     if (url.pathname === "/api/channels") {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
@@ -1327,6 +1360,9 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+  scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(dispatchDueDirectPosts(env).then(() => undefined));
   },
 };
 
