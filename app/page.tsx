@@ -173,7 +173,7 @@ export default function Home() {
     setActiveBrandId(brand.id);
     localStorage.setItem("echoflow-active-brand", brand.id);
     setPrompt(brand.draft?.prompt || "");
-    setTiming(brand.draft?.timing || "auto");
+    setTiming("now");
     setSelected((brand.draft?.selectedChannels || []).filter((id) => brand.channelIds.includes(id)));
     setSurfaceMode("main");
     setSurfaceModeManual(false);
