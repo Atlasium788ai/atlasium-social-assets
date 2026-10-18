@@ -19,7 +19,7 @@ type EchoContentMode = "social" | "blog" | "newsletter";
 type AccessState = "checking" | "granted" | "missing";
 type Result = { id: string; brandId?: string; concept: string; caption: string; imageUrl: string; hostedMediaUrl?: string; mediaType?: "image" | "video"; motionStyle?: string | null; motionError?: string | null; channel: string; service: string; surface?: string; surfaceId?: string; surfaceLabel?: string; status: string; bufferStatus?: string | null; requestedDueAt?: string | null; dueAt?: string | null; timeZone?: string; error?: string; externalLink?: string | null };
 type CampaignSummary = { id: string; brandId: string; prompt: string; status: string; timeZone: string; scheduleSummary?: string; createdAt: string; updatedAt: string };
-type WorkspaceData = { workspace: { id: string; name: string; role: string }; brands: Brand[]; connectedChannels: Channel[]; recentCampaigns?: CampaignSummary[]; publishingProviders: Array<{ id: string; name: string; status: string }>; migration: { legacyCampaignsPreserved: boolean } };
+type WorkspaceData = { schedulerEnabled?: boolean; workspace: { id: string; name: string; role: string }; brands: Brand[]; connectedChannels: Channel[]; recentCampaigns?: CampaignSummary[]; publishingProviders: Array<{ id: string; name: string; status: string }>; migration: { legacyCampaignsPreserved: boolean } };
 type BrandForm = Omit<Brand, "id" | "status" | "channels" | "channelIds" | "draft"> & { channelIds: string[] };
 
 const emptyBrand: BrandForm = { name: "", logoUrl: "", website: "", industry: "", location: "", timezone: "America/Toronto", whatItDoes: "", targetAudience: "", mainOffers: "", primaryCta: "", tone: "", wordsUse: "", wordsAvoid: "", visualStyle: "", instructions: "", routingRules: "{}", channelIds: [] };
@@ -198,7 +198,7 @@ export default function Home() {
         setCampaigns((current) => ({ ...current, [activeBrand.id]: data.campaignId! }));
       }
       setBrandStatus(activeBrand.id, { kind: returned.some((result) => result.status === "FAILED") ? "error" : "ok", text: data.message || "Direct campaign submitted." });
-      await persistDraft(activeBrand.id, { prompt: "", timing: "auto", selectedChannels: [] }, false);
+      await persistDraft(activeBrand.id, { prompt: "", timing: "now", selectedChannels: [] }, false);
       setPrompt(""); setTiming("now"); setSelected([]);
       setSurfaceMode("main"); setSurfaceModeManual(false);
     } catch (error) { setBrandStatus(activeBrand.id, { kind: "error", text: error instanceof Error ? error.message : "Campaign creation failed." }); }
@@ -280,7 +280,7 @@ export default function Home() {
       {contentMode === "social" && <><section className="card agent-card">
         <p className="eyebrow">ONE PROMPT → DELIVERED</p>
         <h1>What should<br />we create?</h1>
-        <p className="lede">EchoFlow uses {activeBrand.name}&apos;s voice, visuals, channels and timezone. Running jobs stay locked to this brand even if you switch tabs.</p>
+        <p className="lede">EchoFlow uses {activeBrand.name}&apos;s voice, visuals, channels and timezone. Running jobs stay locked to this brand even if you switch tabs.</p><p className="surface-help">{workspace?.schedulerEnabled ? "Publishing and scheduled posts use direct social APIs. No intermediary." : "Direct publishing is available after account authorization. Scheduling requires hosting configuration."}</p>
         <textarea className="prompt-box" rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={`Create a ${activeBrand.name} social post for today.`} aria-label="Campaign prompt" />
 
         <details className="options">
@@ -289,7 +289,7 @@ export default function Home() {
             {channels.map((channel) => <button type="button" key={channel.id} className={selected.includes(channel.id) ? "selected" : ""} onClick={() => toggleChannel(channel.id)}><span className="channel-icon">{channel.service[0]?.toUpperCase()}</span><span><b>{channel.displayName || channel.name}</b><small>{channel.service}</small></span><i>{selected.includes(channel.id) ? "✓" : ""}</i></button>)}
             {!channels.length ? <p className="empty">Add at least one destination in Brand settings.</p> : <p className="empty">Leave all unselected for automatic routing. Selecting channels overrides it.</p>}
           </div></div>
-          <div className="option-block"><span className="option-label">Timing</span><div className="timing">{[["now","Post now"]].map(([value,label]) => <button type="button" key={value} className={timing === value ? "active" : ""} onClick={() => setTiming(value)}>{label}</button>)}</div></div>
+          <div className="option-block"><span className="option-label">Timing</span><div className="timing">{[["now","Post now"], ...(workspace?.schedulerEnabled ? [["schedule","Schedule"]] : [])].map(([value,label]) => <button type="button" key={value} className={timing === value ? "active" : ""} onClick={() => setTiming(value)}>{label}</button>)}</div></div>
           {channels.some((channel) => ["instagram", "facebook"].includes(channel.service.toLowerCase())) && <div className="option-block"><span className="option-label">Instagram &amp; Facebook surfaces</span><div className="timing surface-options">{[["main","Main Post"]].map(([value,label]) => <button type="button" key={value} className={surfaceMode === value ? "active" : ""} onClick={() => { setSurfaceMode(value as SurfaceMode); setSurfaceModeManual(true); }}>{label}</button>)}</div><p className="surface-help">Direct Stories and Reels will appear after platform approval.</p></div>}
           {timing === "schedule" && <div className="option-block"><label className="option-label" htmlFor="schedule-at">Exact date and time · {activeBrand.timezone}</label><input id="schedule-at" type="datetime-local" value={scheduleAt} onChange={(event) => setScheduleAt(event.target.value)} /></div>}
         </details>
