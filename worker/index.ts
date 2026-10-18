@@ -655,8 +655,10 @@ async function runAgent(request: Request, env: Env) {
   const requestedIds = Array.isArray(body.channels) ? body.channels : [];
   const chosen = selectChannels(prompt, available, requestedIds, brand.id);
   if (!chosen.length || (requestedIds.length && chosen.length !== requestedIds.length)) return json({ error: "Choose at least one social destination assigned to this brand." }, 400);
-  const surfaceMode = surfaceModeFor(prompt, body.surfaceMode, body.surfaceModeManual === true);
-  const includeStoryMedia = surfaceMode !== "main" && chosen.some((channel) => storyService(String(channel.service)));
+  if (surfaceModeFor(prompt, body.surfaceMode, body.surfaceModeManual === true) === "story" || /\breels?\b/i.test(prompt))
+    return json({ error: "Direct Story and Reel publishing is not enabled. Request an image feed post instead." }, 422);
+  const surfaceMode: SurfaceMode = "main";
+  const includeStoryMedia = false;
   const timing = ["auto", "now", "queue", "schedule"].includes(String(body.timing)) ? String(body.timing) : "auto";
   const plan = await createPlan(env, prompt, chosen.map((channel) => `${channel.service}: ${channel.displayName || channel.name}`), timing, brand);
   const scheduleNow = env.TEST_NOW && !Number.isNaN(Date.parse(env.TEST_NOW)) ? new Date(env.TEST_NOW) : new Date();
@@ -671,6 +673,8 @@ async function runAgent(request: Request, env: Env) {
   const runId = crypto.randomUUID();
   let posts: PlannedPost[] = plan.posts.map((post, index) => ({ ...post, id: `${runId}-${String(index + 1).padStart(2, "0")}`, itemIndex: index, mediaType: "image", motionStyle: null, motionPrompt: null, duration: null, aspectRatio: "4:5" }));
   if (timing !== "schedule") posts = addMotionPlan(prompt, posts, brand);
+  if (posts.some((post) => post.mediaType === "video"))
+    return json({ error: "Direct video publishing is not enabled. Request static image posts instead." }, 422);
   const provider = motionProvider(env);
   posts = await Promise.all(posts.map(async (post) => {
     const imagePromise = generateAndHostImages(request, env, post.imagePrompt, brand.id, includeStoryMedia);
@@ -894,7 +898,9 @@ async function publish(request: Request, env: Env) {
   const notes = String(form.get("notes") || "").trim();
   const refine = form.get("refine") === "true";
   const requestedSurfaceMode = String(form.get("surfaceMode") || "");
-  const surfaceMode = surfaceModeFor(notes, requestedSurfaceMode, Boolean(requestedSurfaceMode));
+  if (requestedSurfaceMode && requestedSurfaceMode !== "main")
+    return json({ error: "Direct Stories and Reels are not enabled. Select Main Post." }, 422);
+  const surfaceMode: SurfaceMode = "main";
   let mode = String(form.get("mode") || "shareNow");
   let dueAt = String(form.get("dueAt") || "") || undefined;
   let channelIds: string[] = [];
@@ -902,8 +908,7 @@ async function publish(request: Request, env: Env) {
   if (!(image instanceof File) || !caption || !channelIds.length) return json({ error: "Add an image, post text, and at least one channel." }, 400);
   if (!allowedTypes.has(image.type.toLowerCase()) || image.size > 20 * 1024 * 1024) return json({ error: "Use a supported image under 20 MB." }, 415);
   if (mode !== "shareNow") return json({ error: "First-party scheduling is not enabled yet. Select Post now." }, 400);
-  if (mode === "smartSchedule") { mode = "customScheduled"; dueAt = buildSchedule(caption, 1, "auto", String(form.get("timeZone") || "America/Toronto")).times[0] || undefined; }
-  if (mode === "customScheduled" && (!dueAt || Number.isNaN(Date.parse(dueAt)) || Date.parse(dueAt) <= Date.now())) return json({ error: "Choose a future schedule time." }, 400);
+  if (dueAt) return json({ error: "Manual scheduling is not enabled. Use ECHO scheduling instead." }, 400);
 
   const publisher = publishingProvider(env);
   const connected = await publisher.listDestinations();
@@ -945,7 +950,7 @@ async function publish(request: Request, env: Env) {
   for (const channel of chosen) {
     const text = refine ? await refinePost(env, caption, notes, String(channel.service)) : caption;
     const postId = `${manualCampaignId}-01`;
-    const assignments = expandSurfaceAssignments([{ post: { concept: "Manual publication", caption: text, imagePrompt: "", id: postId, itemIndex: 0, mediaType: "image", motionStyle: null, motionPrompt: null, duration: null, aspectRatio: "4:5" } as PlannedPost, channel, caption: text }], surfaceMode, notes);
+    const assignments = expandSurfaceAssignments([{ post: { concept: "Manual publication", caption: text, imagePrompt: "", id: postId, itemIndex: 0, mediaType: "image", motionStyle: null, motionPrompt: null, duration: null, aspectRatio: "4:5" } as PlannedPost, channel, caption: text }], surfaceMode, "");
     for (const assignment of assignments) {
       const { surface, surfaceId, surfaceLabel } = assignment;
       const jobId = `${postId}:${String(channel.id)}:${surface}`;
