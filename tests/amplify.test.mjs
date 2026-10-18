@@ -109,7 +109,7 @@ test("ECHO, FLOW, Buffer and existing organic publishing code remain outside AMP
     readFile(new URL("../app/amplify/services/amplify-ad-service.ts", import.meta.url), "utf8"),
   ]);
   assert.match(echo, /Create &amp; Publish/);
-  assert.match(flow, /Buffer connections are live/);
+  assert.match(flow, /Direct publishing core is ready/);
   assert.match(worker, /api\.buffer\.com/);
   assert.doesNotMatch(amplifyStore, /BUFFER_API_KEY|api\.buffer\.com|createBufferPost|publishJobs/);
   assert.doesNotMatch(amplifyClient, /\/api\/agent|\/api\/publish|\/api\/channels|Buffer/);
@@ -118,7 +118,7 @@ test("ECHO, FLOW, Buffer and existing organic publishing code remain outside AMP
 test("AMPLIFY has isolated routes, state, services, storage, adapters and an error boundary", async () => {
   const files = await Promise.all(["components/amplify-route.tsx", "components/amplify-error-boundary.tsx", "state/use-amplify-workspace.ts", "services/amplify-ad-service.ts", "providers/amplify-adapter-registry.ts", "providers/amplify-provider-catalog.tsx"].map((path) => readFile(new URL(`../app/amplify/${path}`, import.meta.url), "utf8")));
   assert.match(files[0], /AmplifyErrorBoundary/);
-  assert.match(files[1], /ECHO, FLOW and Buffer remain available/);
+  assert.match(files[1], /ECHO and FLOW remain available/);
   assert.match(files[2], /clearing previous brand data|creativeSources: \[\], drafts: \[\]/);
   assert.match(files[3], /\/api\/amplify\//g);
   assert.match(files[4], /amplifyAdvertisingAdapters: AmplifyAdapterRegistry = Object\.freeze\(\{\}\)/);

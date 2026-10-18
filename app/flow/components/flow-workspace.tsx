@@ -36,13 +36,13 @@ export function FlowWorkspace({ activeSection }: { activeSection: FlowSection })
         <small>{flow.activeBrand?.timezone || "Brand-scoped connections"}</small>
       </section>
       {flow.flowError && <p className="message error" role="status">! {flow.flowError}</p>}
-      {flow.data?.refreshError && <p className="message error" role="status">! Buffer history loaded, but delivery refresh needs attention: {flow.data.refreshError}</p>}
-      {flow.data && flow.data.reconciliation.checked > 0 && <p className="flow-reconciliation" role="status">Checked {flow.data.reconciliation.checked} Buffer delivery record{flow.data.reconciliation.checked === 1 ? "" : "s"}: {flow.data.reconciliation.sent} sent, {flow.data.reconciliation.pending} pending, {flow.data.reconciliation.failed} failed.</p>}
-      {flow.activeBrand && !flow.data && <section className="flow-access-card" aria-live="polite"><p>Loading Buffer operations…</p></section>}
+      {flow.data?.refreshError && <p className="message error" role="status">! Queue history loaded, but direct delivery refresh needs attention: {flow.data.refreshError}</p>}
+      {flow.data && flow.data.reconciliation.checked > 0 && <p className="flow-reconciliation" role="status">Processed {flow.data.reconciliation.checked} due EchoFlow job{flow.data.reconciliation.checked === 1 ? "" : "s"}: {flow.data.reconciliation.sent} sent, {flow.data.reconciliation.pending} retrying, {flow.data.reconciliation.failed} failed.</p>}
+      {flow.activeBrand && !flow.data && <section className="flow-access-card" aria-live="polite"><p>Loading EchoFlow operations…</p></section>}
       {flow.activeBrand && flow.data && activeSection === "channels" && <FlowChannels brand={flow.activeBrand} previewMode={flow.previewMode} channels={flow.data.channels} />}
       {flow.activeBrand && flow.data && activeSection !== "channels" && <FlowOperations section={activeSection} brand={flow.activeBrand} jobs={flow.data.jobs} refreshing={flow.refreshing} onRefresh={flow.refresh} />}
     </>}
 
-    <footer>EchoFlow Social · Create and schedule in ECHO · Monitor Buffer delivery in FLOW.</footer>
+    <footer>EchoFlow Social · Create and schedule in ECHO · Monitor direct delivery in FLOW.</footer>
   </main>;
 }

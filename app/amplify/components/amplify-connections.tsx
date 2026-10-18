@@ -24,7 +24,7 @@ export function AmplifyConnections({ brand, previewMode }: { brand: AmplifyBrand
         </button>;
       })}
     </div>
-    <aside className="amplify-organic-note"><span>ORGANIC ≠ ADS</span><div><strong>Enable Ads will appear only after official approval</strong><p>ECHO and Buffer remain active for organic publishing. AMPLIFY has separate advertising permissions and never treats an organic connection as an ad account.</p></div></aside>
+    <aside className="amplify-organic-note"><span>ORGANIC ≠ ADS</span><div><strong>Enable Ads will appear only after official approval</strong><p>EchoFlow&apos;s direct organic publishing is separate from AMPLIFY. Advertising permissions remain isolated and are never inferred from an organic connection.</p></div></aside>
     {selected && <div className="amplify-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}>
       <section className="amplify-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-dialog-title">
         <button className="amplify-dialog-close" type="button" onClick={() => setSelected(null)} aria-label="Close connection details">×</button>

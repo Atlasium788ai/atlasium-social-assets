@@ -8,6 +8,7 @@ export type BufferDestination = {
   displayName?: string;
   service: string;
   avatar?: string;
+  provider?: "buffer" | "meta-direct" | "linkedin-direct" | "tiktok-direct";
 };
 
 export type BrandProfileInput = {
@@ -119,12 +120,20 @@ async function migrateLegacyCampaigns(env: StoreEnv) {
   await audit(env, ATLASIUM_BRAND_ID, "legacy_campaign_migration_complete", { migrated, source: ".atlasium-campaigns", publishingTriggered: false });
 }
 
-export async function syncAtlasiumChannels(env: StoreEnv, channels: BufferDestination[]) {
+function destinationProvider(channel: BufferDestination) {
+  return channel.provider || "echoflow-direct";
+}
+
+export async function syncAtlasiumChannels(env: StoreEnv, channels: BufferDestination[], directMode = false) {
   if (!env.DB) return;
   const assignedAt = nowIso();
+  if (directMode || channels.some((channel) => channel.provider && channel.provider !== "buffer")) {
+    await env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ? AND provider = 'buffer'").bind(ATLASIUM_BRAND_ID).run();
+  }
   for (const channel of channels.filter(atlasiumChannel)) {
-    await env.DB.prepare("INSERT OR IGNORE INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?)")
-      .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, ATLASIUM_BRAND_ID, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, assignedAt).run();
+    const provider = destinationProvider(channel);
+    await env.DB.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
+      .bind(`channel_${provider.replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, WORKSPACE_ID, ATLASIUM_BRAND_ID, provider, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, assignedAt).run();
   }
 }
 
@@ -180,7 +189,7 @@ export async function requireBrand(env: StoreEnv, brandId?: string | null) {
   return brand;
 }
 
-export async function workspaceSnapshot(env: StoreEnv, connected: BufferDestination[]) {
+export async function workspaceSnapshot(env: StoreEnv, connected: BufferDestination[], directMode = false) {
   if (!env.DB) {
     const brand = legacyAtlasium();
     brand.channels = connected;
@@ -188,7 +197,7 @@ export async function workspaceSnapshot(env: StoreEnv, connected: BufferDestinat
     return { workspace: { id: WORKSPACE_ID, name: "EchoFlow Social", role: "owner" }, brands: [brand], connectedChannels: connected.map((channel) => ({ ...channel, assignedBrandId: ATLASIUM_BRAND_ID, assignedBrandName: brand.name })), publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: true } };
   }
   await ensureBrandSystem(env);
-  await syncAtlasiumChannels(env, connected);
+  await syncAtlasiumChannels(env, connected, directMode);
   const brandRows = rowList(await env.DB.prepare(`${brandSelect} WHERE b.workspace_id = ? AND b.status != 'archived' ORDER BY CASE WHEN b.id = ? THEN 0 ELSE 1 END, b.created_at`).bind(WORKSPACE_ID, ATLASIUM_BRAND_ID).all<Record<string, unknown>>());
   const channelRows = rowList(await env.DB.prepare("SELECT c.provider_channel_id AS id, c.service, c.account_name AS displayName, c.brand_id, b.name AS brand_name FROM channel_connections c JOIN brands b ON b.id = c.brand_id WHERE c.workspace_id = ? AND c.active = 1").bind(WORKSPACE_ID).all<Record<string, unknown>>());
   const brands = brandRows.map((row) => {
@@ -214,7 +223,7 @@ export async function createBrand(env: StoreEnv, input: BrandProfileInput, conne
   const selected = connected.filter((channel) => channelIds.includes(channel.id));
   if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
-    const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = 'buffer' AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(channel.id).first<Record<string, unknown>>();
+    const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = ? AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(destinationProvider(channel), channel.id).first<Record<string, unknown>>();
     if (assigned) throw new Error(`${channel.displayName || channel.name || channel.id} is already assigned to another brand.`);
   }
   const id = brandId || `brand_${crypto.randomUUID()}`;
@@ -225,8 +234,8 @@ export async function createBrand(env: StoreEnv, input: BrandProfileInput, conne
       .bind(id, WORKSPACE_ID, slug, name, logo?.url || value(input.logoUrl), value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", createdAt, createdAt),
     env.DB.prepare("INSERT INTO brand_profiles (brand_id, what_it_does, target_audience, main_offers, primary_cta, tone, words_use, words_avoid, visual_style, instructions, routing_rules, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(id, value(input.whatItDoes), value(input.targetAudience), value(input.mainOffers), value(input.primaryCta), value(input.tone), value(input.wordsUse), value(input.wordsAvoid), value(input.visualStyle), value(input.instructions), value(input.routingRules) || "{}", createdAt),
-    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?)")
-      .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, id, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, createdAt)),
+    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)")
+      .bind(`channel_${destinationProvider(channel).replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, WORKSPACE_ID, id, destinationProvider(channel), channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, createdAt)),
     ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, id, logo.url, logo.r2Key, createdAt)] : []),
   ]);
   await audit(env, id, "brand_created", { name, channelIds, logoUploaded: Boolean(logo) }, actorId);
@@ -243,7 +252,7 @@ export async function updateBrand(env: StoreEnv, brandId: string, input: BrandPr
   const selected = connected.filter((channel) => channelIds.includes(channel.id));
   if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
-    const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = 'buffer' AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(channel.id).first<Record<string, unknown>>();
+    const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = ? AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(destinationProvider(channel), channel.id).first<Record<string, unknown>>();
     if (assigned && value(assigned.brand_id) !== brandId) throw new Error(`${channel.displayName || channel.name || channel.id} is already assigned to another brand.`);
   }
   const updatedAt = nowIso();
@@ -252,9 +261,9 @@ export async function updateBrand(env: StoreEnv, brandId: string, input: BrandPr
       .bind(name, logo?.url || value(input.logoUrl) || null, value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", updatedAt, brandId, WORKSPACE_ID),
     env.DB.prepare("UPDATE brand_profiles SET what_it_does = ?, target_audience = ?, main_offers = ?, primary_cta = ?, tone = ?, words_use = ?, words_avoid = ?, visual_style = ?, instructions = ?, routing_rules = ?, updated_at = ? WHERE brand_id = ?")
       .bind(value(input.whatItDoes), value(input.targetAudience), value(input.mainOffers), value(input.primaryCta), value(input.tone), value(input.wordsUse), value(input.wordsAvoid), value(input.visualStyle), value(input.instructions), value(input.routingRules) || "{}", updatedAt, brandId),
-    env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ? AND provider = 'buffer'").bind(brandId),
-    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
-      .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, brandId, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, updatedAt)),
+    env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ?").bind(brandId),
+    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
+      .bind(`channel_${destinationProvider(channel).replace(/[^a-z0-9]+/gi, "_")}_${channel.id.replace(/[^a-z0-9]+/gi, "_")}`, WORKSPACE_ID, brandId, destinationProvider(channel), channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, updatedAt)),
     ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, logo.url, logo.r2Key, updatedAt)] : []),
   ];
   await env.DB.batch(statements);
@@ -309,6 +318,29 @@ export async function finishPublishJob(env: StoreEnv, id: string, status: string
   if (!env.DB) return;
   await env.DB.prepare("UPDATE publish_jobs SET status = ?, provider_post_id = COALESCE(?, provider_post_id), error = ?, updated_at = ? WHERE id = ?")
     .bind(status, providerPostId || null, error || null, nowIso(), id).run();
+}
+
+export async function retryPublishJob(env: StoreEnv, id: string, scheduledTime: string, error: string) {
+  if (!env.DB) return;
+  await env.DB.prepare("UPDATE publish_jobs SET status = 'retrying', scheduled_time = ?, error = ?, updated_at = ? WHERE id = ?")
+    .bind(scheduledTime, error, nowIso(), id).run();
+}
+
+export async function pendingDirectPublishJobs(env: StoreEnv, limit = 10) {
+  if (!env.DB) return [];
+  const result = await env.DB.prepare(`SELECT id, brand_id AS brandId, scheduled_time AS scheduledTime
+    FROM publish_jobs
+    WHERE workspace_id = ? AND provider = 'echoflow-direct' AND status IN ('queued','retrying') AND scheduled_time <= ?
+    ORDER BY scheduled_time LIMIT ?`)
+    .bind(WORKSPACE_ID, nowIso(), Math.max(1, Math.min(25, limit))).all<Record<string, unknown>>();
+  return rowList(result).map((row) => ({ id: value(row.id), brandId: value(row.brandId), scheduledTime: value(row.scheduledTime) }));
+}
+
+export async function claimPublishJob(env: StoreEnv, id: string) {
+  if (!env.DB) return false;
+  const result = await env.DB.prepare("UPDATE publish_jobs SET status = 'publishing', updated_at = ? WHERE id = ? AND status IN ('queued','retrying')")
+    .bind(nowIso(), id).run();
+  return Number(result.meta?.changes || 0) > 0;
 }
 
 export async function recordDelivery(env: StoreEnv, input: { publishJobId: string; brandId: string; providerStatus?: string | null; publicUrl?: string | null; error?: string | null }) {
@@ -372,7 +404,7 @@ export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, conn
   ]);
   const channels = rowList(channelResult).map((row) => ({
     id: value(row.id), brandId: brand.id, providerId: value(row.service), providerChannelId: value(row.providerChannelId),
-    accountName: value(row.accountName), accountType: "Buffer-managed channel", status: liveIds.has(value(row.providerChannelId)) ? "connected" : "needs_attention",
+    accountName: value(row.accountName), accountType: "Direct platform connection", status: liveIds.has(value(row.providerChannelId)) ? "connected" : "needs_attention",
   }));
   const jobs = rowList(jobResult).map((row) => ({
     id: value(row.id), campaignId: value(row.campaignId), postId: value(row.postId), destinationId: value(row.destinationId),
@@ -387,9 +419,9 @@ export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, conn
 
 function providerFlags() {
   return [
-    { id: "buffer", name: "Buffer", status: "ACTIVE" },
-    { id: "meta-direct", name: "Facebook & Instagram direct", status: "APPROVAL PENDING" },
-    { id: "linkedin-direct", name: "LinkedIn direct", status: "APPROVAL PENDING" },
+    { id: "echoflow-direct", name: "EchoFlow direct publishing", status: "ACTIVE" },
+    { id: "meta-direct", name: "Facebook & Instagram direct", status: "APP CREDENTIALS REQUIRED" },
+    { id: "linkedin-direct", name: "LinkedIn direct", status: "APP CREDENTIALS REQUIRED" },
     { id: "tiktok-direct", name: "TikTok direct", status: "APPROVAL PENDING" },
   ];
 }

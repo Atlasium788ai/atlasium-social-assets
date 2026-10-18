@@ -1,5 +1,5 @@
 export type FlowPlatformId = "facebook" | "instagram" | "linkedin" | "tiktok" | "youtube" | "x" | "threads" | "pinterest" | "google_business" | "bluesky" | "snapchat";
-export type FlowConnectionStatus = "connect" | "connected" | "approval_pending" | "coming_soon" | "reconnect" | "needs_attention" | "unavailable";
+export type FlowConnectionStatus = "connect" | "connected" | "setup_required" | "approval_pending" | "coming_soon" | "reconnect" | "needs_attention" | "unavailable";
 export type FlowAuthorizationOutcome = "success" | "cancelled" | "expired" | "permissions_rejected";
 
 export type FlowProviderAuthorization = {

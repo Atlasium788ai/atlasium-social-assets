@@ -11,13 +11,13 @@ function validDate(value: string) {
 
 function formatDate(value: string, timeZone: string) {
   const date = validDate(value);
-  if (!date) return "Managed by Buffer queue";
+  if (!date) return "EchoFlow queue";
   return new Intl.DateTimeFormat("en-CA", { timeZone, weekday: "short", month: "short", day: "numeric", year: "numeric" }).format(date);
 }
 
 function formatTime(value: string, timeZone: string) {
   const date = validDate(value);
-  if (!date) return value === "shareNow" ? "Immediate" : "Buffer queue";
+  if (!date) return value === "shareNow" ? "Immediate" : "EchoFlow queue";
   return new Intl.DateTimeFormat("en-CA", { timeZone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(date);
 }
 
@@ -30,7 +30,7 @@ function delivery(job: FlowPublishJob) {
   if (job.deliveryError || job.error || job.status === "failed" || job.providerStatus === "error") return { label: "Failed", tone: "failed" };
   if (job.status === "sent" || job.providerStatus === "sent") return { label: "Sent", tone: "sent" };
   if (job.providerStatus) return { label: job.providerStatus.replaceAll("_", " "), tone: "pending" };
-  return { label: job.status === "confirmed" ? "Buffer confirmed" : job.status.replaceAll("_", " "), tone: "pending" };
+  return { label: job.status === "confirmed" ? "Platform confirmed" : job.status.replaceAll("_", " "), tone: "pending" };
 }
 
 function FlowJobRow({ job, brand }: { job: FlowPublishJob; brand: FlowBrand }) {
@@ -51,9 +51,9 @@ export function FlowOperations({ section, brand, jobs, refreshing, onRefresh }: 
   const activity = [...jobs].sort((a, b) => Date.parse(b.checkedAt || b.updatedAt || b.createdAt) - Date.parse(a.checkedAt || a.updatedAt || a.createdAt));
   const displayed = section === "calendar" ? scheduled : section === "queue" ? upcoming : activity;
   const copy = {
-    calendar: { eyebrow: "PUBLISHING CALENDAR", title: "Scheduled content", description: "A read-only view of every dated Buffer submission for this brand." },
-    queue: { eyebrow: "UPCOMING QUEUE", title: "What is scheduled next", description: "Future posts accepted by Buffer. Edit or cancel them in Buffer." },
-    activity: { eyebrow: "DELIVERY ACTIVITY", title: "Buffer delivery status", description: "EchoFlow checks due posts against Buffer and records the latest delivery result." },
+    calendar: { eyebrow: "PUBLISHING CALENDAR", title: "Scheduled content", description: "Every dated post in EchoFlow's own publishing queue for this brand." },
+    queue: { eyebrow: "UPCOMING QUEUE", title: "What is scheduled next", description: "Future posts owned and dispatched directly by EchoFlow." },
+    activity: { eyebrow: "DELIVERY ACTIVITY", title: "Direct delivery status", description: "EchoFlow records each platform result and retries temporary failures automatically." },
   }[section];
 
   return <section className="flow-operations">
@@ -62,7 +62,7 @@ export function FlowOperations({ section, brand, jobs, refreshing, onRefresh }: 
       <button type="button" className="flow-refresh" disabled={refreshing} onClick={onRefresh}>{refreshing ? "Checking…" : "Refresh status"}</button>
     </header>
     <div className="flow-metrics">
-      <article><span>CONNECTED</span><b>{jobs.filter((job) => job.status === "confirmed").length}</b><small>Accepted by Buffer</small></article>
+      <article><span>ACTIVE</span><b>{jobs.filter((job) => ["confirmed", "queued", "retrying", "sent"].includes(job.status)).length}</b><small>Owned by EchoFlow</small></article>
       <article><span>UPCOMING</span><b>{upcoming.length}</b><small>Future scheduled items</small></article>
       <article><span>SENT</span><b>{jobs.filter((job) => delivery(job).tone === "sent").length}</b><small>Verified deliveries</small></article>
       <article><span>NEEDS ATTENTION</span><b>{jobs.filter((job) => delivery(job).tone === "failed").length}</b><small>Failed or rejected</small></article>
@@ -74,6 +74,6 @@ export function FlowOperations({ section, brand, jobs, refreshing, onRefresh }: 
         <a href="/echo">Go to ECHO</a>
       </div>}
     </div>
-    <p className="flow-readonly-note">FLOW is read-only in this release. It never edits or cancels Buffer posts.</p>
+    <p className="flow-readonly-note">FLOW is read-only. EchoFlow owns the publishing queue and direct delivery.</p>
   </section>;
 }

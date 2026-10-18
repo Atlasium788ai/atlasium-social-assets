@@ -13,7 +13,7 @@ export function FlowConnectedAccountCard({ account, onReconnect, onDisconnect, m
     <div className="flow-connected-mark"><Icon aria-hidden="true" /></div>
     <div className="flow-connected-copy"><span>{provider.name}</span><h3>{account.accountName}</h3>{account.handle && <p>{account.handle}</p>}<small>{account.accountType}</small></div>
     <div className="flow-connected-status"><span>{account.status === "connected" ? "✓" : "!"}</span>{account.status === "connected" ? "Connected" : "Needs attention"}</div>
-    {managedExternally ? <div className="flow-connected-actions"><small>Managed in Buffer</small></div> : <div className="flow-connected-actions"><button type="button" onClick={() => onReconnect(account)}>Reconnect</button><button type="button" onClick={() => setConfirming(true)}>Disconnect</button></div>}
+    {managedExternally ? <div className="flow-connected-actions"><small>Managed securely by EchoFlow</small></div> : <div className="flow-connected-actions"><button type="button" onClick={() => onReconnect(account)}>Reconnect</button><button type="button" onClick={() => setConfirming(true)}>Disconnect</button></div>}
     {confirming && <div className="flow-confirm" role="alertdialog" aria-label={`Disconnect ${account.accountName}`}>
       <p>Disconnect {account.accountName}?</p>
       <div><button type="button" onClick={() => setConfirming(false)}>Cancel</button><button type="button" className="danger-action" onClick={() => { setConfirming(false); onDisconnect(account); }}>Disconnect</button></div>

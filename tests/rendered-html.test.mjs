@@ -188,10 +188,11 @@ test("FLOW exposes every requested platform with accurate independently flagged 
     readFile(new URL("../app/flow/services/flow-connection-service.ts", import.meta.url), "utf8"),
   ]);
   for (const name of ["Facebook", "Instagram", "LinkedIn", "TikTok", "YouTube", "X", "Threads", "Pinterest", "Google Business Profile", "Bluesky", "Snapchat"]) assert.match(catalog, new RegExp(`name: "${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
-  for (const provider of ["facebook", "instagram", "linkedin", "tiktok"]) assert.match(catalog, new RegExp(`providerId: "${provider}"[^\n]*status: "approval_pending"[^\n]*authorizationEnabled: false`));
+  for (const provider of ["facebook", "instagram", "linkedin"]) assert.match(catalog, new RegExp(`providerId: "${provider}"[^\n]*status: "setup_required"[^\n]*authorizationEnabled: false`));
+  assert.match(catalog, /providerId: "tiktok"[^\n]*status: "approval_pending"[^\n]*authorizationEnabled: false/);
   for (const provider of ["youtube", "x", "threads", "pinterest", "google_business", "bluesky", "snapchat"]) assert.match(catalog, new RegExp(`providerId: "${provider}"[^\n]*status: "coming_soon"[^\n]*authorizationEnabled: false`));
   assert.equal((catalog.match(/featureFlag: "flow_/g) || []).length, 11);
-  for (const status of ["connect", "connected", "approval_pending", "coming_soon", "reconnect", "needs_attention", "unavailable"]) assert.match(service, new RegExp(`"${status}"`));
+  for (const status of ["connect", "connected", "setup_required", "approval_pending", "coming_soon", "reconnect", "needs_attention", "unavailable"]) assert.match(service, new RegExp(`"${status}"`));
 });
 
 test("FLOW mock authorization validates brands, state, PKCE, expiry, permissions, reconnect, and disconnect", async () => {
@@ -250,7 +251,7 @@ test("FLOW reconciles due Buffer jobs, records delivery and attributes the audit
     DB,
     UPLOADS: { async get() { return null; }, async list() { return { objects: [], truncated: false }; } },
     UPLOAD_KEY: "test-key",
-    BUFFER_API_KEY: "mock-buffer",
+    PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "mock-buffer",
   };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, init = {}) => {
@@ -383,7 +384,7 @@ test("agent suppresses effectively identical same-time Buffer submissions", asyn
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `post-${mutations.length}`, status: "sent", channelId: request.variables.input.channelId } } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create two posts and publish now", channels: [], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create two posts and publish now", channels: [], timing: "now" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     assert.equal(mutations.length, 3);
     assert.deepEqual(new Set(mutations.map((input) => input.metadata?.instagram?.type || input.channelId)), new Set(["li", "post", "story"]));
@@ -419,7 +420,7 @@ test("preserves the exact 15-post Toronto campaign schedule and stable Buffer ma
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `buffer-${mutations.length}`, status: "scheduled", dueAt: input.dueAt, channelId: input.channelId } } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt, channels: [], timing: "schedule", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-12T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt, channels: [], timing: "schedule", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-12T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     const data = await response.json();
     assert.equal(mutations.length, 75);
@@ -455,7 +456,7 @@ test("UI-selected schedule overrides prompt timing and never uses the Buffer que
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: "scheduled", status: "scheduled", dueAt: request.variables.input.dueAt, channelId: request.variables.input.channelId } } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Add this to the queue next week", channels: ["fb"], timing: "schedule", selectedLocalTime: "2026-08-21T15:00", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Add this to the queue next week", channels: ["fb"], timing: "schedule", selectedLocalTime: "2026-08-21T15:00", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     assert.equal(mutations.length, 2);
     assert.ok(mutations.every((input) => input.mode === "customScheduled" && input.dueAt === "2026-08-21T19:00:00.000Z"));
@@ -482,7 +483,7 @@ test("motion prompts create the exact requested MP4 count and TikTok video paylo
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `post-${mutations.length}`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "tt" } } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 6 posts with 2 motion posts next week", channels: ["tt"], timing: "auto", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async (key, value, options) => stored.push({ key, value, options }) } }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 6 posts with 2 motion posts next week", channels: ["tt"], timing: "auto", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async (key, value, options) => stored.push({ key, value, options }) } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     const data = await response.json();
     assert.equal(data.results.filter((result) => result.mediaType === "video").length, 2);
@@ -491,7 +492,7 @@ test("motion prompts create the exact requested MP4 count and TikTok video paylo
     assert.ok(data.results.filter((result) => result.mediaType === "video").every((result) => result.hostedMediaUrl.startsWith("http://localhost/i/") && result.hostedMediaUrl.endsWith(".mp4")));
     assert.equal(stored.filter((item) => item.key.endsWith(".mp4") && item.options.httpMetadata.contentType === "video/mp4").length, 2);
     mutations.length = 0;
-    const someResponse = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 6 posts with some motion next week", channels: ["tt"], timing: "auto", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    const someResponse = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 6 posts with some motion next week", channels: ["tt"], timing: "auto", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(someResponse.status, 201);
     assert.equal((await someResponse.json()).results.filter((result) => result.mediaType === "video").length, 2);
   } finally { globalThis.fetch = originalFetch; }
@@ -513,7 +514,7 @@ test("motion failure is reported and TikTok receives a supported photo fallback"
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: "post", status: "scheduled", dueAt: mutation.dueAt, channelId: "tt" } } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", channels: ["tt"], timing: "auto", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", channels: ["tt"], timing: "auto", timeZone: "America/Toronto" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     const data = await response.json();
     assert.equal(data.results[0].mediaType, "image");
@@ -535,7 +536,7 @@ test("Buffer rejection stays attached to its stable post and displays FAILED", a
     return Response.json({ data: { createPost: { __typename: "MutationError", message: "Schedule rejected" } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Publish one company post now", channels: [], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Publish one company post now", channels: [], timing: "now" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", OPENAI_API_KEY: "openai-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 207);
     const data = await response.json();
     assert.equal(data.results[0].status, "FAILED");
@@ -562,7 +563,7 @@ test("publishes sample content through the complete Buffer scheduling mutation p
     form.set("channels", JSON.stringify(["ig", "li", "fb"]));
     form.set("mode", "smartSchedule");
     form.set("timeZone", "America/Toronto");
-    const response = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: form }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: form }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     assert.equal(mutations.length, 5);
     assert.ok(mutations.every((input) => input.mode === "customScheduled" && Date.parse(input.dueAt) > Date.now() && input.assets[0].image.url.startsWith("http://localhost/i/")));
@@ -580,7 +581,7 @@ test("publishes sample content through the complete Buffer scheduling mutation p
       typed.set("notes", type === "story" ? "Create a Facebook story only" : "Create a Facebook reel");
       typed.set("channels", JSON.stringify(["fb"]));
       typed.set("mode", "addToQueue");
-      const typedResponse = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: typed }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+      const typedResponse = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: typed }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
       assert.equal(typedResponse.status, 201);
       const added = mutations.slice(before);
       if (type === "story") assert.deepEqual(added.map((input) => input.metadata.facebook.type), ["story"]);
@@ -592,7 +593,7 @@ test("publishes sample content through the complete Buffer scheduling mutation p
     tiktok.set("caption", "Atlasium TikTok photo update");
     tiktok.set("channels", JSON.stringify(["tt"]));
     tiktok.set("mode", "addToQueue");
-    const tiktokResponse = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: tiktok }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
+    const tiktokResponse = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: tiktok }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer-test", UPLOADS: { put: async () => {} } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(tiktokResponse.status, 201);
     assert.deepEqual(mutations.at(-1).metadata.tiktok, { title: "Atlasium TikTok photo update" });
   } finally { globalThis.fetch = originalFetch; }
@@ -617,6 +618,64 @@ function memoryR2() {
   };
 }
 
+test("EchoFlow owns scheduled publishing and dispatches Instagram directly without Buffer", async () => {
+  const worker = await loadWorker();
+  const DB = await memoryD1();
+  const r2 = memoryR2();
+  const externalUrls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    externalUrls.push(String(url));
+    assert.doesNotMatch(String(url), /api\.buffer\.com/);
+    if (String(url).endsWith("/media")) return Response.json({ id: "ig-container-1" });
+    if (String(url).endsWith("/media_publish")) return Response.json({ id: "ig-media-1" });
+    throw new Error(`Unexpected direct request: ${url}`);
+  };
+  try {
+    const env = {
+      ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+      DB,
+      UPLOADS: r2,
+      UPLOAD_KEY: "test-key",
+      META_ACCESS_TOKEN: "meta-test-token",
+      META_INSTAGRAM_ACCOUNT_ID: "ig-1",
+      META_INSTAGRAM_ACCOUNT_NAME: "atlasium788ai",
+      META_GRAPH_VERSION: "v24.0",
+    };
+    const workspaceResponse = await worker.fetch(new Request("http://localhost/api/workspace", { headers: { "X-Upload-Key": "test-key" } }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(workspaceResponse.status, 200);
+    const workspace = await workspaceResponse.json();
+    assert.deepEqual(workspace.connectedChannels.map((channel) => channel.id), ["meta-instagram:ig-1"]);
+    assert.equal(workspace.publishingProviders[0].id, "echoflow-direct");
+
+    const form = new FormData();
+    form.set("brandId", "brand_atlasium_788_ai");
+    form.set("image", new File([new Uint8Array([1, 2, 3])], "post.png", { type: "image/png" }));
+    form.set("caption", "Direct publishing proof");
+    form.set("channels", JSON.stringify(["meta-instagram:ig-1"]));
+    form.set("surfaceMode", "main");
+    form.set("mode", "customScheduled");
+    form.set("dueAt", new Date(Date.now() + 60 * 60_000).toISOString());
+    const scheduled = await worker.fetch(new Request("http://localhost/api/publish", { method: "POST", headers: { "X-Upload-Key": "test-key" }, body: form }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(scheduled.status, 201);
+    assert.equal(externalUrls.length, 0);
+    const queued = DB.database.prepare("SELECT id, provider, status FROM publish_jobs").get();
+    assert.equal(queued.provider, "echoflow-direct");
+    assert.equal(queued.status, "queued");
+
+    DB.database.prepare("UPDATE publish_jobs SET scheduled_time = ? WHERE id = ?").run(new Date(Date.now() - 60_000).toISOString(), queued.id);
+    let dispatch;
+    await worker.scheduled({}, env, { waitUntil(promise) { dispatch = promise; }, passThroughOnException() {} });
+    await dispatch;
+    const delivered = DB.database.prepare("SELECT status, provider_post_id FROM publish_jobs WHERE id = ?").get(queued.id);
+    assert.deepEqual({ ...delivered }, { status: "sent", provider_post_id: "ig-media-1" });
+    assert.equal(DB.database.prepare("SELECT provider_status FROM delivery_statuses WHERE publish_job_id = ?").get(queued.id).provider_status, "sent");
+    assert.equal(externalUrls.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("ECHO creates separate Instagram and Facebook main posts plus Stories while native-only platforms stay single", async () => {
   const worker = await loadWorker();
   const originalFetch = globalThis.fetch;
@@ -638,7 +697,7 @@ test("ECHO creates separate Instagram and Facebook main posts plus Stories while
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `surface-${mutations.length}`, status: "sent", channelId: request.variables.input.channelId } } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static post now", channels: ["ig", "fb", "li"], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static post now", channels: ["ig", "fb", "li"], timing: "now" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     const data = await response.json();
     assert.deepEqual(data.results.map((result) => result.surfaceId), ["instagram:feed", "instagram:story", "facebook:feed", "facebook:story", "linkedin:post"]);
@@ -671,7 +730,7 @@ test("Instagram motion creates a Reel and companion Story using the same hosted 
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `motion-${mutations.length}`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "ig" } } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", channels: ["ig"], timing: "auto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", channels: ["ig"], timing: "auto" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 201);
     const data = await response.json();
     assert.deepEqual(data.results.map((result) => result.surfaceId), ["instagram:reel", "instagram:story"]);
@@ -698,7 +757,7 @@ test("Story and main failures are isolated and the campaign cannot report a hidd
       if (type === failedType) return Response.json({ data: { createPost: { __typename: "MutationError", message: `${type} rejected` } } });
       return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `${type}-ok`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "ig" } } } });
     };
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static Instagram post next week", channels: ["ig"], timing: "auto" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: memoryR2() }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static Instagram post next week", channels: ["ig"], timing: "auto" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: memoryR2() }, { waitUntil() {}, passThroughOnException() {} });
     return { response, data: await response.json(), mutations };
   }
   try {
@@ -731,7 +790,7 @@ test("Story media failure preserves the main post and reports the Story separate
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: "main-ok", status: "sent", channelId: "ig" } } } });
   };
   try {
-    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static post now", channels: ["ig"], timing: "now" }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static post now", channels: ["ig"], timing: "now" }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 207);
     const data = await response.json();
     assert.equal(mutations.length, 1);
@@ -759,7 +818,7 @@ test("surface-aware idempotency survives refresh and explicit Story-only remains
     mutations.push(request.variables.input);
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: `job-${mutations.length}`, status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "ig" } } } });
   };
-  const env = { DB: db, UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: r2 };
+  const env = { DB: db, UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-17T12:00:00Z", UPLOADS: r2 };
   try {
     const response = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create one all-static post next week", channels: ["ig"], timing: "auto" }) }), env, { waitUntil() {}, passThroughOnException() {} });
     const created = await response.json();
@@ -814,7 +873,7 @@ test("async motion persists, resumes, hosts MP4, schedules once, and survives re
   };
   try {
     const started = Date.now();
-    const initial = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", timing: "auto", channels: [] }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    const initial = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", timing: "auto", channels: [] }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(initial.status, 202);
     assert.ok(Date.now() - started < 1000);
     const created = await initial.json();
@@ -824,7 +883,7 @@ test("async motion persists, resumes, hosts MP4, schedules once, and survives re
     const persisted = JSON.parse(new TextDecoder().decode(r2.values.get(`.atlasium-campaigns/${created.campaignId}.json`).bytes));
     assert.equal(persisted.items[0].videoJobId, "video-persisted");
 
-    const progress = await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    const progress = await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
     const completed = await progress.json();
     assert.equal(mutations.length, 5);
     assert.ok(completed.results.every((result) => result.status === "SCHEDULED" && result.hostedMediaUrl.endsWith(".mp4")));
@@ -832,7 +891,7 @@ test("async motion persists, resumes, hosts MP4, schedules once, and survives re
     assert.ok(completed.results.some((result) => result.channelId === "lip"));
     assert.ok(mutations.every((input) => input.dueAt === created.results[0].requestedDueAt));
 
-    await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    await worker.fetch(new Request(`http://localhost/api/campaign/${created.campaignId}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(mutations.length, 5);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -855,11 +914,11 @@ test("failed async motion retries twice then reports static fallback", async () 
     return Response.json({ data: { createPost: { __typename: "PostActionSuccess", post: { id: "fallback", status: "scheduled", dueAt: request.variables.input.dueAt, channelId: "tt" } } } });
   };
   try {
-    const initial = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", channels: ["tt"] }) }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+    const initial = await worker.fetch(new Request("http://localhost/api/agent", { method: "POST", headers: { "content-type": "application/json", "X-Upload-Key": "test-key" }, body: JSON.stringify({ prompt: "Create 1 motion post next week", channels: ["tt"] }) }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
     const id = (await initial.json()).campaignId;
     let data;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const response = await worker.fetch(new Request(`http://localhost/api/campaign/${id}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
+      const response = await worker.fetch(new Request(`http://localhost/api/campaign/${id}`, { headers: { "X-Upload-Key": "test-key" } }), { UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-15T12:00:00Z", UPLOADS: r2 }, { waitUntil() {}, passThroughOnException() {} });
       data = await response.json();
     }
     assert.equal(creates, 3);
@@ -902,7 +961,7 @@ test("migrates Atlasium history, creates an isolated brand, restores its draft, 
     if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
     throw new Error(`Unexpected fetch: ${url}`);
   };
-  const env = { DB: db, UPLOADS: r2, UPLOAD_KEY: "test-key", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-16T12:00:00Z" };
+  const env = { DB: db, UPLOADS: r2, UPLOAD_KEY: "test-key", PUBLISHING_MODE: "legacy-buffer", BUFFER_API_KEY: "buffer", OPENAI_API_KEY: "openai", TEST_NOW: "2026-08-16T12:00:00Z" };
   try {
     const first = await worker.fetch(new Request("http://localhost/api/workspace", { headers: { "X-Upload-Key": "test-key" } }), env, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(first.status, 200);

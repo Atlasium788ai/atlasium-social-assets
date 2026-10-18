@@ -14,7 +14,7 @@ export class FlowErrorBoundary extends Component<{ children: ReactNode }, { fail
   }
 
   render() {
-    if (this.state.failed) return <main className="app-shell flow-shell"><section className="flow-access-card"><p className="eyebrow">FLOW UNAVAILABLE</p><h1>Try again</h1><p>ECHO and Buffer remain available.</p></section></main>;
+    if (this.state.failed) return <main className="app-shell flow-shell"><section className="flow-access-card"><p className="eyebrow">FLOW UNAVAILABLE</p><h1>Try again</h1><p>ECHO and the direct publishing queue remain available.</p></section></main>;
     return this.props.children;
   }
 }

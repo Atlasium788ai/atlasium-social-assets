@@ -6,5 +6,6 @@ export function createFlowProviderAdapterRegistry(adapters: Partial<Record<FlowP
   return Object.freeze({ ...adapters });
 }
 
-// Official adapters are registered here only after approval and server credentials exist.
+// Direct server-side adapters live in the worker. Browser OAuth adapters remain empty
+// until Atlasium installs the official app credentials and callback URLs.
 export const flowProviderAdapters = createFlowProviderAdapterRegistry();

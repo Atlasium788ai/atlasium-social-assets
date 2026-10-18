@@ -9,9 +9,9 @@ export type FlowProviderTile = FlowProviderAuthorization & {
 };
 
 export const FLOW_PROVIDER_TILES: readonly FlowProviderTile[] = Object.freeze([
-  { providerId: "facebook", name: "Facebook", status: "approval_pending", authorizationEnabled: false, featureFlag: "flow_facebook", scopes: [], pkce: "when_supported", Icon: FaFacebookF },
-  { providerId: "instagram", name: "Instagram", status: "approval_pending", authorizationEnabled: false, featureFlag: "flow_instagram", scopes: [], pkce: "when_supported", Icon: FaInstagram },
-  { providerId: "linkedin", name: "LinkedIn", status: "approval_pending", authorizationEnabled: false, featureFlag: "flow_linkedin", scopes: [], pkce: "when_supported", Icon: FaLinkedinIn },
+  { providerId: "facebook", name: "Facebook", status: "setup_required", authorizationEnabled: false, featureFlag: "flow_facebook", scopes: ["pages_manage_posts", "pages_read_engagement"], pkce: "when_supported", Icon: FaFacebookF },
+  { providerId: "instagram", name: "Instagram", status: "setup_required", authorizationEnabled: false, featureFlag: "flow_instagram", scopes: ["instagram_basic", "instagram_content_publish"], pkce: "when_supported", Icon: FaInstagram },
+  { providerId: "linkedin", name: "LinkedIn", status: "setup_required", authorizationEnabled: false, featureFlag: "flow_linkedin", scopes: ["w_organization_social"], pkce: "when_supported", Icon: FaLinkedinIn },
   { providerId: "tiktok", name: "TikTok", status: "approval_pending", authorizationEnabled: false, featureFlag: "flow_tiktok", scopes: [], pkce: "when_supported", Icon: FaTiktok },
   { providerId: "youtube", name: "YouTube", status: "coming_soon", authorizationEnabled: false, featureFlag: "flow_youtube", scopes: [], pkce: "when_supported", Icon: FaYoutube },
   { providerId: "x", name: "X", status: "coming_soon", authorizationEnabled: false, featureFlag: "flow_x", scopes: [], pkce: "when_supported", Icon: FaXTwitter },
@@ -25,6 +25,7 @@ export const FLOW_PROVIDER_TILES: readonly FlowProviderTile[] = Object.freeze([
 export const FLOW_STATUS_LABELS: Record<FlowConnectionStatus, string> = {
   connect: "Connect",
   connected: "Connected",
+  setup_required: "App Setup Needed",
   approval_pending: "Approval Pending",
   coming_soon: "Coming Soon",
   reconnect: "Reconnect",

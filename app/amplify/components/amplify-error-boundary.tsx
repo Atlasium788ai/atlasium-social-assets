@@ -12,7 +12,7 @@ export class AmplifyErrorBoundary extends Component<{ children: ReactNode }, { f
   }
 
   render() {
-    if (this.state.failed) return <main className="app-shell amplify-shell"><section className="amplify-empty"><p className="eyebrow">AMPLIFY UNAVAILABLE</p><h1>Try again</h1><p>ECHO, FLOW and Buffer remain available and unchanged.</p><a className="secondary" href="/echo">Return to ECHO</a></section></main>;
+    if (this.state.failed) return <main className="app-shell amplify-shell"><section className="amplify-empty"><p className="eyebrow">AMPLIFY UNAVAILABLE</p><h1>Try again</h1><p>ECHO and FLOW remain available; the direct publishing queue is unchanged.</p><a className="secondary" href="/echo">Return to ECHO</a></section></main>;
     return this.props.children;
   }
 }

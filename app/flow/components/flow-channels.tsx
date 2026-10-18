@@ -46,6 +46,6 @@ export function FlowChannels({ brand, previewMode, channels }: { brand: FlowBran
       })}
     </div>
 
-    <aside className="flow-buffer-note"><span className="dot active" /><div><strong>Buffer connections are live</strong><small>Create and schedule posts in ECHO. FLOW monitors the resulting queue and delivery state.</small></div></aside>
+    <aside className="flow-buffer-note"><span className={brandAccounts.length ? "dot active" : "dot"} /><div><strong>{brandAccounts.length ? "Direct publishing is connected" : "Direct publishing core is ready"}</strong><small>{brandAccounts.length ? "EchoFlow owns the schedule, publishes to the platform APIs, and records delivery here." : "Install Atlasium's approved Meta and LinkedIn app credentials to activate the channels. Buffer is not used."}</small></div></aside>
   </section>;
 }
