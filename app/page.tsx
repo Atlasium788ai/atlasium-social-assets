@@ -38,7 +38,7 @@ function EchoFlowIdentity({ full = false }: { full?: boolean }) {
     <img
       className={full ? "echo-art-full" : "echo-art-compact"}
       src="/echoflow-social.png"
-      alt="EchoFlow Social, powered by Atlasium 7/88 AI"
+      alt="EchoFlow Social, powered by Atlasium 7/88"
       width={1254}
       height={1254}
     />
@@ -291,7 +291,7 @@ export default function Home() {
   </main>;
 
   return <main className="app-shell">
-    <header className="app-header"><EchoFlowIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88 AI</span><AccessSessionAction /></div></header>
+    <header className="app-header"><EchoFlowIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88</span><AccessSessionAction /></div></header>
     <ProductNavigation active="echo" />
 
     <nav className="brand-nav" aria-label="Brands">
