@@ -184,8 +184,8 @@ export async function requireBrand(env: StoreEnv, brandId?: string | null) {
 export async function workspaceSnapshot(env: StoreEnv, connected: SocialDestination[]) {
   if (!env.DB) {
     const brand = legacyAtlasium();
-    brand.channels = connected;
-    brand.channelIds = connected.map((channel) => channel.id);
+    brand.channels = connected.filter((channel) => channel.brandId === ATLASIUM_BRAND_ID);
+    brand.channelIds = brand.channels.map((channel) => channel.id);
     return { workspace: { id: WORKSPACE_ID, name: "EchoFlow Social", role: "owner" }, brands: [brand], connectedChannels: connected.map((channel) => ({ ...channel, assignedBrandId: ATLASIUM_BRAND_ID, assignedBrandName: brand.name })), publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: true } };
   }
   await ensureBrandSystem(env);
