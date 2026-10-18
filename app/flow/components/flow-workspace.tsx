@@ -11,7 +11,7 @@ import { FlowSectionNavigation, type FlowSection } from "./flow-section-navigati
 
 function FlowIdentity() {
   return <div className="echo-identity">
-    <img className="echo-art-compact" src="/echoflow-social.png" alt="EchoFlow Social, powered by Atlasium 7/88 AI" width={1254} height={1254} />
+    <img className="echo-art-compact" src="/echoflow-social.png" alt="EchoFlow Social, powered by Atlasium 7/88" width={1254} height={1254} />
     <span><b>EchoFlow</b><em>Social</em></span>
   </div>;
 }
@@ -19,7 +19,7 @@ function FlowIdentity() {
 export function FlowWorkspace({ activeSection }: { activeSection: FlowSection }) {
   const flow = useFlowWorkspace();
   return <main className="app-shell flow-shell">
-    <header className="app-header"><FlowIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88 AI</span><AccessSessionAction /></div></header>
+    <header className="app-header"><FlowIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88</span><AccessSessionAction /></div></header>
     <ProductNavigation active="flow" />
     <FlowSectionNavigation active={activeSection} />
 
