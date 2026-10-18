@@ -51,6 +51,8 @@ test("publishes a Facebook Page photo directly without an intermediary", async (
     assert.equal(requests.length, 1);
     assert.match(requests[0].url, /^https:\/\/graph\.facebook\.com\/v\d+\.\d+\/123456\/photos$/);
     assert.equal(requests[0].params.get("url"), post.mediaUrl);
+    assert.equal(requests[0].params.get("message"), post.text);
+    assert.match(requests[0].url, /\/v26\.0\//);
     assert.equal(requests[0].token, "Bearer secret-a");
   } finally { globalThis.fetch = previous; }
 });
@@ -84,8 +86,27 @@ test("Instagram cannot falsely claim success when its media is still processing"
     return String(url).endsWith("/media") ? Response.json({ id: "container-1" }) : Response.json({ status_code: "IN_PROGRESS" });
   };
   try {
-    await assert.rejects(publishDirectSocial(env, { ...post, channelId: "ig-a", service: "instagram" }), /Nothing has been published/);
-    assert.equal(urls.length, 2);
+    await assert.rejects(publishDirectSocial(env, { ...post, channelId: "ig-a", service: "instagram" }), /No publication was confirmed/);
+    assert.equal(urls.length, 5);
+    assert.equal(urls.filter((url) => url.includes("media_publish")).length, 0);
+  } finally { globalThis.fetch = previous; }
+});
+
+test("Instagram waits for a ready image container before publishing once", async () => {
+  const { publishDirectSocial } = await directModule();
+  const previous = globalThis.fetch;
+  let checks = 0, published = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/media")) return Response.json({ id: "container-2" });
+    if (String(url).includes("fields=status_code")) return Response.json({ status_code: ++checks === 1 ? "IN_PROGRESS" : "FINISHED" });
+    if (String(url).endsWith("/media_publish")) { published++; return Response.json({ id: "instagram-post-2" }); }
+    throw new Error("Unknown platform request");
+  };
+  try {
+    const result = await publishDirectSocial(env, { ...post, channelId: "ig-a", service: "instagram" });
+    assert.equal(checks, 2);
+    assert.equal(published, 1);
+    assert.equal(result.id, "instagram-post-2");
   } finally { globalThis.fetch = previous; }
 });
 
