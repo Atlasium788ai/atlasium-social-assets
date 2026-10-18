@@ -52,7 +52,7 @@ test("renders the EchoFlow Social authenticated entry", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<title>EchoFlow Social<\/title>/i);
-  assert.match(html, /Powered by Atlasium 7\/88 AI/);
+  assert.match(html, /Powered by Atlasium 7\/88/);
   assert.match(html, /Preparing your workspace/);
   assert.match(html, /\/echoflow-social\.png/);
   assert.match(html, /\/favicon\.svg/);
@@ -138,7 +138,7 @@ test("client exposes brand tabs, four short setup steps, scoped draft saves, and
   assert.match(source, /No campaigns yet/);
   assert.match(source, /role="alert"/);
   assert.match(source, /src="\/echoflow-social\.png"/);
-  assert.match(source, /EchoFlow Social, powered by Atlasium 7\/88 AI/);
+  assert.match(source, /EchoFlow Social, powered by Atlasium 7\/88/);
   assert.match(styles, /\.echo-art-full\{[^}]*object-fit:contain/);
   assert.match(styles, /\.echo-art-compact\{[^}]*object-fit:contain/);
   assert.match(styles, /@media\(max-width:600px\)/);
