@@ -26,7 +26,7 @@ export type DirectSocialInput = {
   dueAt?: string;
 };
 
-const GRAPH_VERSION = "v24.0";
+const GRAPH_VERSION = "v26.0";
 const PLATFORM_TYPES = new Set(["facebook", "instagram"]);
 
 function readConnections(env: DirectSocialEnv): SocialDestination[] {
@@ -89,7 +89,7 @@ export async function publishDirectSocial(env: DirectSocialEnv, input: DirectSoc
   if (account.service === "facebook") {
     const result = await graphPost(`${account.accountId}/photos`, account.accessToken, {
       url: input.mediaUrl,
-      caption: input.text,
+      message: input.text,
       published: "true",
     });
     return { id: result.post_id || result.id!, channelId: account.id, status: "sent", dueAt: null };
@@ -100,13 +100,23 @@ export async function publishDirectSocial(env: DirectSocialEnv, input: DirectSoc
       image_url: input.mediaUrl,
       caption: input.text,
     });
-    // Containers may still be processing. Do not issue a publish request until ready.
-    const statusResponse = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${container.id}?fields=status_code`, {
-      headers: { Authorization: `Bearer ${account.accessToken}` },
-    });
-    const status = await statusResponse.json() as { status_code?: string };
-    if (!statusResponse.ok || status.status_code !== "FINISHED")
-      throw new Error("Instagram is still processing the media container. Nothing has been published.");
+    // Instagram processes image containers asynchronously. Poll a small bounded
+    // number of times; never attempt to publish an unready or failed container.
+    // An uncertain response is flagged for review, not automatically recreated.
+    let ready = false;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise<void>((resolve) => setTimeout(resolve, 800));
+      const statusResponse = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(container.id!)}?fields=status_code`, {
+        headers: { Authorization: `Bearer ${account.accessToken}` },
+      });
+      const status = await statusResponse.json() as { status_code?: string };
+      if (!statusResponse.ok) throw new Error("Instagram media status is unavailable. Verify the destination before retrying.");
+      if (status.status_code === "FINISHED") { ready = true; break; }
+      if (status.status_code === "ERROR" || status.status_code === "EXPIRED") {
+        throw new Error("Instagram media processing failed. No publication was confirmed.");
+      }
+    }
+    if (!ready) throw new Error("Instagram media is still processing. No publication was confirmed. Check the destination before retrying.");
     const published = await graphPost(`${account.accountId}/media_publish`, account.accessToken, { creation_id: container.id! });
     return { id: published.id!, channelId: account.id, status: "sent", dueAt: null };
   }
