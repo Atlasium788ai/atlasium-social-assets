@@ -778,7 +778,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
           const response = await fetchImpl(url, {
             method: "POST",
             headers: { Authorization: `Bearer ${key}`, "X-Api-Key": key, Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ filter: status ? { status } : {}, limit, page: 1, sortBy: "createdAt", sortType: "desc" }),
+            body: JSON.stringify({ ...(status ? { status } : {}), limit, page: 1, sortBy: "createdAt", sortDir: "desc" }),
             signal: AbortSignal.timeout(12_000),
           });
           lastStatus = response.status;
@@ -1417,15 +1417,11 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
         for (const key of config.reeviqApiKeys) {
           const expectedEmail = String(args.expected_email || "").trim().toLowerCase();
           const expectedName = String(args.expected_name || "").trim();
-          const requestBody = expectedEmail
-            ? { searchKey: expectedEmail, limit: 10, page: 1 }
-            : expectedName
-              ? { searchKey: expectedName, limit: 10, page: 1 }
-              : { filter: { id: leadId }, limit: 10, page: 1 };
-          const response = await fetchImpl(url, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${key}`, "X-Api-Key": key, Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
+          // The CRM list endpoint has no id filter. The authenticated detail
+          // endpoint enforces workspace ownership before returning this lead.
+          const response = await fetchImpl(`${url.slice(0, -"/fetch".length)}/${encodeURIComponent(leadId)}`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${key}`, "X-Api-Key": key, Accept: "application/json" },
             signal: AbortSignal.timeout(12_000),
           });
           const body = await response.json().catch(() => ({}));
@@ -1437,7 +1433,7 @@ export function createToolbox({ store, config, slackApi, fetchImpl = fetch, agen
             return fail(`ReeVIQ returned HTTP ${response.status}${errorMessage ? `: ${errorMessage}` : ""}`, response.status >= 500);
           }
           const data = body?.data ?? body;
-          const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : Array.isArray(data?.results) ? data.results : Array.isArray(body?.items) ? body.items : [];
+          const items = data?.lead ? [data.lead] : Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : Array.isArray(data?.leads) ? data.leads : [];
           const normalized = items.map((item) => item?.lead ?? item).filter(Boolean);
           const lead = normalized.find((item) => String(item?.id || "") === leadId)
             || (expectedEmail ? normalized.find((item) => String(item?.email || "").trim().toLowerCase() === expectedEmail) : null)
