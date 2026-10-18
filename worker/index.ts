@@ -646,8 +646,8 @@ async function runAgent(request: Request, env: Env) {
   const requestedBrandId = String(body.brandId || ATLASIUM_BRAND_ID);
   if (requestedBrandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
   const brand = await requireBrand(env, requestedBrandId);
-  const assignedIds = new Set(brand.channelIds.length ? brand.channelIds : connected.map((channel) => channel.id));
-  const available = connected.filter((channel) => assignedIds.has(channel.id));
+  const assignedIds = new Set(brand.channelIds.length ? brand.channelIds : connected.filter((channel) => channel.brandId === brand.id).map((channel) => channel.id));
+  const available = connected.filter((channel) => channel.brandId === brand.id && assignedIds.has(channel.id));
   const requestedIds = Array.isArray(body.channels) ? body.channels : [];
   const chosen = selectChannels(prompt, available, requestedIds, brand.id);
   if (!chosen.length || (requestedIds.length && chosen.length !== requestedIds.length)) return json({ error: "Choose at least one social destination assigned to this brand." }, 400);
@@ -893,8 +893,8 @@ async function publish(request: Request, env: Env) {
   const connected = await publisher.listDestinations();
   if (requestedBrandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
   const brand = await requireBrand(env, requestedBrandId);
-  const assigned = new Set(brand.channelIds.length ? brand.channelIds : connected.map((channel) => channel.id));
-  const available = connected.filter((channel) => assigned.has(channel.id));
+  const assigned = new Set(brand.channelIds.length ? brand.channelIds : connected.filter((channel) => channel.brandId === brand.id).map((channel) => channel.id));
+  const available = connected.filter((channel) => channel.brandId === brand.id && assigned.has(channel.id));
   const chosen = available.filter((channel) => channelIds.includes(String(channel.id)));
   if (chosen.length !== channelIds.length) return json({ error: "One or more direct social channels are unavailable." }, 400);
 
@@ -1264,16 +1264,16 @@ const worker = {
     if (url.pathname === "/api/channels") {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
-      if (!env.BUFFER_API_KEY) return json({ configured: false, channels: [] });
+      if (!env.DIRECT_SOCIAL_CONNECTIONS) return json({ configured: false, channels: [], note: "Connect direct social accounts to publish." });
       try {
         const connected = await publishingProvider(env).listDestinations();
         const brandId = request.headers.get("X-Brand-ID") || url.searchParams.get("brandId") || ATLASIUM_BRAND_ID;
         if (brandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
         const brand = await requireBrand(env, brandId);
-        const assigned = new Set(brand.channelIds.length ? brand.channelIds : connected.map((channel) => channel.id));
-        return json({ configured: true, brandId: brand.id, channels: connected.filter((channel) => assigned.has(channel.id)) });
+        const assigned = new Set(brand.channelIds.length ? brand.channelIds : connected.filter((channel) => channel.brandId === brand.id).map((channel) => channel.id));
+        return json({ configured: true, brandId: brand.id, channels: connected.filter((channel) => channel.brandId === brand.id && assigned.has(channel.id)) });
       }
-      catch (error) { return json({ configured: true, error: error instanceof Error ? error.message : "Could not load Buffer channels." }, 502); }
+      catch (error) { return json({ configured: true, error: error instanceof Error ? error.message : "Could not load direct social channels." }, 502); }
     }
 
     if (url.pathname === "/api/publish") {
