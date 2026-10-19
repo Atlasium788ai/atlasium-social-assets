@@ -26,6 +26,12 @@ const model = createOpenAiModel({
   baseUrl: config.openAiBaseUrl,
   maxOutputTokens: config.openAiMaxOutputTokens,
 });
+const websiteModel = createOpenAiModel({
+  apiKey: config.openAiApiKey,
+  model: process.env.ATLASIUM_WEBSITE_CHAT_MODEL || config.openAiModel,
+  baseUrl: config.openAiBaseUrl,
+  maxOutputTokens: 350,
+});
 const dispatcher = createLocalAgentDispatcher();
 const toolbox = createToolbox({ store, config, slackApi, agentDispatcher: dispatcher });
 const agent = new CyrusAgent({ store, model, toolbox, config, maxTurns: config.role === "malik" ? 16 : 10 });
@@ -108,7 +114,7 @@ async function handleWebsiteChat(request, response) {
       .filter(item => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string")
       .map(item => (item.role === "user" ? "Visitor: " : "Guide: ") + item.content.slice(0, 450));
     const conversation = [...recent, "Visitor: " + message].join("\n");
-    const result = await model.respond({
+    const result = await websiteModel.respond({
       instructions: websiteChatInstructions,
       input: [{ role: "user", content: conversation }],
       tools: [],
