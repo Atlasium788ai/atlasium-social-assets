@@ -2,7 +2,8 @@ import http from "node:http";
 import { loadConfig, loadSharedRoleConfigs } from "./config.js";
 import { CyrusStore } from "./store.js";
 import { createSlackApi, SlackSocketRuntime } from "./slack.js";
-import { createOpenAiModel } from "./model.js";
+import { createOpenAiModel, outputText } from "./model.js";
+import { timingSafeEqual } from "node:crypto";
 import { createToolbox } from "./tools.js";
 import { CyrusAgent } from "./agent.js";
 import { createInternalServer } from "./internal.js";
@@ -57,8 +58,78 @@ const socket = new SlackSocketRuntime({ config, store, agent, slackApi: async (m
   return createSlackApi(token)(method, payload);
 } });
 
+// Restricted, non-agent public website answer route. No bot tools, Slack calls,
+// sales actions or autonomy are invoked here. All requests are authenticated
+// by the separate Atlasium public website service.
+const websiteChatSecret = (process.env.ATLASIUM_WEBSITE_CHAT_GATEWAY_SECRET || "").trim();
+const websiteChatRate = new Map();
+let websiteChatDaily = { day: "", total: 0 };
+let websiteChatActive = 0;
+const websiteChatInstructions = [
+  "You are Atlasium 7/88's automated website guide, not a human employee. Answer the actual visitor's question directly and naturally in 1-3 short sentences before any sales suggestion.",
+  "Atlasium is a Revenue Intelligence Systems firm: Diagnose -> Install -> Recover. It helps businesses find lost opportunities and wasted time, connect people, processes and technology, and measure improvements.",
+  "Its current tools include ReeVIQ CRM for opportunity ownership and follow-up, LinkLatch for assessments and booking, XipherX for reviewed B2B lead research, and managed Digital Marketing services.",
+  "A free self-check provides a process score and suggested first fix. The Revenue Leak Report is a separate human review requiring business context.",
+  "DialZia, EchoFlow Social and Infinity Bots are in development; do not present them as available to buy. Auxii.ca is a separate finance partner.",
+  "Ask at most one relevant follow-up question, and only when it helps the visitor. Avoid repetitive marketing claims, scripts and generic sales pitches.",
+  "Do not invent prices, guarantees, case studies, meeting availability, product functionality or integrations. Do not request passwords, payment card details, health data or other sensitive information.",
+  "Never say you've sent a lead to staff, booked a meeting, accessed an account, or started a trial. The website UI handles booking and human follow-up separately.",
+  "When the question is beyond your knowledge, say so briefly and suggest asking the Atlasium team. Avoid links, markdown, tool calls, JSON and code."
+].join("\n");
+
+function websiteChatReply(res, status, body) {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
+  res.end(JSON.stringify(body));
+}
+async function handleWebsiteChat(request, response) {
+  if (!websiteChatSecret || websiteChatSecret.length < 32) return websiteChatReply(response, 503, { error: "not_configured" });
+  const actual = Buffer.from((request.headers.authorization || "").replace(/^Bearer /, ""));
+  const expected = Buffer.from(websiteChatSecret);
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return websiteChatReply(response, 401, { error: "unauthorized" });
+  const today = new Date().toISOString().slice(0, 10);
+  if (websiteChatDaily.day !== today) websiteChatDaily = { day: today, total: 0 };
+  if (websiteChatDaily.total >= 80 || websiteChatActive >= 2) return websiteChatReply(response, 429, { error: "chat_capacity_reached" });
+  websiteChatActive++;
+  websiteChatDaily.total++;
+  try {
+    const chunks = [];
+    let size = 0;
+    for await (const part of request) {
+      size += part.length;
+      if (size > 12000) return websiteChatReply(response, 413, { error: "message_too_large" });
+      chunks.push(part);
+    }
+    let data;
+    try { data = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+    catch { return websiteChatReply(response, 400, { error: "invalid_json" }); }
+    const message = typeof data?.message === "string" ? data.message.trim().slice(0, 800) : "";
+    if (!message) return websiteChatReply(response, 400, { error: "message_required" });
+    const recent = (Array.isArray(data.history) ? data.history.slice(-8) : [])
+      .filter(item => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string")
+      .map(item => (item.role === "user" ? "Visitor: " : "Guide: ") + item.content.slice(0, 450));
+    const conversation = [...recent, "Visitor: " + message].join("\n");
+    const result = await model.respond({
+      instructions: websiteChatInstructions,
+      input: [{ role: "user", content: conversation }],
+      tools: [],
+    });
+    const text = outputText(result)?.trim()?.slice(0, 1600) || "";
+    if (!text) return websiteChatReply(response, 502, { error: "empty_response" });
+    return websiteChatReply(response, 200, { answer: text, automated: true });
+  } catch (error) {
+    console.warn("Website chat generation failed", error instanceof Error ? error.name : "unknown_error");
+    return websiteChatReply(response, 502, { error: "concierge_temporarily_unavailable" });
+  } finally {
+    websiteChatActive--;
+  }
+}
+
 const server = http.createServer((request, response) => {
   const requestUrl = new URL(request.url || "/", "http://localhost");
+  if (request.method === "POST" && requestUrl.pathname === "/public/atlasium-chat") {
+    void handleWebsiteChat(request, response);
+    return;
+  }
   if (["GET", "POST"].includes(request.method || "") && requestUrl.pathname === "/unsubscribe") {
     if (config.role !== "malik" || !config.outboundUnsubscribeSecret) {
       response.writeHead(404, { "content-type": "application/json", "cache-control": "no-store" });
