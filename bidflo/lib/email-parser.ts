@@ -34,7 +34,7 @@ function firstMatch(value: string, expressions: RegExp[]) {
 }
 
 export function canonicalUpworkUrl(value: string) {
-  const match = value.match(/https?:\/\/(?:www\.)?upwork\.com\/(?:ab\/messages|jobs|nx\/search\/jobs\/details)\/[^\s<>\])"']+/i);
+  const match = value.match(/https?:\/\/(?:www\.)?upwork\.com\/(?:ab\/messages|jobs|nx\/search\/jobs\/details|freelance-jobs\/apply)\/[^\s<>\])"']+/i);
   if (!match) return null;
   try {
     const url = new URL(match[0].replace(/&amp;/g, "&"));
