@@ -30,6 +30,38 @@ export async function POST(request: Request) {
       },
       webhookSecret: secret,
     });
+    // Resend Inboxes use a separate event and retrieval API from classic Receiving.
+    if (event.type === "inbox.email.received") {
+      const data = event.data as {
+        inbox_id: string;
+        thread_id: string;
+        email_id: string;
+        email?: { from: string; subject: string };
+      };
+      if (!data.email || !isAllowedSender(data.email.from)) {
+        await audit("system:webhook", "inbound.rejected_sender", "inbound_event", data.email_id, {
+          sender: data.email?.from ?? "unknown",
+        });
+        return new Response("OK");
+      }
+      const result = await resend.inboxes.threads.emails.get({
+        inboxId: data.inbox_id,
+        threadId: data.thread_id,
+        emailId: data.email_id,
+      });
+      if (result.error || !result.data) {
+        throw new Error(result.error?.message ?? "Unable to retrieve inbox email");
+      }
+      await recordInboundEvent({
+        providerEventId: `inbox:${data.email_id}`,
+        sender: data.email.from,
+        subject: data.email.subject,
+        receivedAt: event.created_at ?? new Date().toISOString(),
+        text: result.data.text,
+        html: result.data.html,
+      });
+      return new Response("OK");
+    }
     if (event.type !== "email.received") return new Response("OK");
     const data = event.data as { email_id: string; from: string; subject: string; created_at?: string; message_id?: string };
     if (!isAllowedSender(data.from)) {
