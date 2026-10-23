@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import { db, audit } from "./db";
 import { parseUpworkEmail } from "./email-parser";
 import { generateProposal, reviewProposal } from "./ai";
+import { prepareManualReviewDraft } from "./manual-draft";
 import { qualifyOpportunity, recommendCommercials } from "./qualification";
 import type { OpportunityInput, ProposalDraft, QualificationRules } from "./types";
 
@@ -55,7 +56,7 @@ export async function recordInboundEvent(input: {
   return rows[0]?.id ? String(rows[0].id) : null;
 }
 
-async function notifyProposalReady(opportunityId: string, title: string, score: number) {
+async function notifyProposalReady(opportunityId: string, title: string, score: number, needsReview: boolean) {
   const apiKey = process.env.RESEND_API_KEY;
   const owner = process.env.BIDFLO_OWNER_EMAIL;
   const from = process.env.BIDFLO_EMAIL_FROM;
@@ -65,8 +66,8 @@ async function notifyProposalReady(opportunityId: string, title: string, score: 
   const { error } = await resend.emails.send({
     from,
     to: [owner],
-    subject: `BidFlo approval ready: ${title}`,
-    text: `A ${score}/100 opportunity has a reviewed proposal ready for approval.\n\n${title}\n${appUrl}/opportunities/${opportunityId}\n\nNo bid has been submitted.`,
+    subject: `BidFlo ${needsReview ? "human review needed" : "approval ready"}: ${title}`,
+    text: `A ${score}/100 opportunity has a ${needsReview ? "draft requiring human review because automated AI review was unavailable" : "reviewed proposal ready for approval"}.\n\n${title}\n${appUrl}/opportunities/${opportunityId}\n\nNo bid has been submitted.`,
   });
   if (error) throw new Error(`Proposal notification failed: ${error.message}`);
 }
@@ -99,7 +100,8 @@ export async function qualifyAndPrepare(opportunityId: string) {
   if (result.rejected || result.score < rules.autoPrepareScore) return { score: result.score, status: nextStatus };
 
   const commercialDraft: ProposalDraft = { body: "", questions: [], ...commercials };
-  const draft = await generateProposal({
+  const aiAvailable = Boolean(process.env.AI_API_KEY && process.env.AI_MODEL);
+  const draft = aiAvailable ? await generateProposal({
     opportunity,
     score: result.score,
     breakdown: result.breakdown,
@@ -107,17 +109,23 @@ export async function qualifyAndPrepare(opportunityId: string) {
     proposalRules: settings.proposal_rules as Record<string, unknown>,
     commercials: commercialDraft,
     approvedExamples: ((settings.proposal_rules as Record<string, unknown>).approvedExamples as string[] | undefined) ?? [],
-  });
+  }) : prepareManualReviewDraft(opportunity, commercialDraft);
   const minimumQualityScore = Number((settings.proposal_rules as Record<string, unknown>).minimumQualityScore ?? 80);
-  const review = await reviewProposal({
+  const review = aiAvailable ? await reviewProposal({
     opportunity,
     proposal: draft,
     capabilityProfile: settings.capability_profile as Record<string, unknown>,
     proposalRules: settings.proposal_rules as Record<string, unknown>,
     minimumQualityScore,
-  });
-  const finalDraft = review.score < minimumQualityScore && review.revisedProposal ? review.revisedProposal : draft;
-  const proposalStatus = review.score >= minimumQualityScore && !review.humanJudgmentRequired ? "ready" : "needs_review";
+  }) : {
+    score: null,
+    issues: ["AI provider not configured; automated quality review not performed"],
+    humanJudgmentRequired: true,
+    humanJudgmentReasons: ["Edit and verify this draft before approving a bid"],
+    revisedProposal: null,
+  };
+  const finalDraft = (review.score ?? 0) < minimumQualityScore && review.revisedProposal ? review.revisedProposal : draft;
+  const proposalStatus = aiAvailable && (review.score ?? 0) >= minimumQualityScore && !review.humanJudgmentRequired ? "ready" : "needs_review";
   const [versionRow] = await sql`select coalesce(max(version), 0)::int + 1 as version from bidflo_proposals where opportunity_id = ${opportunityId}`;
   const [proposal] = await sql`
     insert into bidflo_proposals (
@@ -132,7 +140,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   await sql`update bidflo_opportunities set status = 'proposal_ready', updated_at = now() where id = ${opportunityId}`;
   await audit("system:review", "proposal.prepared", "proposal", String(proposal.id), { opportunityId, qualityScore: review.score, proposalStatus });
   try {
-    await notifyProposalReady(opportunityId, opportunity.title, result.score);
+    await notifyProposalReady(opportunityId, opportunity.title, result.score, proposalStatus === "needs_review");
   } catch (error) {
     await audit("system:notification", "notification.failed", "opportunity", opportunityId, { error: error instanceof Error ? error.message : "Unknown error" });
   }
@@ -180,13 +188,25 @@ async function processEvent(event: Record<string, unknown>) {
     ) on conflict (external_key) do nothing returning id
   `;
   if (!inserted) {
+    // A previous processing attempt can fail after creating/scoring the opportunity.
+    // Resume its draft instead of discarding it as a duplicate.
+    const [existing] = await sql`select id from bidflo_opportunities where external_key = ${item.externalKey} limit 1`;
+    if (existing) {
+      const [proposal] = await sql`select id from bidflo_proposals where opportunity_id = ${String(existing.id)} limit 1`;
+      if (!proposal) {
+        const recovered = await qualifyAndPrepare(String(existing.id));
+        await sql`update bidflo_inbound_events set status = 'processed', error = null, processed_at = now() where id = ${String(event.id)}`;
+        return { ...recovered, recovered: true };
+      }
+    }
     await sql`update bidflo_inbound_events set status = 'duplicate', processed_at = now() where id = ${String(event.id)}`;
     return { status: "duplicate" };
   }
   const opportunityId = String(inserted.id);
-  await sql`update bidflo_inbound_events set status = 'processed', processed_at = now() where id = ${String(event.id)}`;
   await audit("system:email", "opportunity.created", "opportunity", opportunityId, { externalKey: item.externalKey });
-  return qualifyAndPrepare(opportunityId);
+  const prepared = await qualifyAndPrepare(opportunityId);
+  await sql`update bidflo_inbound_events set status = 'processed', error = null, processed_at = now() where id = ${String(event.id)}`;
+  return prepared;
 }
 
 export async function processPendingEvents(limit = 5) {
