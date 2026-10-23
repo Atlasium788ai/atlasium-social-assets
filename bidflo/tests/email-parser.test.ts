@@ -46,3 +46,18 @@ test("canonicalizes only permitted Upwork links", () => {
   assert.equal(canonicalUpworkUrl("https://example.com/jobs/~bad"), null);
   assert.equal(canonicalUpworkUrl("See https://upwork.com/jobs/~good?x=1"), "https://upwork.com/jobs/~good");
 });
+
+test("recognizes the current Upwork freelance-jobs/apply link format", () => {
+  const link = "https://www.upwork.com/freelance-jobs/apply/Automation-Workflow_~021234567890123456789/?source=email";
+  assert.equal(
+    canonicalUpworkUrl(link),
+    "https://www.upwork.com/freelance-jobs/apply/Automation-Workflow_~021234567890123456789",
+  );
+  const result = parseUpworkEmail({
+    subject: "New job: Automation Workflow",
+    receivedAt: "2026-10-23T12:00:00.000Z",
+    text: "Budget: $5,000\n" + link,
+  });
+  assert.equal(result.kind, "opportunity");
+  if (result.kind === "opportunity") assert.equal(result.opportunity.externalKey, "~021234567890123456789");
+});
