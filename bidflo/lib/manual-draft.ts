@@ -1,7 +1,7 @@
 import type { OpportunityInput, ProposalDraft } from "./types";
 
 function cleanLine(value: string, maxLength = 220) {
-  return value.replace(/[\\r\n\\t]+/g, " ").replace(/https?:\\/\\/\\S+/gi, "").replace(/\\s+/g, " ").trim().slice(0, maxLength);
+  return value.replace(/[\r\n\t]+/g, " ").replace(/https?:\/\/\S+/gi, "").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
 /** Safe degraded mode, always requiring human review and approval. */
