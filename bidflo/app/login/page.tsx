@@ -1,0 +1,47 @@
+"use client";
+
+import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
+import { authClient } from "@/lib/auth/client";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setPending(true);
+    const form = new FormData(event.currentTarget);
+    const result = await authClient.signIn.email({
+      email: String(form.get("email")),
+      password: String(form.get("password")),
+    });
+    setPending(false);
+    if (result.error) {
+      setError(result.error.message ?? "Sign-in failed");
+      return;
+    }
+    router.replace("/");
+    router.refresh();
+  }
+
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <div className="brand-mark" aria-hidden="true"><span>7</span><i>/</i><span>88</span></div>
+        <p className="eyebrow">ATLASIUM 7/88</p>
+        <h1>BidFlo</h1>
+        <p className="login-subtitle">Intelligent Opportunity &amp; Proposal Management</p>
+        <form onSubmit={submit} className="login-form">
+          <label>Email<input type="email" name="email" autoComplete="email" required /></label>
+          <label>Password<input type="password" name="password" autoComplete="current-password" required /></label>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <button className="primary-button" disabled={pending}>{pending ? "Signing in…" : "Enter workspace"}</button>
+        </form>
+        <p className="login-note">Restricted Atlasium operations workspace</p>
+      </section>
+    </main>
+  );
+}

@@ -1,0 +1,61 @@
+services:
+  - type: web
+    name: atlasium-bidflo
+    runtime: node
+    region: ohio
+    plan: 0.5c-512mb
+    rootDir: bidflo
+    buildCommand: pnpm install --frozen-lockfile && pnpm run build
+    preDeployCommand: pnpm run db:migrate
+    startCommand: pnpm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: DATABASE_URL
+        sync: false
+      - key: NEON_AUTH_BASE_URL
+        sync: false
+      - key: NEON_AUTH_COOKIE_SECRET
+        generateValue: true
+      - key: BIDFLO_ALLOWED_EMAILS
+        sync: false
+      - key: AI_API_BASE_URL
+        value: https://api.openai.com/v1
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
+      - key: UPWORK_ALLOWED_SENDERS
+        sync: false
+      - key: BIDFLO_OWNER_EMAIL
+        sync: false
+      - key: BIDFLO_EMAIL_FROM
+        sync: false
+      - key: BIDFLO_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+
+  - type: cron
+    name: atlasium-bidflo-processor
+    runtime: node
+    region: ohio
+    plan: 0.5c-512mb
+    rootDir: bidflo
+    schedule: "*/5 * * * *"
+    buildCommand: pnpm install --frozen-lockfile
+    startCommand: node scripts/run-cron.mjs
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: BIDFLO_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
