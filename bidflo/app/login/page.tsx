@@ -7,11 +7,13 @@ import { authClient } from "@/lib/auth/client";
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setNotice("");
     setPending(true);
     const form = new FormData(event.currentTarget);
     const result = await authClient.signIn.email({
@@ -27,6 +29,18 @@ export default function LoginPage() {
     router.refresh();
   }
 
+  async function resetAccess(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault(); setError(""); setNotice("");
+    const form = event.currentTarget.closest("form");
+    const email = String(new FormData(form ?? undefined).get("email") ?? "");
+    if (!email) { setError("Enter your Atlasium email first."); return; }
+    setPending(true);
+    const result = await authClient.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` });
+    setPending(false);
+    if (result.error) { setError(result.error.message ?? "Could not send the access link."); return; }
+    setNotice("Check your email for a secure password link.");
+  }
+
   return (
     <main className="login-shell">
       <section className="login-panel">
@@ -38,7 +52,9 @@ export default function LoginPage() {
           <label>Email<input type="email" name="email" autoComplete="email" required /></label>
           <label>Password<input type="password" name="password" autoComplete="current-password" required /></label>
           {error && <p className="form-error" role="alert">{error}</p>}
+          {notice && <p className="form-success" role="status">{notice}</p>}
           <button className="primary-button" disabled={pending}>{pending ? "Signing in…" : "Enter workspace"}</button>
+          <button className="text-button" type="button" disabled={pending} onClick={resetAccess}>Set or reset password</button>
         </form>
         <p className="login-note">Restricted Atlasium operations workspace</p>
       </section>
