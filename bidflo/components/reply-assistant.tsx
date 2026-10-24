@@ -102,21 +102,29 @@ export function ReplyAssistant({
   }
 
   useEffect(() => {
-    let found = false;
+    let cancelled = false;
+    let restored: Tracks | null = null;
     try {
       const existing = localStorage.getItem(storageKey);
-      const valid = existing ? restoredTracks(JSON.parse(existing)) : null;
-      if (valid) {
-        setTracks(valid);
-        found = true;
-        setLoaded(true);
-      }
-    } catch { /* Private browsing or malformed old cache: generate a fresh set. */ }
-    if (!found) void generate();
-    // Each reply ID has its own version history. A new client reply receives fresh suggestions.
+      restored = existing ? restoredTracks(JSON.parse(existing)) : null;
+    } catch { /* Private browsing or malformed old cache. */ }
+    if (restored) {
+      const cached = restored;
+      // Restore asynchronously after hydration rather than causing a
+      // synchronous render cascade inside an effect.
+      void Promise.resolve().then(() => {
+        if (!cancelled) {
+          setTracks(cached);
+          setLoaded(true);
+        }
+      });
+    } else {
+      void generate();
+    }
+    // Each message ID has its own version history.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
   }, [messageId]);
-
   useEffect(() => {
     if (!loaded) return;
     try { localStorage.setItem(storageKey, JSON.stringify(tracks)); } catch { /* Still usable in private mode. */ }
