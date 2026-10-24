@@ -932,9 +932,10 @@ async function publish(request: Request, env: Env) {
     try {
       const original = new Response(binary.slice().buffer as ArrayBuffer).body;
       if (!original) throw new Error("Image bytes are unavailable");
-      const converted = await env.IMAGES.input(original)
+      const conversion = await env.IMAGES.input(original)
         .transform({ width: 1080, height: 1350, fit: "cover", gravity: "center" })
-        .output({ format: "image/jpeg", quality: 90 }).response();
+        .output({ format: "image/jpeg", quality: 90 });
+      const converted = conversion.response();
       if (!converted.ok) throw new Error("Conversion failed");
       const jpegKey = `brands/${brand.id}/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-instagram.jpg`;
       await env.UPLOADS.put(jpegKey, new Uint8Array(await converted.arrayBuffer()), {
