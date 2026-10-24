@@ -42,7 +42,7 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
   const opener = requiredProposalOpening(opportunity.description);
   const wantsExample = requiresVerifiedExample(opportunity.description);
   const wantsShort = requestsShortProposal(opportunity.description);
-  const requested30Days = /\\b(?:within|by|in|deliver|delivery|end of|through)\\s+(?:the\\s+)?(?:30|thirty)[ -]?days?\\b/i.test(opportunity.description);
+  const requested30Days = /\b(?:within|by|in|deliver|delivery|end of|through)\s+(?:the\s+)?(?:30|thirty)[ -]?days?\b/i.test(opportunity.description);
   const honestProof = "[Insert one genuine similar project you delivered and the outcome]";
   if (wantsShort) {
     const sentences = [
@@ -57,7 +57,7 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
     ];
     return {
       ...commercials,
-      body: [opener, sentences.join(" "), "", "Blair", "Atlasium"].filter(Boolean).join("\\n"),
+      body: [opener, sentences.join(" "), "", "Blair", "Atlasium"].filter(Boolean).join("\n"),
       questions: questions.slice(0, 1),
     };
   }
@@ -81,7 +81,7 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
   ].join("\n");
   return {
     ...commercials,
-    body: opener ? opener + "\\n\\n" + body : body,
+    body: opener ? opener + "\n\n" + body : body,
     questions,
   };
 }
