@@ -48,7 +48,7 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
     const sentences = [
       `I would map your current systems, then build ${sentenceList(priorities.map((value) => cleanLine(value, 85)))} as one connected, testable workflow.`,
       requirements.length > 3
-        ? `I would also deliver ${sentenceList(requirements.slice(3, 6).map((item) => item[0].toLowerCase() + item.slice(1)))}, validate the journey using test leads, and provide the requested documentation and training.`
+        ? `I would also include ${sentenceList(requirements.slice(3, 6).map((item) => /^Track /i.test(item) ? "tracking " + item.slice(6) : item[0].toLowerCase() + item.slice(1)))} in the build, validate the journey using test leads, and provide the requested documentation and training.`
         : /train|walkthrough|documentation|handoff/i.test(opportunity.description)
           ? "I would validate the funnel and pipeline using test leads, then provide documented handoff and the requested training."
           : "I would verify the workflow end to end before handoff and provide a clear operating guide.",
