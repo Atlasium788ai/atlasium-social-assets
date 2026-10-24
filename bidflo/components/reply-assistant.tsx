@@ -39,11 +39,13 @@ export function ReplyAssistant({
   messageId,
   messageBody,
   jobUrl,
+  roomUrl,
 }: {
   opportunityId: string;
   messageId: string;
   messageBody: string;
   jobUrl: string;
+  roomUrl?: string | null;
 }) {
   const [tracks, setTracks] = useState<Tracks>(emptyTracks);
   const [loaded, setLoaded] = useState(false);
@@ -51,6 +53,17 @@ export function ReplyAssistant({
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState<ReplyTone | null>(null);
   const storageKey = `bidflo:reply-options:${messageId}`;
+  const directRoomHref = (() => {
+    if (!roomUrl) return null;
+    try {
+      const link = new URL(roomUrl);
+      if (link.protocol === "https:" && ["upwork.com", "www.upwork.com"].includes(link.hostname)
+        && link.pathname.startsWith("/ab/messages/rooms/") && link.pathname.length > "/ab/messages/rooms/".length) {
+        return link.href;
+      }
+    } catch { /* No safe direct room link. */ }
+    return null;
+  })();
 
   async function generate(tone?: ReplyTone, current?: Tracks) {
     if (working) return;
@@ -148,7 +161,7 @@ export function ReplyAssistant({
           <p>Three tones. One goal: book a conversation through Upwork.</p>
         </div>
         <div className="reply-upwork-links">
-          <a className="primary-button" href={INBOX_URL} target="_blank" rel="noopener noreferrer">Open Upwork Messages ↗</a>
+          <a className="primary-button" href={directRoomHref ?? INBOX_URL} target="_blank" rel="noopener noreferrer">{directRoomHref ? "Open Client Chat ↗" : "Open Upwork Messages ↗"}</a>
           {/^https:\/\/(www\.)?upwork\.com\//i.test(jobUrl) && <a className="secondary-button" href={jobUrl} target="_blank" rel="noopener noreferrer">View Job ↗</a>}
         </div>
       </div>
