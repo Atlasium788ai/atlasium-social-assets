@@ -3,8 +3,21 @@ import { db, audit } from "./db";
 import { parseUpworkEmail } from "./email-parser";
 import { generateProposal, reviewProposal } from "./ai";
 import { prepareManualReviewDraft } from "./manual-draft";
+import { queueSlackAlert } from "./slack-alerts";
 import { qualifyOpportunity, recommendCommercials } from "./qualification";
 import type { OpportunityInput, ProposalDraft, QualificationRules } from "./types";
+
+/** Delivery queue errors must never block qualification or client reply ingestion. */
+async function queueSlackSafely(eventKey: string, input: Parameters<typeof queueSlackAlert>[1]) {
+  try {
+    await queueSlackAlert(eventKey, input);
+  } catch (error) {
+    await audit("system:slack", "slack.enqueue_failed", "opportunity", input.opportunityId ?? undefined, {
+      eventKey,
+      reason: error instanceof Error ? error.message.slice(0, 180) : "Unknown queue failure",
+    }).catch(() => {});
+  }
+}
 
 type EventPayload = {
   text?: string | null;
@@ -116,7 +129,15 @@ export async function qualifyAndPrepare(opportunityId: string) {
     where id = ${opportunityId}
   `;
   await audit("system:qualification", "opportunity.scored", "opportunity", opportunityId, { score: result.score, status: nextStatus });
-  if (result.rejected || result.score < rules.autoPrepareScore) return { score: result.score, status: nextStatus };
+  if (result.rejected || result.score < rules.autoPrepareScore) {
+    if (!result.rejected) {
+      await queueSlackSafely(`qualified:${opportunityId}`, {
+        kind: "qualified", opportunityId, title: opportunity.title,
+        score: result.score, amount: commercials.bidAmount,
+      });
+    }
+    return { score: result.score, status: nextStatus };
+  }
 
   const commercialDraft: ProposalDraft = { body: "", questions: [], ...commercials };
   // Never block opportunity intake when the model endpoint is down or a key has expired.
@@ -178,6 +199,10 @@ export async function qualifyAndPrepare(opportunityId: string) {
   `;
   await sql`update bidflo_opportunities set status = 'proposal_ready', updated_at = now() where id = ${opportunityId}`;
   await audit("system:review", "proposal.prepared", "proposal", String(proposal.id), { opportunityId, qualityScore: review.score, proposalStatus });
+  await queueSlackSafely(`proposal:${opportunityId}`, {
+    kind: "proposal_ready", opportunityId, title: opportunity.title,
+    score: result.score, amount: commercials.bidAmount,
+  });
   try {
     await notifyProposalReady(opportunityId, opportunity.title, result.score, proposalStatus === "needs_review");
   } catch (error) {
@@ -233,14 +258,14 @@ async function processEvent(event: Record<string, unknown>) {
       `;
       if (candidates.length === 1) opportunity = { id: String(candidates[0].id), title: String(candidates[0].title) };
     }
-    await sql`
+    const [inboundMessage] = await sql`
       insert into bidflo_messages (
         opportunity_id, direction, kind, sender, subject, body, received_at, upwork_room_url
       ) values (
         ${opportunity?.id ?? null}, 'inbound', 'client_reply',
         ${String(event.sender)}, ${parsed.subject}, ${parsed.body},
         ${String(event.received_at)}, ${parsed.roomUrl ?? null}
-      )
+      ) returning id
     `;
     if (opportunity?.id) {
       await sql`update bidflo_opportunities set status = 'replied', updated_at = now() where id = ${opportunity.id}`;
@@ -251,6 +276,14 @@ async function processEvent(event: Record<string, unknown>) {
       linked: Boolean(opportunity?.id),
       hasRoomUrl: Boolean(parsed.roomUrl),
     });
+    if (inboundMessage) {
+      await queueSlackSafely(`reply:${String(inboundMessage.id)}`, {
+        kind: "client_reply",
+        opportunityId: opportunity?.id,
+        title: opportunity?.title ?? parsed.subject,
+        clientRoomUrl: parsed.roomUrl,
+      });
+    }
     try {
       if (await notifyClientReply(opportunity?.id, opportunity?.title)) {
         await audit("system:notification", "reply.notification_sent", "opportunity", opportunity?.id, { linked: Boolean(opportunity?.id) });
