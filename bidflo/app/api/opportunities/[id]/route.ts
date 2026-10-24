@@ -73,6 +73,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return Response.json(result);
   }
   if (parsed.data.action === "edit") {
+    const editData = parsed.data;
     // Serialise against submission: editing an approved proposal revokes approval.
     const result = await sql.begin(async (tx) => {
       const [current] = await tx`select status from bidflo_opportunities where id = ${id} for update`;
@@ -84,8 +85,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       if (!proposal) return null;
       await tx`
         update bidflo_proposals
-           set body = ${parsed.data.body}, bid_amount = ${parsed.data.bidAmount},
-               timeline = ${parsed.data.timeline}, questions = ${tx.json(parsed.data.questions)},
+           set body = ${editData.body}, bid_amount = ${editData.bidAmount},
+               timeline = ${editData.timeline}, questions = ${tx.json(editData.questions)},
                status = 'edited', quality_score = null,
                quality_review = ${tx.json({ issues: ["Manual edits must be reviewed"], humanJudgmentRequired: true })},
                human_judgment_required = true, updated_at = now()
