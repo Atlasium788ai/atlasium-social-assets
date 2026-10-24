@@ -924,6 +924,28 @@ async function publish(request: Request, env: Env) {
   const key = `brands/${brand.id}/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-feed.${extension}`;
   await env.UPLOADS.put(key, binary, { httpMetadata: { contentType: image.type, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: image.name.slice(0, 200), brandId: brand.id, surface: "feed" } });
   const imageUrl = `${new URL(request.url).origin}/i/${key}`;
+  // Meta requires a JPEG for Instagram photo publishing. Keep the original
+  // uploaded asset for other platforms, and derive a JPEG for Instagram only.
+  let instagramImageUrl = imageUrl;
+  if (chosen.some((channel) => channel.service === "instagram") && image.type.toLowerCase() !== "image/jpeg") {
+    if (!env.IMAGES) return json({ error: "Instagram requires a JPEG image. Upload a JPEG, or enable image conversion." }, 422);
+    try {
+      const original = new Response(binary.slice().buffer as ArrayBuffer).body;
+      if (!original) throw new Error("Image bytes are unavailable");
+      const converted = await env.IMAGES.input(original)
+        .transform({ width: 1080, height: 1350, fit: "cover", gravity: "center" })
+        .output({ format: "image/jpeg", quality: 90 }).response();
+      if (!converted.ok) throw new Error("Conversion failed");
+      const jpegKey = `brands/${brand.id}/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-instagram.jpg`;
+      await env.UPLOADS.put(jpegKey, new Uint8Array(await converted.arrayBuffer()), {
+        httpMetadata: { contentType: "image/jpeg", cacheControl: "public, max-age=31536000, immutable" },
+        customMetadata: { originalName: image.name.slice(0, 200), brandId: brand.id, surface: "feed" },
+      });
+      instagramImageUrl = `${new URL(request.url).origin}/i/${jpegKey}`;
+    } catch {
+      return json({ error: "Instagram image conversion failed. Use an uploaded JPEG instead; nothing was published." }, 422);
+    }
+  }
   let storyImageUrl: string | undefined;
   let storyMediaError: string | undefined;
   if (surfaceMode !== "main" && chosen.some((channel) => storyService(String(channel.service)))) {
@@ -954,7 +976,7 @@ async function publish(request: Request, env: Env) {
     for (const assignment of assignments) {
       const { surface, surfaceId, surfaceLabel } = assignment;
       const jobId = `${postId}:${String(channel.id)}:${surface}`;
-      const mediaUrl = surface === "story" ? storyImageUrl : imageUrl;
+      const mediaUrl = surface === "story" ? storyImageUrl : (channel.service === "instagram" ? instagramImageUrl : imageUrl);
       if (!mediaUrl) {
         results.push({ id: jobId, brandId: brand.id, channel: channel.displayName || channel.name, channelId: String(channel.id), service: channel.service, surface, surfaceId, surfaceLabel, status: "FAILED", error: `${storyMediaError || "Story media could not be prepared."} Main publication was preserved.` });
         continue;
