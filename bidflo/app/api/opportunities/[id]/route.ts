@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { audit, db } from "@/lib/db";
 import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
+import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 import { qualifyAndPrepare } from "@/lib/workflow";
 import { queueSlackAlert } from "@/lib/slack-alerts";
 import { canEditProposal, canRescore, canApproveProposal, canConfirmManualSubmission, canSetStage, type OpportunityStage } from "@/lib/pipeline-guards";
@@ -53,6 +54,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!isSameOriginMutation(request)) return mutationForbidden();
   const auth = await sessionOrResponse();
   if (auth.response || !auth.session) return auth.response!;
   const actor = auth.session.user?.email ?? "admin";
