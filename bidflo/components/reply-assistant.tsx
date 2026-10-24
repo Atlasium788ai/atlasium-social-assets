@@ -119,11 +119,14 @@ export function ReplyAssistant({
         }
       });
     } else {
-      void generate();
+      // Defer the network request: generate() updates loading state.
+      void Promise.resolve().then(() => {
+        if (!cancelled) void generate();
+      });
     }
+    return () => { cancelled = true; };
     // Each message ID has its own version history.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    return () => { cancelled = true; };
   }, [messageId]);
   useEffect(() => {
     if (!loaded) return;
