@@ -37,7 +37,7 @@ export function slackDeliveryConfigured() {
   return getDestination() !== null;
 }
 
-type SlackResponse = { ok?: boolean; error?: string; channel?: string };
+type SlackResponse = { ok?: boolean; error?: string; channel?: string | { id?: string } };
 
 async function postWithToken(token: string, method: string, data: object) {
   const response = await fetch(`https://slack.com/api/${method}`, {
@@ -70,8 +70,7 @@ async function deliver(text: string) {
   let channel = delivery.destination;
   if (/^[UW]/.test(channel)) {
     const conversation = await postWithToken(delivery.botToken, "conversations.open", { users: channel });
-    const response = conversation as SlackResponse & { channel?: { id?: string } };
-    const dmId = response.channel && typeof response.channel === "object" ? response.channel.id : undefined;
+    const dmId = conversation.channel && typeof conversation.channel === "object" ? conversation.channel.id : undefined;
     if (!dmId) throw new Error("Slack DM could not be opened");
     channel = dmId;
   }
