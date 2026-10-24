@@ -52,6 +52,10 @@ export function recommendCommercials(opportunity: OpportunityInput, targetHourly
   else if (maximum) bidAmount = Math.max(500, Math.round(maximum * 0.92 / 50) * 50);
   else bidAmount = 2500;
 
+  // Never automatically propose an amount above a client's stated ceiling.
+  // Low-budget opportunities still need human review for profitability.
+  if (maximum != null && maximum > 0) bidAmount = Math.min(bidAmount, maximum);
+
   const size = bidAmount < 1500 ? "1–2 weeks" : bidAmount < 5000 ? "2–4 weeks" : "4–8 weeks";
   const milestones = [
     { name: "Discovery & technical plan", amount: Math.round(bidAmount * 0.2), deliverable: "Confirmed scope, risks, acceptance criteria, and implementation plan" },
