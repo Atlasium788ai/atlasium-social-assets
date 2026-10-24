@@ -1,4 +1,6 @@
 import type { OpportunityInput, ProposalDraft } from "./types";
+import { requiredProposalOpening, requestsShortProposal, requiresVerifiedExample } from "./application-rules";
+import { extractManualRequirements } from "./job-requirements";
 
 function cleanLine(value: string, maxLength = 220) {
   return value.replace(/[\r\n\t]+/g, " ").replace(/https?:\/\/\S+/gi, "").replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -27,14 +29,38 @@ function currency(amount: number, code = "USD") {
 /** Safe degraded mode, always requiring human review and approval. */
 export function prepareManualReviewDraft(opportunity: OpportunityInput, commercials: ProposalDraft): ProposalDraft {
   const title = cleanLine(opportunity.title, 150) || "your project";
-  const requirements = opportunity.requirements
+  const requirements = (opportunity.requirements.length
+    ? opportunity.requirements
+    : extractManualRequirements(opportunity.description))
     .map((requirement) => cleanLine(requirement))
     .filter(Boolean)
-    .slice(0, 6);
+    .slice(0, 8);
   const priorities = requirements.length ? requirements.slice(0, 3) : ["the core workflow", "its integrations", "clear acceptance criteria"];
   const scope = requirements.length ? requirements.map((requirement) => `- ${requirement}`).join("\n") : "- Confirm the core workflow and first-release acceptance criteria";
   const questions = tailoredQuestions(opportunity);
   const milestones = commercials.milestones.slice(0, 3).map((milestone) => `- ${cleanLine(milestone.name, 100)}: ${cleanLine(milestone.deliverable, 220)}`).join("\n");
+  const opener = requiredProposalOpening(opportunity.description);
+  const wantsExample = requiresVerifiedExample(opportunity.description);
+  const wantsShort = requestsShortProposal(opportunity.description);
+  const requested30Days = /\\b(?:within|by|in|deliver|delivery|end of|through)\\s+(?:the\\s+)?(?:30|thirty)[ -]?days?\\b/i.test(opportunity.description);
+  const honestProof = "[Insert one genuine similar project you delivered and the outcome]";
+  if (wantsShort) {
+    const sentences = [
+      `I would map your current systems, then build ${sentenceList(priorities.map((value) => cleanLine(value, 85)))} as one connected, testable workflow.`,
+      /train|walkthrough|documentation|handoff/i.test(opportunity.description)
+        ? "I would validate the funnel and pipeline using test leads, then provide documented handoff and the requested training."
+        : "I would verify the workflow end to end before handoff and provide a clear operating guide.",
+      wantsExample ? `${honestProof}.`
+        : "I would divide the work into discovery, implementation, and acceptance testing.",
+      `My fixed-price quote is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")}, ${requested30Days ? "and [confirm ability to deliver within 30 days before applying]" : `with a preliminary timeline of ${commercials.timeline} subject to scope review`}.`,
+      questions[0] + (questions[0].endsWith("?") ? "" : "?"),
+    ];
+    return {
+      ...commercials,
+      body: [opener, sentences.join(" "), "", "Blair", "Atlasium"].filter(Boolean).join("\\n"),
+      questions: questions.slice(0, 1),
+    };
+  }
   const body = [
     `Your ${title} brief calls for ${sentenceList(priorities.map((item) => cleanLine(item, 100)))}. I would treat those as one connected delivery so the handoffs, data, and reporting work together from the start.`,
     "",
@@ -47,6 +73,7 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
     "",
     `The preliminary bid is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")} over ${commercials.timeline}. I would confirm that after reviewing the existing systems and access requirements; no scope or integration is assumed at this stage.`,
     "",
+    wantsExample ? `${honestProof}.` : "",
     questions.join(" "),
     "",
     "Blair",
@@ -54,7 +81,7 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
   ].join("\n");
   return {
     ...commercials,
-    body,
+    body: opener ? opener + "\\n\\n" + body : body,
     questions,
   };
 }
