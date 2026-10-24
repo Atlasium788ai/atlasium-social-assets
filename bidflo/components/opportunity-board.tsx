@@ -38,7 +38,7 @@ export function OpportunityBoard({ opportunities, mode }: { opportunities: Oppor
         <div className="op-card-main">
           <div className="op-card-brand"><span className="mini-mark">B</span><strong>Bid<span>Flo</span></strong><em>{labels[item.status] ?? item.status}</em></div>
           <h3>{item.title}</h3><p>{item.description.slice(0, 190)}{item.description.length > 190 ? "…" : ""}</p>
-          <div className="op-tags"><span>{item.budget_type ?? "project"}</span><span>{item.recurring_potential ? "Recurring potential" : "Project delivery"}</span><span>{item.client_location ?? "Upwork"}</span></div>
+          <div className="op-tags"><span>{item.budget_type ?? "project"}</span><span>{item.recurring_potential ? "Recurring potential" : "Project delivery"}</span><span>{item.client_location ?? "Upwork"}</span>{mode === "follow" && item.follow_up_state && <span>{item.follow_up_state.label}</span>}</div>
         </div>
         <div className="op-card-commercial"><small>{item.client_name ?? "Upwork client"}</small><strong>{money(item.budget_max)}</strong><span>Fit score: {item.score ?? "—"}/100</span><i><b style={{ width: `${item.score ?? 0}%` }} /></i><span className="op-open">{mode === "follow" && item.status === "replied" ? "Write client reply" : "View Opportunity"} <ArrowIcon /></span></div>
       </Link>)}

@@ -96,6 +96,15 @@ function extractRequirements(body: string) {
     .slice(0, 12);
 }
 
+function extractClientName(body: string) {
+  const candidate = firstMatch(body, [
+    /^client(?: name)?\s*:\s*([^\n]+)/im,
+    /^company\s*:\s*([^\n]+)/im,
+  ]);
+  if (!candidate || /^(?:location|rating|spend|budget|country|payment|history)\s*:/i.test(candidate)) return null;
+  return candidate.slice(0, 180);
+}
+
 function safeDescription(body: string) {
   return body
     .replace(/https?:\/\/\S+/g, " ")
@@ -137,7 +146,7 @@ export function parseUpworkEmail(input: {
       externalKey,
       title: cleanTitle(input.subject, body),
       description: safeDescription(body),
-      clientName: firstMatch(body, [/client\s*:?\s*([^\n]+)/i]),
+      clientName: extractClientName(body),
       clientLocation: firstMatch(body, [/location\s*:?\s*([^\n]+)/i]),
       clientSpend,
       clientRating,

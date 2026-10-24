@@ -72,6 +72,25 @@ async function notifyProposalReady(opportunityId: string, title: string, score: 
   if (error) throw new Error(`Proposal notification failed: ${error.message}`);
 }
 
+async function notifyClientReply(opportunityId: string | undefined, title: string | undefined) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const owner = process.env.BIDFLO_OWNER_EMAIL;
+  const from = process.env.BIDFLO_EMAIL_FROM;
+  if (!apiKey || !owner || !from) return false;
+  const appUrl = (process.env.BIDFLO_URL ?? "").replace(/\/$/, "");
+  const safeTitle = (title ?? "Unlinked Upwork conversation").replace(/[\r\n\t]+/g, " ").trim().slice(0, 160);
+  const reviewUrl = opportunityId ? `${appUrl}/opportunities/${opportunityId}` : `${appUrl}/follow-up`;
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: [owner],
+    subject: `BidFlo client reply: ${safeTitle}`,
+    text: `BidFlo detected a new Upwork client reply${opportunityId ? ` linked to ${safeTitle}` : " that could not be linked safely to one opportunity"}.\n\nReview it in BidFlo:\n${reviewUrl}\n\nNo message has been sent to the client.`,
+  });
+  if (error) throw new Error(`Client reply notification failed: ${error.message}`);
+  return true;
+}
+
 export async function qualifyAndPrepare(opportunityId: string) {
   const sql = db();
   const [opportunityRow] = await sql`select * from bidflo_opportunities where id = ${opportunityId}`;
@@ -184,35 +203,35 @@ async function processEvent(event: Record<string, unknown>) {
   if (parsed.kind === "reply") {
     // Link to the exact job or to a previously known Upwork conversation.
     // Never associate a client's private message with a guessed project.
-    let opportunity: { id: string } | undefined;
+    let opportunity: { id: string; title: string } | undefined;
     if (parsed.jobUrl) {
       const jobId = parsed.jobUrl.match(/~[A-Za-z0-9]+/)?.[0] ?? "";
       const matches = await sql`
-        select id from bidflo_opportunities
+        select id, title from bidflo_opportunities
         where job_url = ${parsed.jobUrl} or external_key = ${jobId}
         order by created_at desc limit 1
       `;
-      if (matches[0]) opportunity = { id: String(matches[0].id) };
+      if (matches[0]) opportunity = { id: String(matches[0].id), title: String(matches[0].title) };
     }
     if (!opportunity && parsed.roomUrl) {
       const matches = await sql`
-        select opportunity_id as id from bidflo_messages
-        where upwork_room_url = ${parsed.roomUrl}
-          and opportunity_id is not null
+        select o.id, o.title from bidflo_messages m
+        join bidflo_opportunities o on o.id = m.opportunity_id
+        where m.upwork_room_url = ${parsed.roomUrl}
         order by received_at desc limit 1
       `;
-      if (matches[0]) opportunity = { id: String(matches[0].id) };
+      if (matches[0]) opportunity = { id: String(matches[0].id), title: String(matches[0].title) };
     }
     if (!opportunity) {
       // An exact project-title mention is acceptable only if one active
       // submitted opportunity matches; ambiguous results stay unlinked.
       const candidates = await sql`
-        select id from bidflo_opportunities
+        select id, title from bidflo_opportunities
         where status in ('submitted', 'replied', 'interviewed')
           and strpos(lower(${parsed.subject}), lower(title)) > 0
         limit 2
       `;
-      if (candidates.length === 1) opportunity = { id: String(candidates[0].id) };
+      if (candidates.length === 1) opportunity = { id: String(candidates[0].id), title: String(candidates[0].title) };
     }
     await sql`
       insert into bidflo_messages (
@@ -232,6 +251,15 @@ async function processEvent(event: Record<string, unknown>) {
       linked: Boolean(opportunity?.id),
       hasRoomUrl: Boolean(parsed.roomUrl),
     });
+    try {
+      if (await notifyClientReply(opportunity?.id, opportunity?.title)) {
+        await audit("system:notification", "reply.notification_sent", "opportunity", opportunity?.id, { linked: Boolean(opportunity?.id) });
+      }
+    } catch (error) {
+      await audit("system:notification", "reply.notification_failed", "opportunity", opportunity?.id, {
+        error: error instanceof Error ? error.message.slice(0, 300) : "Unknown notification error",
+      });
+    }
     return { status: "reply", linked: Boolean(opportunity?.id) };
   }
 

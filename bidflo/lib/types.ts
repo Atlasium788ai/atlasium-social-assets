@@ -89,4 +89,10 @@ export type OpportunityRow = {
   quality_review: Record<string, unknown> | null;
   human_judgment_required: boolean | null;
   proposal_status: string | null;
+  follow_up_state?: {
+    ageDays: number;
+    due: boolean;
+    level: "upcoming" | "first" | "second" | "stale";
+    label: string;
+  };
 };

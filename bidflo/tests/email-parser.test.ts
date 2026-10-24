@@ -25,6 +25,29 @@ https://www.upwork.com/jobs/~01ABCDEF123?source=jobAlert`,
   assert.deepEqual(result.opportunity.requirements, ["Next.js and Node.js", "PostgreSQL integration"]);
 });
 
+test("does not mistake client location metadata for a client name", () => {
+  const result = parseUpworkEmail({
+    subject: "New job: CRM automation",
+    receivedAt: "2026-10-24T12:00:00.000Z",
+    text: `Budget: $2,500\nClient location: Australia\nLocation: Australia\nhttps://www.upwork.com/jobs/~01CLIENTMETA`,
+  });
+  assert.equal(result.kind, "opportunity");
+  if (result.kind === "opportunity") {
+    assert.equal(result.opportunity.clientName, null);
+    assert.equal(result.opportunity.clientLocation, "Australia");
+  }
+});
+
+test("extracts an explicitly labeled client or company name", () => {
+  const result = parseUpworkEmail({
+    subject: "New job: Revenue workflow",
+    receivedAt: "2026-10-24T12:00:00.000Z",
+    text: `Client: Northstar Health\nLocation: Canada\nhttps://www.upwork.com/jobs/~01CLIENTNAME`,
+  });
+  assert.equal(result.kind, "opportunity");
+  if (result.kind === "opportunity") assert.equal(result.opportunity.clientName, "Northstar Health");
+});
+
 test("detects a client reply instead of creating a duplicate job", () => {
   const result = parseUpworkEmail({
     subject: "A client replied to your proposal",
