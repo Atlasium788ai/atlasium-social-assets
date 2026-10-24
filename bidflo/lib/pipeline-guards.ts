@@ -1,6 +1,7 @@
-export type OpportunityStage =
-  | "new" | "rejected" | "qualified" | "proposal_ready" | "approved"
-  | "ready_to_submit" | "submitted" | "replied" | "interviewed" | "won" | "lost";
+import type { OpportunityStatus } from "./types";
+
+// One shared source for every pipeline status, including future stages.
+export type OpportunityStage = OpportunityStatus;
 
 export function canEditProposal(stage: OpportunityStage): boolean {
   return stage === "proposal_ready" || stage === "approved";
