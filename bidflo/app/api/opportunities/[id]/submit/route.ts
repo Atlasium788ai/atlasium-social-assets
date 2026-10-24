@@ -39,13 +39,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     process.env.UPWORK_SUBMISSION_BRIDGE_ENABLED === "true" &&
     !isAuthDisabled() && Boolean(bridgeUrl && bridgeToken);
   if (!automatedBridgeAllowed) {
-    const [claimed] = await sql`
-      update bidflo_opportunities set status = 'ready_to_submit', updated_at = now()
-      where id = ${id} and status = 'approved' returning id
-    `;
-    if (!claimed) return Response.json({ error: "Submission already started; refresh first" }, { status: 409 });
-    await sql`insert into bidflo_submission_events (opportunity_id, proposal_id, status, detail)
-      values (${id}, ${String(row.proposal_id)}, 'manual_required', ${sql.json({ jobUrl: row.job_url })})`;
+    const manualHandoffPrepared = await sql.begin(async (tx) => {
+      const [claimed] = await tx`
+        update bidflo_opportunities set status = 'ready_to_submit', updated_at = now()
+        where id = ${id} and status = 'approved' returning id
+      `;
+      if (!claimed) return false;
+      await tx`insert into bidflo_submission_events (opportunity_id, proposal_id, status, detail)
+        values (${id}, ${String(row.proposal_id)}, 'manual_required', ${tx.json({ jobUrl: row.job_url })})`;
+      return true;
+    });
+    if (!manualHandoffPrepared) {
+      return Response.json({ error: "Submission already started; refresh first" }, { status: 409 });
+    }
     await audit(actor, "submission.manual_handoff", "opportunity", id);
     return Response.json({ status: "manual_required", jobUrl: row.job_url });
   }
@@ -91,14 +97,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return Response.json({ error: "Submission status uncertain. Check Upwork before attempting anything else." }, { status: 502 });
     }
     const result = await response.json().catch(() => ({})) as Record<string, unknown>;
-    await sql`update bidflo_opportunities set status = 'submitted', updated_at = now()
-      where id = ${id} and status = 'submission_processing'`;
-    await sql`
-      insert into bidflo_submission_events (opportunity_id, proposal_id, status, external_submission_id, detail)
-      values (${id}, ${String(row.proposal_id)}, 'submitted',
-        ${typeof result.submissionId === "string" ? result.submissionId.slice(0, 180) : null},
-        ${sql.json({ bridge: true })})
-    `;
+    await sql.begin(async (tx) => {
+      await tx`update bidflo_opportunities set status = 'submitted', updated_at = now()
+        where id = ${id} and status = 'submission_processing'`;
+      await tx`
+        insert into bidflo_submission_events (opportunity_id, proposal_id, status, external_submission_id, detail)
+        values (${id}, ${String(row.proposal_id)}, 'submitted',
+          ${typeof result.submissionId === "string" ? result.submissionId.slice(0, 180) : null},
+          ${tx.json({ bridge: true })})
+      `;
+    });
     await audit(actor, "proposal.submitted", "opportunity", id, { via: "authorized_bridge" });
     return Response.json({ status: "submitted", submissionId: result.submissionId ?? null });
   } catch (error) {
