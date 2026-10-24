@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.echoflowsocial.ca"),
   title: "EchoFlow Social",
-  description: "One prompt, every brand, one controlled social publishing flow. Powered by Atlasium 7/88 AI.",
+  description: "One prompt, every brand, one controlled social publishing flow. Powered by Atlasium 7/88.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
   robots: { index: false, follow: false, nocache: true },
   openGraph: {
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
       url: "/echoflow-social.png",
       width: 1254,
       height: 1254,
-      alt: "EchoFlow Social, powered by Atlasium 7/88 AI",
+      alt: "EchoFlow Social, powered by Atlasium 7/88",
     }],
   },
   twitter: {

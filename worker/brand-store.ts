@@ -2,8 +2,9 @@ export const WORKSPACE_ID = "workspace_atlasium";
 export const OWNER_ID = "user_atlasium_owner";
 export const ATLASIUM_BRAND_ID = "brand_atlasium_788_ai";
 
-export type BufferDestination = {
+export type SocialDestination = {
   id: string;
+  brandId?: string;
   name?: string;
   displayName?: string;
   service: string;
@@ -35,7 +36,7 @@ export type BrandContext = BrandProfileInput & {
   workspaceId: string;
   slug: string;
   status: string;
-  channels: BufferDestination[];
+  channels: SocialDestination[];
   draft?: { prompt: string; timing: string; selectedChannels: string[]; updatedAt: string };
 };
 
@@ -66,7 +67,7 @@ function slugify(name: string) {
   return name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || `brand-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-function atlasiumChannel(channel: BufferDestination) {
+function atlasiumChannel(channel: SocialDestination) {
   const service = channel.service.toLowerCase();
   const label = `${channel.displayName || ""} ${channel.name || ""}`.toLowerCase();
   if (service === "instagram") return label.includes("atlasium788ai");
@@ -84,10 +85,13 @@ export async function ensureBrandSystem(env: StoreEnv) {
     env.DB.prepare("INSERT OR IGNORE INTO users (id, email, display_name, created_at) VALUES (?, NULL, ?, ?)").bind(OWNER_ID, "Atlasium owner", createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)").bind(WORKSPACE_ID, OWNER_ID, "owner", createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO brands (id, workspace_id, slug, name, logo_url, website, industry, location, timezone, status, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'active', ?, ?)")
-      .bind(ATLASIUM_BRAND_ID, WORKSPACE_ID, "atlasium-7-88-ai", "Atlasium 7/88 AI", "https://atlasium.ca", "AI revenue systems", "Toronto, Ontario", "America/Toronto", createdAt, createdAt),
+      .bind(ATLASIUM_BRAND_ID, WORKSPACE_ID, "atlasium-7-88-ai", "Atlasium 7/88", "https://atlasium788.ca", "Revenue intelligence", "Toronto, Ontario", "America/Toronto", createdAt, createdAt),
     env.DB.prepare("INSERT OR IGNORE INTO brand_profiles (brand_id, what_it_does, target_audience, main_offers, primary_cta, tone, words_use, words_avoid, visual_style, instructions, routing_rules, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind(ATLASIUM_BRAND_ID, "Builds practical AI-powered revenue and follow-up systems for businesses.", "Business owners and operators", "Revenue systems, automation and assessments", "Start a conversation with Atlasium", "Intelligent, direct, premium and modern", "clear, practical, revenue system", "generic AI hype, motivational fluff, cheesy slogans, unnecessary em dashes", "Dark, premium, black and gold, modern, clean", "Preserve facts. Never invent offers, proof, personal stories or claims.", JSON.stringify({ includePersonalLinkedIn: true, preferCompanyLinkedIn: true, tiktokRequiresCompatibleMedia: true }), createdAt),
+      .bind(ATLASIUM_BRAND_ID, "Diagnoses revenue leaks and installs systems that help businesses recover missed opportunities.", "Business owners and operators", "Revenue systems, automation and assessments", "Start a conversation with Atlasium", "Intelligent, direct, premium and modern", "clear, practical, revenue system", "generic AI hype, motivational fluff, cheesy slogans, unnecessary em dashes", "Deep navy, chrome and electric-blue accents, premium and clean", "Preserve facts. Never invent offers, proof, personal stories or claims.", JSON.stringify({ includePersonalLinkedIn: true, preferCompanyLinkedIn: true, tiktokRequiresCompatibleMedia: true }), createdAt),
   ]);
+  // Update only untouched legacy seed labels. Client-customized names remain intact.
+  await env.DB.prepare("UPDATE brands SET name = 'Atlasium 7/88' WHERE id = ? AND name = 'Atlasium 7/88 AI'").bind(ATLASIUM_BRAND_ID).run();
+  await env.DB.prepare("UPDATE brands SET website = 'https://atlasium788.ca' WHERE id = ? AND website = 'https://atlasium.ca'").bind(ATLASIUM_BRAND_ID).run();
   await migrateLegacyCampaigns(env);
 }
 
@@ -119,16 +123,16 @@ async function migrateLegacyCampaigns(env: StoreEnv) {
   await audit(env, ATLASIUM_BRAND_ID, "legacy_campaign_migration_complete", { migrated, source: ".atlasium-campaigns", publishingTriggered: false });
 }
 
-export async function syncAtlasiumChannels(env: StoreEnv, channels: BufferDestination[]) {
+export async function syncAtlasiumChannels(env: StoreEnv, channels: SocialDestination[]) {
   if (!env.DB) return;
   const assignedAt = nowIso();
-  for (const channel of channels.filter(atlasiumChannel)) {
-    await env.DB.prepare("INSERT OR IGNORE INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?)")
-      .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, ATLASIUM_BRAND_ID, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, assignedAt).run();
+  for (const channel of channels.filter((channel) => channel.brandId === ATLASIUM_BRAND_ID)) {
+    await env.DB.prepare("INSERT OR IGNORE INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'direct', ?, ?, ?, 1, ?)")
+      .bind(`channel_direct_${channel.id}`, WORKSPACE_ID, ATLASIUM_BRAND_ID, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, assignedAt).run();
   }
 }
 
-function brandFromRow(row: Record<string, unknown>, channels: BufferDestination[] = []): BrandContext {
+function brandFromRow(row: Record<string, unknown>, channels: SocialDestination[] = []): BrandContext {
   let selectedChannels: string[] = [];
   try { selectedChannels = JSON.parse(value(row.draft_selected_channels) || "[]"); } catch { selectedChannels = []; }
   return {
@@ -169,7 +173,7 @@ export async function getBrand(env: StoreEnv, brandId: string): Promise<BrandCon
   if (!membership) return null;
   const row = await env.DB.prepare(`${brandSelect} WHERE b.id = ? AND b.workspace_id = ? LIMIT 1`).bind(brandId, WORKSPACE_ID).first<Record<string, unknown>>();
   if (!row) return null;
-  const channelRows = rowList(await env.DB.prepare("SELECT provider_channel_id AS id, service, account_name AS displayName FROM channel_connections WHERE brand_id = ? AND active = 1 ORDER BY service, account_name").bind(brandId).all<Record<string, unknown>>());
+  const channelRows = rowList(await env.DB.prepare("SELECT provider_channel_id AS id, service, account_name AS displayName FROM channel_connections WHERE brand_id = ? AND provider = 'direct' AND active = 1 ORDER BY service, account_name").bind(brandId).all<Record<string, unknown>>());
   return brandFromRow(row, channelRows.map((channel) => ({ id: value(channel.id), service: value(channel.service), displayName: value(channel.displayName) })));
 }
 
@@ -180,17 +184,17 @@ export async function requireBrand(env: StoreEnv, brandId?: string | null) {
   return brand;
 }
 
-export async function workspaceSnapshot(env: StoreEnv, connected: BufferDestination[]) {
+export async function workspaceSnapshot(env: StoreEnv, connected: SocialDestination[]) {
   if (!env.DB) {
     const brand = legacyAtlasium();
-    brand.channels = connected;
-    brand.channelIds = connected.map((channel) => channel.id);
+    brand.channels = connected.filter((channel) => channel.brandId === ATLASIUM_BRAND_ID);
+    brand.channelIds = brand.channels.map((channel) => channel.id);
     return { workspace: { id: WORKSPACE_ID, name: "EchoFlow Social", role: "owner" }, brands: [brand], connectedChannels: connected.map((channel) => ({ ...channel, assignedBrandId: ATLASIUM_BRAND_ID, assignedBrandName: brand.name })), publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: true } };
   }
   await ensureBrandSystem(env);
   await syncAtlasiumChannels(env, connected);
   const brandRows = rowList(await env.DB.prepare(`${brandSelect} WHERE b.workspace_id = ? AND b.status != 'archived' ORDER BY CASE WHEN b.id = ? THEN 0 ELSE 1 END, b.created_at`).bind(WORKSPACE_ID, ATLASIUM_BRAND_ID).all<Record<string, unknown>>());
-  const channelRows = rowList(await env.DB.prepare("SELECT c.provider_channel_id AS id, c.service, c.account_name AS displayName, c.brand_id, b.name AS brand_name FROM channel_connections c JOIN brands b ON b.id = c.brand_id WHERE c.workspace_id = ? AND c.active = 1").bind(WORKSPACE_ID).all<Record<string, unknown>>());
+  const channelRows = rowList(await env.DB.prepare("SELECT c.provider_channel_id AS id, c.service, c.account_name AS displayName, c.brand_id, b.name AS brand_name FROM channel_connections c JOIN brands b ON b.id = c.brand_id WHERE c.workspace_id = ? AND c.provider = 'direct' AND c.active = 1").bind(WORKSPACE_ID).all<Record<string, unknown>>());
   const brands = brandRows.map((row) => {
     const channels = channelRows.filter((channel) => value(channel.brand_id) === value(row.id)).map((channel) => ({ id: value(channel.id), service: value(channel.service), displayName: value(channel.displayName) }));
     return brandFromRow(row, channels);
@@ -204,20 +208,21 @@ export async function workspaceSnapshot(env: StoreEnv, connected: BufferDestinat
   return { workspace: { id: WORKSPACE_ID, name: "EchoFlow Social", role: "owner" }, brands, connectedChannels, recentCampaigns, publishingProviders: providerFlags(), migration: { legacyCampaignsPreserved: true } };
 }
 
-export async function createBrand(env: StoreEnv, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null, brandId?: string, actorId = OWNER_ID) {
+export async function createBrand(env: StoreEnv, input: BrandProfileInput, connected: SocialDestination[], logo?: { url: string; r2Key: string } | null, brandId?: string, actorId = OWNER_ID) {
   if (!env.DB) throw new Error("Brand storage is not available yet.");
   await ensureBrandSystem(env);
   const name = value(input.name).slice(0, 100);
   if (!name) throw new Error("Enter the brand name.");
   const channelIds = [...new Set(input.channelIds.map(value).filter(Boolean))];
-  if (!channelIds.length) throw new Error("Assign at least one social destination before creating the brand.");
+  // Create the brand first; direct accounts can be authorized later.
   const selected = connected.filter((channel) => channelIds.includes(channel.id));
   if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
-    const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = 'buffer' AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(channel.id).first<Record<string, unknown>>();
+    const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = 'direct' AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(channel.id).first<Record<string, unknown>>();
     if (assigned) throw new Error(`${channel.displayName || channel.name || channel.id} is already assigned to another brand.`);
   }
   const id = brandId || `brand_${crypto.randomUUID()}`;
+  if (selected.some((channel) => channel.brandId !== id)) throw new Error("Direct destination belongs to a different brand.");
   const createdAt = nowIso();
   const slug = `${slugify(name)}-${id.slice(-6)}`;
   await env.DB.batch([
@@ -225,36 +230,37 @@ export async function createBrand(env: StoreEnv, input: BrandProfileInput, conne
       .bind(id, WORKSPACE_ID, slug, name, logo?.url || value(input.logoUrl), value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", createdAt, createdAt),
     env.DB.prepare("INSERT INTO brand_profiles (brand_id, what_it_does, target_audience, main_offers, primary_cta, tone, words_use, words_avoid, visual_style, instructions, routing_rules, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(id, value(input.whatItDoes), value(input.targetAudience), value(input.mainOffers), value(input.primaryCta), value(input.tone), value(input.wordsUse), value(input.wordsAvoid), value(input.visualStyle), value(input.instructions), value(input.routingRules) || "{}", createdAt),
-    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?)")
-      .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, id, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, createdAt)),
+    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'direct', ?, ?, ?, 1, ?)")
+      .bind(`channel_direct_${channel.id}`, WORKSPACE_ID, id, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, createdAt)),
     ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, id, logo.url, logo.r2Key, createdAt)] : []),
   ]);
   await audit(env, id, "brand_created", { name, channelIds, logoUploaded: Boolean(logo) }, actorId);
   return requireBrand(env, id);
 }
 
-export async function updateBrand(env: StoreEnv, brandId: string, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null, actorId = OWNER_ID) {
+export async function updateBrand(env: StoreEnv, brandId: string, input: BrandProfileInput, connected: SocialDestination[], logo?: { url: string; r2Key: string } | null, actorId = OWNER_ID) {
   if (!env.DB) throw new Error("Brand storage is not available yet.");
   await requireBrand(env, brandId);
   const name = value(input.name).slice(0, 100);
   const channelIds = [...new Set(input.channelIds.map(value).filter(Boolean))];
   if (!name) throw new Error("Enter the brand name.");
-  if (!channelIds.length) throw new Error("Keep at least one social destination assigned to this brand.");
+  // Allow removal of all connections until direct authorization is complete.
   const selected = connected.filter((channel) => channelIds.includes(channel.id));
   if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
-    const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = 'buffer' AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(channel.id).first<Record<string, unknown>>();
+    const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = 'direct' AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(channel.id).first<Record<string, unknown>>();
     if (assigned && value(assigned.brand_id) !== brandId) throw new Error(`${channel.displayName || channel.name || channel.id} is already assigned to another brand.`);
   }
+  if (selected.some((channel) => channel.brandId !== brandId)) throw new Error("Direct destination belongs to a different brand.");
   const updatedAt = nowIso();
   const statements = [
     env.DB.prepare("UPDATE brands SET name = ?, logo_url = COALESCE(?, logo_url), website = ?, industry = ?, location = ?, timezone = ?, updated_at = ? WHERE id = ? AND workspace_id = ?")
       .bind(name, logo?.url || value(input.logoUrl) || null, value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", updatedAt, brandId, WORKSPACE_ID),
     env.DB.prepare("UPDATE brand_profiles SET what_it_does = ?, target_audience = ?, main_offers = ?, primary_cta = ?, tone = ?, words_use = ?, words_avoid = ?, visual_style = ?, instructions = ?, routing_rules = ?, updated_at = ? WHERE brand_id = ?")
       .bind(value(input.whatItDoes), value(input.targetAudience), value(input.mainOffers), value(input.primaryCta), value(input.tone), value(input.wordsUse), value(input.wordsAvoid), value(input.visualStyle), value(input.instructions), value(input.routingRules) || "{}", updatedAt, brandId),
-    env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ? AND provider = 'buffer'").bind(brandId),
-    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
-      .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, brandId, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, updatedAt)),
+    env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ? AND provider = 'direct'").bind(brandId),
+    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'direct', ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
+      .bind(`channel_direct_${channel.id}`, WORKSPACE_ID, brandId, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, updatedAt)),
     ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, logo.url, logo.r2Key, updatedAt)] : []),
   ];
   await env.DB.batch(statements);
@@ -337,7 +343,7 @@ export async function pendingDeliveryJobs(env: StoreEnv, brandId: string, limit 
   const result = await env.DB.prepare(`SELECT j.id, j.provider_post_id AS providerPostId
     FROM publish_jobs j
     LEFT JOIN delivery_statuses d ON d.publish_job_id = j.id
-    WHERE j.workspace_id = ? AND j.brand_id = ? AND j.provider = 'buffer'
+    WHERE j.workspace_id = ? AND j.brand_id = ? AND j.provider = 'direct'
       AND j.provider_post_id IS NOT NULL AND j.status = 'confirmed'
       AND (j.scheduled_time IN ('shareNow', 'addToQueue') OR j.scheduled_time <= ?)
       AND (d.checked_at IS NULL OR d.checked_at < ?)
@@ -347,13 +353,13 @@ export async function pendingDeliveryJobs(env: StoreEnv, brandId: string, limit 
   return rowList(result).map((row) => ({ id: value(row.id), providerPostId: value(row.providerPostId) }));
 }
 
-export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, connected: BufferDestination[]) {
+export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, connected: SocialDestination[]) {
   if (!env.DB) throw new Error("FLOW storage is not available yet.");
   const brand = await requireBrand(env, brandId);
   const liveIds = new Set(connected.map((channel) => String(channel.id)));
   const [channelResult, jobResult] = await Promise.all([
     env.DB.prepare(`SELECT id, provider_channel_id AS providerChannelId, service, account_name AS accountName
-      FROM channel_connections WHERE workspace_id = ? AND brand_id = ? AND active = 1 ORDER BY service, account_name`)
+      FROM channel_connections WHERE workspace_id = ? AND brand_id = ? AND provider = 'direct' AND active = 1 ORDER BY service, account_name`)
       .bind(WORKSPACE_ID, brand.id).all<Record<string, unknown>>(),
     env.DB.prepare(`SELECT j.id, j.campaign_id AS campaignId, j.post_id AS postId, j.destination_id AS destinationId,
         j.scheduled_time AS scheduledTime, j.provider, j.provider_post_id AS providerPostId, j.status, j.error,
@@ -372,7 +378,7 @@ export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, conn
   ]);
   const channels = rowList(channelResult).map((row) => ({
     id: value(row.id), brandId: brand.id, providerId: value(row.service), providerChannelId: value(row.providerChannelId),
-    accountName: value(row.accountName), accountType: "Buffer-managed channel", status: liveIds.has(value(row.providerChannelId)) ? "connected" : "needs_attention",
+    accountName: value(row.accountName), accountType: "Direct social channel", status: liveIds.has(value(row.providerChannelId)) ? "connected" : "needs_attention",
   }));
   const jobs = rowList(jobResult).map((row) => ({
     id: value(row.id), campaignId: value(row.campaignId), postId: value(row.postId), destinationId: value(row.destinationId),
@@ -387,10 +393,10 @@ export async function flowWorkspaceSnapshot(env: StoreEnv, brandId: string, conn
 
 function providerFlags() {
   return [
-    { id: "buffer", name: "Buffer", status: "ACTIVE" },
-    { id: "meta-direct", name: "Facebook & Instagram direct", status: "APPROVAL PENDING" },
-    { id: "linkedin-direct", name: "LinkedIn direct", status: "APPROVAL PENDING" },
-    { id: "tiktok-direct", name: "TikTok direct", status: "APPROVAL PENDING" },
+    { id: "direct", name: "First-party social publishing", status: "CONNECTION REQUIRED" },
+    { id: "meta-direct", name: "Facebook & Instagram direct", status: "APPROVAL REQUIRED" },
+    { id: "linkedin-direct", name: "LinkedIn direct", status: "APPROVAL REQUIRED" },
+    { id: "tiktok-direct", name: "TikTok direct", status: "APPROVAL REQUIRED" },
   ];
 }
 
@@ -399,20 +405,20 @@ function legacyAtlasium(): BrandContext {
     id: ATLASIUM_BRAND_ID,
     workspaceId: WORKSPACE_ID,
     slug: "atlasium-7-88-ai",
-    name: "Atlasium 7/88 AI",
-    website: "https://atlasium.ca",
-    industry: "AI revenue systems",
+    name: "Atlasium 7/88",
+    website: "https://atlasium788.ca",
+    industry: "Revenue intelligence",
     location: "Toronto, Ontario",
     timezone: "America/Toronto",
     status: "active",
-    whatItDoes: "Builds practical AI-powered revenue and follow-up systems for businesses.",
+    whatItDoes: "Diagnoses revenue leaks and installs systems that help businesses recover missed opportunities.",
     targetAudience: "Business owners and operators",
     mainOffers: "Revenue systems, automation and assessments",
     primaryCta: "Start a conversation with Atlasium",
     tone: "Intelligent, direct, premium and modern",
     wordsUse: "clear, practical, revenue system",
     wordsAvoid: "generic AI hype, motivational fluff, cheesy slogans, unnecessary em dashes",
-    visualStyle: "Dark, premium, black and gold, modern, clean",
+    visualStyle: "Deep navy, chrome and electric-blue accents, premium and clean",
     instructions: "Preserve facts. Never invent offers, proof, personal stories or claims.",
     routingRules: JSON.stringify({ includePersonalLinkedIn: true, preferCompanyLinkedIn: true, tiktokRequiresCompatibleMedia: true }),
     channelIds: [],

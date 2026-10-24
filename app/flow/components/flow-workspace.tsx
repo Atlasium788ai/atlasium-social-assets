@@ -11,7 +11,7 @@ import { FlowSectionNavigation, type FlowSection } from "./flow-section-navigati
 
 function FlowIdentity() {
   return <div className="echo-identity">
-    <img className="echo-art-compact" src="/echoflow-social.png" alt="EchoFlow Social, powered by Atlasium 7/88 AI" width={1254} height={1254} />
+    <img className="echo-art-compact" src="/echoflow-social.png" alt="EchoFlow Social, powered by Atlasium 7/88" width={1254} height={1254} />
     <span><b>EchoFlow</b><em>Social</em></span>
   </div>;
 }
@@ -19,7 +19,7 @@ function FlowIdentity() {
 export function FlowWorkspace({ activeSection }: { activeSection: FlowSection }) {
   const flow = useFlowWorkspace();
   return <main className="app-shell flow-shell">
-    <header className="app-header"><FlowIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88 AI</span><AccessSessionAction /></div></header>
+    <header className="app-header"><FlowIdentity /><div className="app-header-actions"><span className="powered">Powered by Atlasium 7/88</span><AccessSessionAction /></div></header>
     <ProductNavigation active="flow" />
     <FlowSectionNavigation active={activeSection} />
 
@@ -36,13 +36,13 @@ export function FlowWorkspace({ activeSection }: { activeSection: FlowSection })
         <small>{flow.activeBrand?.timezone || "Brand-scoped connections"}</small>
       </section>
       {flow.flowError && <p className="message error" role="status">! {flow.flowError}</p>}
-      {flow.data?.refreshError && <p className="message error" role="status">! Buffer history loaded, but delivery refresh needs attention: {flow.data.refreshError}</p>}
-      {flow.data && flow.data.reconciliation.checked > 0 && <p className="flow-reconciliation" role="status">Checked {flow.data.reconciliation.checked} Buffer delivery record{flow.data.reconciliation.checked === 1 ? "" : "s"}: {flow.data.reconciliation.sent} sent, {flow.data.reconciliation.pending} pending, {flow.data.reconciliation.failed} failed.</p>}
-      {flow.activeBrand && !flow.data && <section className="flow-access-card" aria-live="polite"><p>Loading Buffer operations…</p></section>}
+      {flow.data?.refreshError && <p className="message error" role="status">! Social history loaded, but delivery refresh needs attention: {flow.data.refreshError}</p>}
+      {flow.data && flow.data.reconciliation.checked > 0 && <p className="flow-reconciliation" role="status">Checked {flow.data.reconciliation.checked} delivery record{flow.data.reconciliation.checked === 1 ? "" : "s"}: {flow.data.reconciliation.sent} sent, {flow.data.reconciliation.pending} pending, {flow.data.reconciliation.failed} failed.</p>}
+      {flow.activeBrand && !flow.data && <section className="flow-access-card" aria-live="polite"><p>Loading social operations…</p></section>}
       {flow.activeBrand && flow.data && activeSection === "channels" && <FlowChannels brand={flow.activeBrand} previewMode={flow.previewMode} channels={flow.data.channels} />}
       {flow.activeBrand && flow.data && activeSection !== "channels" && <FlowOperations section={activeSection} brand={flow.activeBrand} jobs={flow.data.jobs} refreshing={flow.refreshing} onRefresh={flow.refresh} />}
     </>}
 
-    <footer>EchoFlow Social · Create and schedule in ECHO · Monitor Buffer delivery in FLOW.</footer>
+    <footer>EchoFlow Social · Create and schedule in ECHO · Monitor direct delivery in FLOW.</footer>
   </main>;
 }
