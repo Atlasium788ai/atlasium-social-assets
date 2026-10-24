@@ -63,6 +63,21 @@ The Neon project must have Managed Auth enabled. Add the production Render URL a
 
 Optional submission bridge requires an authenticated operator, explicit `UPWORK_SUBMISSION_BRIDGE_ENABLED=true`, `UPWORK_SUBMISSION_WEBHOOK_URL`, and `UPWORK_SUBMISSION_TOKEN`. Manual, human-controlled submission is the default.
 
+## Fast troubleshooting
+
+Use the shortest path to the broken step. **Do not redesign or rebuild unrelated parts.**
+
+| What is broken | First place to check | Next step |
+|---|---|---|
+| A job does not appear | `bidflo_inbound_events` and Resend webhook | Check sender allowlist, pending/failed event and processor logs |
+| Scoring or proposal looks wrong | `lib/workflow.ts`, `lib/qualification.ts`, latest `bidflo_proposals` | Check qualification inputs and reviewer notes, then rescore only an unapproved opportunity |
+| A client response is missing | `bidflo_messages` and `lib/email-parser.ts` | Check if the reply was ingested and safely linked; do not guess a client match |
+| Slack or email notifications fail | `bidflo_notifications`, `lib/slack-alerts.ts`, `lib/owner-notifications.ts` | Check delivery configuration, retry state and audit logs |
+| A bid's status is confusing | `bidflo_submission_events` and `app/api/opportunities/[id]/submit/route.ts` | Compare with Upwork before attempting another submission |
+| The site errors | Render web logs, `/api/health`, Neon connectivity | Roll back the last failing deploy; preserve stored records |
+
+Production changes must pass `pnpm test`, `pnpm lint`, and `pnpm exec next build` before release. Keep **Find | Bid | Follow Up** unchanged unless an interface change is specifically requested.
+
 ## Validation
 
 ```bash
