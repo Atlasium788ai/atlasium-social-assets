@@ -1,5 +1,12 @@
 # BidFlo release constraints and integration tasks
 
+## Slack alerts, October 24
+
+- The internal pilot requires BidFlo Slack notifications for qualified opportunities, prepared proposals, inbound client replies, confirmed submissions, interview stages, and wins.
+- Default private destination: Blair's own Slack DM, not the shared #revenue-intake-alerts or the sales team. No weekend team messaging.
+- Source: `lib/slack-alerts.ts` queues/delivers deduplicated events, `lib/slack-message.ts` sanitizes private alert content, migration `0004_slack_notifications.sql`, existing five-minute cron dispatches/retries. Uses either `SLACK_BOT_TOKEN` + `SLACK_DESTINATION_ID` or a private-channel `SLACK_WEBHOOK_URL`; add secrets privately in Render, never to Git. ChatGPT's @Slack connected app does not authorize standalone server sends.
+- After credentials installed, verify an actual private Slack alert from a genuine new opportunity or reply (not merely a one-off message sent by ChatGPT). Never call delivery verified before that.
+
 ## Current rollout decision (October 24, 2026)
 
 **Phase 1: internal Atlasium use only.** The founder will use BidFlo for real opportunities this week. Do NOT launch paid subscriptions, invite external tenants, start building sign-up flows, or redesign the approved Find | Bid | Follow Up UI during this test period. Keep temporary no-login development bypass as requested; do not switch authentication back on unprompted. Preserve existing data, real opportunities, and UI.
