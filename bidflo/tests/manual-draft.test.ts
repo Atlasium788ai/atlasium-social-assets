@@ -61,6 +61,8 @@ test("a job with exact opening and short-proposal instructions uses 5 focused se
   const draft = prepareManualReviewDraft(opportunity, commercials);
   assert.ok(draft.body.startsWith("Cat in the Hat"));
   assert.match(draft.body, /lead qualification/i);
+  assert.match(draft.body, /reminders/i);
+  assert.match(draft.body, /dashboard/i);
   assert.match(draft.body, /CRM/i);
   assert.match(draft.body, /\$1,850/);
   assert.match(draft.body, /Insert one genuine similar project/);
