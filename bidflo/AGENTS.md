@@ -1,5 +1,15 @@
 # BidFlo release constraints and integration tasks
 
+## Hardening handoff, October 24
+
+- This branch added `lib/pipeline-guards.ts`, `lib/security.ts`, `tests/hardening.test.ts`, `db/migrations/0005_inbound_recovery.sql`, hardened `lib/workflow.ts`, submission and opportunity routes, UI error handling, safer security headers, and a DB-backed health endpoint.
+- **Do not claim production-ready security while `BIDFLO_AUTH_DISABLED=true`.** This development bypass allows anonymous operators and is the largest unresolved risk. User requested no login interruption during initial UI tests; do not silently change the login mode. Bring it to the operator's attention before handling real client data.
+- Upwork automated bridge remains disabled during login bypass and unless `UPWORK_SUBMISSION_BRIDGE_ENABLED=true` is explicitly set. Do not spend Connects or send messages without clear separate approval.
+- Incoming events are atomically claimed, retried after transient errors, recovered after interrupted workers; messages deduped by source_event_id. Check `bidflo_inbound_events` for stale `processing` or `failed` rows.
+- Proposal updates use transaction-locked state transitions, and editing revokes prior approval. An uncertain bridge submission requires reconciliation in Upwork before any retry.
+- CI workflow `.github/workflows/bidflo-ci.yml` should be green before treating latest changes as stable; tests + lint + production build. Next priorities: actual authenticated end-to-end browser test, rate-limits on costly AI calls, and Slack bot credential/configuration.
+- Keep only the approved three-tab dark UX, no multi-tenant launch and no changes to unrelated Atlasium products.
+
 ## Slack alerts, October 24
 
 - The internal pilot requires BidFlo Slack notifications for qualified opportunities, prepared proposals, inbound client replies, confirmed submissions, interview stages, and wins.
