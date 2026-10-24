@@ -3,7 +3,7 @@ import { audit, db } from "@/lib/db";
 import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
 import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 import { qualifyAndPrepare } from "@/lib/workflow";
-import { queueSlackAlert } from "@/lib/slack-alerts";
+import { queueSlackAlertSafely } from "@/lib/slack-alerts";
 import { canEditProposal, canRescore, canApproveProposal, canConfirmManualSubmission, canSetStage, type OpportunityStage } from "@/lib/pipeline-guards";
 
 const updateSchema = z.discriminatedUnion("action", [
@@ -155,15 +155,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (!completed) return Response.json({ error: "Manual submission was not prepared or already confirmed" }, { status: 409 });
     await audit(actor, "proposal.submitted_confirmed", "opportunity", id);
     const [detail] = await sql`select title from bidflo_opportunities where id = ${id}`;
-    try {
-      await queueSlackAlert(`submitted:${id}`, {
-        kind: "submitted", opportunityId: id, title: String(detail?.title ?? "Upwork opportunity"),
-      });
-    } catch (error) {
-      await audit("system:slack", "slack.enqueue_failed", "opportunity", id, {
-        reason: error instanceof Error ? error.message.slice(0, 150) : "Unknown queue failure",
-      }).catch(() => {});
-    }
+    await queueSlackAlertSafely(`submitted:${id}`, {
+      kind: "submitted", opportunityId: id, title: String(detail?.title ?? "Upwork opportunity"),
+    });
     return Response.json({ ok: true, status: "submitted" });
   }
   if (!canSetStage(String(opportunity.status) as OpportunityStage, parsed.data.stage)) {
@@ -175,15 +169,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   await audit(actor, `opportunity.${parsed.data.stage}`, "opportunity", id);
   if (parsed.data.stage === "interviewed" || parsed.data.stage === "won") {
     const [detail] = await sql`select title from bidflo_opportunities where id = ${id}`;
-    try {
-      await queueSlackAlert(`stage:${id}:${parsed.data.stage}`, {
-        kind: parsed.data.stage, opportunityId: id, title: String(detail?.title ?? "Upwork opportunity"),
-      });
-    } catch (error) {
-      await audit("system:slack", "slack.enqueue_failed", "opportunity", id, {
-        reason: error instanceof Error ? error.message.slice(0, 150) : "Unknown queue failure",
-      }).catch(() => {});
-    }
+    await queueSlackAlertSafely(`stage:${id}:${parsed.data.stage}`, {
+      kind: parsed.data.stage, opportunityId: id, title: String(detail?.title ?? "Upwork opportunity"),
+    });
   }
   return Response.json({ ok: true, status: parsed.data.stage });
 }
