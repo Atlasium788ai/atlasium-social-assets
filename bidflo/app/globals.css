@@ -253,3 +253,25 @@ input, textarea { color: var(--text); background: #0c0c12; border: 1px solid var
   .reply-alert-actions { justify-content: space-between; }
   .reply-alert-dialog .reply-assistant { margin: 11px 7px 7px; }
 }
+
+/* Compact operator-only fallback for manually capturing a genuine Upwork post. */
+.quick-capture { max-width: 1420px; margin: -6px auto 22px; position: relative; z-index: 1; border: 1px solid rgba(53,127,230,.19); border-radius: 13px; background: rgba(4,13,24,.88); overflow: hidden; }
+.quick-capture > summary { min-height: 65px; padding: 15px 22px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 15px; list-style: none; }
+.quick-capture > summary::-webkit-details-marker { display: none; }
+.quick-capture > summary > span:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 16px; }
+.quick-capture > summary strong { font-size: 12px; color: #b9d6ff; font-weight: 750; }
+.quick-capture > summary small { color: #7891aa; font-size: 10px; }
+.quick-capture > summary > span:last-child { color: #35a4ff; font-size: 18px; }
+.quick-capture[open] > summary { border-bottom: 1px solid rgba(70,130,205,.13); }
+.quick-capture-form { padding: 21px 22px 23px; display: grid; gap: 14px; }
+.quick-capture-form > label, .quick-capture-actions > label { display: grid; gap: 7px; color: #a5b9d1; font-size: 10px; font-weight: 650; }
+.quick-capture-form input, .quick-capture-form textarea { padding: 12px 13px; background: #060e1a; border: 1px solid rgba(85,141,213,.23); border-radius: 8px; color: #e7eef9; font: 400 12px/1.5 var(--font-body); width: 100%; }
+.quick-capture-form textarea { resize: vertical; min-height: 115px; }
+.quick-capture-form :is(input,textarea):focus { border-color: #279bff; outline: 2px solid rgba(39,155,255,.13); }
+.quick-capture-actions { display: flex; justify-content: space-between; align-items: end; gap: 14px; }
+.quick-capture-actions > label { width: 215px; max-width: 100%; }
+.quick-capture-actions button { padding: 13px 19px; min-height: 42px; font-size: 11px; border-radius: 8px; }
+.quick-capture-actions button:disabled { opacity: .55; cursor: progress; }
+.quick-capture-caption { color: #6c849e; margin: 0; font-size: 10px; }
+.quick-capture-error { color: #ff9c9c; font-size: 11px; margin: 0; }
+@media(max-width:600px) { .quick-capture > summary { padding-inline: 15px; } .quick-capture-form { padding: 16px 15px; }.quick-capture-actions { flex-direction: column; align-items: stretch; }.quick-capture-actions > label { width: 100%; } }
