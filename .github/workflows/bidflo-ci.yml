@@ -1,0 +1,50 @@
+name: BidFlo Quality Gate
+
+on:
+  push:
+    branches:
+      - codex/bidflo
+    paths:
+      - 'bidflo/**'
+      - '.github/workflows/bidflo-ci.yml'
+  pull_request:
+    paths:
+      - 'bidflo/**'
+      - '.github/workflows/bidflo-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bidflo-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    name: Test, Types, and Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bidflo
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: pnpm
+          cache-dependency-path: bidflo/pnpm-lock.yaml
+      - name: Install pinned dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run automated tests
+        run: pnpm test
+      - name: Run lint checks
+        run: pnpm lint
+      - name: Compile production build
+        run: pnpm exec next build
