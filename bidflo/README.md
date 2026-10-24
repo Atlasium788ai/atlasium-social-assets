@@ -14,6 +14,19 @@ BidFlo is Atlasium 7/88's private opportunity and proposal operations system. It
 
 No scraping is used. Email body content is treated as untrusted data and cannot invoke tools or bypass approval.
 
+## Slack alerts
+
+BidFlo writes deduplicated notifications to `bidflo_notifications` for qualified opportunities, proposals ready for review, received Upwork client replies, confirmed submitted proposals, interviews and wins. The existing five-minute processor sends the alerts and retries temporary failures. Alerts do not contain private client-message bodies and link back to the opportunity in BidFlo.
+
+**Pilot delivery goes to Blair alone**, not the sales team. In Render web service, set either:
+
+- **Direct Message:** `SLACK_BOT_TOKEN` (a separately installed Slack app's bot token with `chat:write` and `im:write` permissions) and `SLACK_DESTINATION_ID` (Blair's Slack user ID, `U...`). Do not commit tokens.
+- **Private channel:** `SLACK_WEBHOOK_URL` from a Slack incoming webhook explicitly installed to the designated private channel.
+
+If no Slack bot token or webhook is configured, events are queued, not sent. ChatGPT's installed @Slack connector cannot be used as the unattended BidFlo server credential. The five-minute cron returns `slack.configured: false` until it is configured.
+
+Do not invite team members or send teamwide alerts without explicit instruction. Preserve the owner's weekend-messaging preferences. For future client accounts, configure separate destinations and organization-scoped credentials after the internal pilot.
+
 ## Local setup
 
 ```bash
