@@ -4,7 +4,7 @@ import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
 import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 import { qualifyAndPrepare } from "@/lib/workflow";
 import { queueSlackAlertSafely } from "@/lib/slack-alerts";
-import { proposalMeetsRequiredOpening } from "@/lib/application-rules";
+import { proposalApprovalIssues } from "@/lib/application-rules";
 import { canEditProposal, canRescore, canApproveProposal, canConfirmManualSubmission, canSetStage, type OpportunityStage } from "@/lib/pipeline-guards";
 
 const updateSchema = z.discriminatedUnion("action", [
@@ -111,14 +111,17 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
          where opportunity_id = ${id} order by version desc limit 1
       `;
       if (!proposal || !["needs_review", "edited", "ready", "draft"].includes(String(proposal.status))) return null;
-      if (!proposalMeetsRequiredOpening(String(current.description), String(proposal.body))) return "required_opening_missing";
+      const problems = proposalApprovalIssues(String(current.description), String(proposal.body));
+      if (problems.length) return "review_needed:" + problems[0];
       await tx`update bidflo_proposals set status = 'approved', updated_at = now()
         where id = ${String(proposal.id)}`;
       await tx`update bidflo_opportunities set status = 'approved', updated_at = now()
         where id = ${id}`;
       return String(proposal.id);
     });
-    if (result === "required_opening_missing") return Response.json({ error: "Client requires a specific opening phrase. Edit the draft to follow the job instructions before approval." }, { status: 409 });
+    if (result?.startsWith("review_needed:")) {
+      return Response.json({ error: result.slice("review_needed:".length) }, { status: 409 });
+    }
     if (!result) return Response.json({ error: "Proposal is not awaiting approval; refresh first" }, { status: 409 });
     await audit(actor, "proposal.approved", "proposal", result, { opportunityId: id });
     return Response.json({ ok: true, status: "approved" });
