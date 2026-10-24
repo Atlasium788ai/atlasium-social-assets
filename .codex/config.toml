@@ -1,0 +1,4 @@
+# BidFlo's official Upwork integration, loaded by Codex for this trusted repository.
+# OAuth consent remains user-controlled. No credentials are committed to git.
+[mcp_servers.upwork]
+url = "https://mcp.upwork.com/mcp"
