@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ReplyAssistant } from "@/components/reply-assistant";
-import { requiredProposalOpening, proposalMeetsRequiredOpening } from "@/lib/application-rules";
+import { requiredProposalOpening, proposalApprovalIssues } from "@/lib/application-rules";
 import type { OpportunityRow, ScoreBreakdown } from "@/lib/types";
 
 function money(value: string | number | null | undefined) {
@@ -21,7 +21,9 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
   const [questions, setQuestions] = useState((opportunity.proposal_questions ?? []).join("\n"));
   const breakdown = opportunity.score_breakdown as ScoreBreakdown | null;
   const requiredOpening = requiredProposalOpening(opportunity.description);
-  const missingOpening = requiredOpening && !proposalMeetsRequiredOpening(opportunity.description, editing ? body : String(opportunity.proposal_body ?? ""));
+  const currentProposal = editing ? body : String(opportunity.proposal_body ?? "");
+  const approvalIssues = proposalApprovalIssues(opportunity.description, currentProposal);
+  const missingOpening = Boolean(requiredOpening) && approvalIssues.some((issue) => issue.startsWith("Start the proposal"));
   const latestClientReply = messages.find((message) => message.direction === "inbound" && message.kind === "client_reply");
   const proposalLocked = ["ready_to_submit", "submission_processing", "submitted", "replied", "interviewed", "won", "lost"].includes(opportunity.status);
 
@@ -95,6 +97,9 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
         <div className="detail-main">
           <article className="card proposal-card">
             <div className="card-heading"><div><p className="eyebrow">PROPOSAL PREVIEW</p><h2>Prepared for approval</h2></div>{opportunity.quality_score != null && <span className="qc-score">QC {opportunity.quality_score}/100</span>}</div>
+            {opportunity.proposal_id && approvalIssues.some((issue) => issue.startsWith("Replace bracketed")) && <p className="notice" role="alert">
+              The draft has unfinished proof or delivery notes. Replace them with verified information before approval.
+            </p>}
             {missingOpening && opportunity.proposal_id && <p className="notice" role="alert">
               Client requires this proposal to start with <strong>“{requiredOpening}”</strong>. Edit the draft before approval.
             </p>}
