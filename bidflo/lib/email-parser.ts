@@ -129,8 +129,8 @@ export function parseUpworkEmail(input: {
   const roomUrl = upworkRoomUrl(combined);
   // Job titles such as "Interview Booking Automation" or "Offer Workflow CRM"
   // are opportunities, not client replies. Explicit job alerts take precedence.
-  const jobAlertSubject = /^(?:upwork\\s*[-:]\\s*)?(?:new job\\b|job alert\\b|new opportunity\\b|recommended jobs?\\b)/i.test(input.subject.trim());
-  const looksLikeReply = !jobAlertSubject && /(?:replied|message from|invitation|interview|offer|re:\\s*)/i.test(input.subject);
+  const jobAlertSubject = /^(?:upwork\s*[-:]\s*)?(?:new job\b|job alert\b|new opportunity\b|recommended jobs?\b)/i.test(input.subject.trim());
+  const looksLikeReply = !jobAlertSubject && /(?:replied|message from|invitation|interview|offer|re:\s*)/i.test(input.subject);
 
   if (looksLikeReply) {
     return { kind: "reply", jobUrl: jobUrl ?? undefined, roomUrl: roomUrl ?? undefined, subject: input.subject.slice(0, 300), body: safeDescription(body) };
