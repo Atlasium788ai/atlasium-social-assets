@@ -100,32 +100,52 @@ export async function qualifyAndPrepare(opportunityId: string) {
   if (result.rejected || result.score < rules.autoPrepareScore) return { score: result.score, status: nextStatus };
 
   const commercialDraft: ProposalDraft = { body: "", questions: [], ...commercials };
-  const aiAvailable = Boolean(process.env.AI_API_KEY && process.env.AI_MODEL);
-  const draft = aiAvailable ? await generateProposal({
-    opportunity,
-    score: result.score,
-    breakdown: result.breakdown,
-    capabilityProfile: settings.capability_profile as Record<string, unknown>,
-    proposalRules: settings.proposal_rules as Record<string, unknown>,
-    commercials: commercialDraft,
-    approvedExamples: ((settings.proposal_rules as Record<string, unknown>).approvedExamples as string[] | undefined) ?? [],
-  }) : prepareManualReviewDraft(opportunity, commercialDraft);
+  // Never block opportunity intake when the model endpoint is down or a key has expired.
+  // Unreviewed fallback drafts require a human to check every claim and commercial term.
+  let draft: ProposalDraft = prepareManualReviewDraft(opportunity, commercialDraft);
   const minimumQualityScore = Number((settings.proposal_rules as Record<string, unknown>).minimumQualityScore ?? 80);
-  const review = aiAvailable ? await reviewProposal({
-    opportunity,
-    proposal: draft,
-    capabilityProfile: settings.capability_profile as Record<string, unknown>,
-    proposalRules: settings.proposal_rules as Record<string, unknown>,
-    minimumQualityScore,
-  }) : {
+  let review: {
+    score: number | null;
+    issues: string[];
+    humanJudgmentRequired: boolean;
+    humanJudgmentReasons: string[];
+    revisedProposal?: ProposalDraft | null;
+  } = {
     score: null,
-    issues: ["AI provider not configured; automated quality review not performed"],
+    issues: ["AI review unavailable; human review required"],
     humanJudgmentRequired: true,
-    humanJudgmentReasons: ["Edit and verify this draft before approving a bid"],
+    humanJudgmentReasons: ["Verify all scope, timeline and pricing before approving"],
     revisedProposal: null,
   };
+  let aiReviewed = false;
+  if (process.env.AI_API_KEY && process.env.AI_MODEL) {
+    try {
+      draft = await generateProposal({
+        opportunity,
+        score: result.score,
+        breakdown: result.breakdown,
+        capabilityProfile: settings.capability_profile as Record<string, unknown>,
+        proposalRules: settings.proposal_rules as Record<string, unknown>,
+        commercials: commercialDraft,
+        approvedExamples: ((settings.proposal_rules as Record<string, unknown>).approvedExamples as string[] | undefined) ?? [],
+      });
+      review = await reviewProposal({
+        opportunity,
+        proposal: draft,
+        capabilityProfile: settings.capability_profile as Record<string, unknown>,
+        proposalRules: settings.proposal_rules as Record<string, unknown>,
+        minimumQualityScore,
+      });
+      aiReviewed = true;
+    } catch (error) {
+      // If drafting succeeded but review failed, keep the draft but do not claim it was QC'd.
+      const cause = error instanceof Error ? error.message.slice(0, 180) : "Unknown model failure";
+      review.issues = [`Automated quality review unavailable: ${cause}`];
+      await audit("system:ai", "ai.review_unavailable", "opportunity", opportunityId, { cause });
+    }
+  }
   const finalDraft = (review.score ?? 0) < minimumQualityScore && review.revisedProposal ? review.revisedProposal : draft;
-  const proposalStatus = aiAvailable && (review.score ?? 0) >= minimumQualityScore && !review.humanJudgmentRequired ? "ready" : "needs_review";
+  const proposalStatus = aiReviewed && (review.score ?? 0) >= minimumQualityScore && !review.humanJudgmentRequired ? "ready" : "needs_review";
   const [versionRow] = await sql`select coalesce(max(version), 0)::int + 1 as version from bidflo_proposals where opportunity_id = ${opportunityId}`;
   const [proposal] = await sql`
     insert into bidflo_proposals (
