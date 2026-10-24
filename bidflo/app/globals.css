@@ -189,3 +189,51 @@ input, textarea { color: var(--text); background: #0c0c12; border: 1px solid var
 @media (max-width: 480px) {
   .live-pill small { display: none; }.live-pill { display: flex; }.hub-hero h1 { font-size: 39px; }.hub-hero h1 span { display: block; }.hub-tagline { font-size: 8px; letter-spacing: .22em; }.workspace-topbar nav a { font-size: 9px; gap: 5px; }.workspace-topbar nav a svg { width: 14px; }.opportunity-card { padding: 14px; gap: 11px; }.op-card-brand em { display: none; }.op-card-main h3,.op-card-main > p { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }.rules-form .form-row,.follow-metrics { grid-template-columns: 1fr; }
 }
+
+
+/* BidFlo: reply assistant. Flat, legible cards with subtle tone accents. */
+.reply-assistant {
+  max-width: 1370px;
+  margin: 22px auto 26px;
+  padding: clamp(18px, 3vw, 28px);
+  background: linear-gradient(145deg,rgba(6,15,28,.98),rgba(3,9,18,.98));
+  border: 1px solid rgba(0,225,193,.22);
+  border-radius: 19px;
+}
+.reply-assistant-top { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+.reply-assistant-top h2 { font: 750 clamp(25px,2.5vw,31px)/1.1 var(--font-display); letter-spacing: -.8px; margin: 6px 0 7px; }
+.reply-assistant-top p:last-child { color: #95a7b9; font-size: 12px; margin: 0; }
+.reply-upwork-links { display: flex; flex-wrap: wrap; gap: 9px; flex-shrink: 0; }
+.reply-upwork-links a { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; white-space: nowrap; font-size: 11px; padding: 11px 15px; border-radius: 9px; }
+.reply-upwork-links .secondary-button { border: 1px solid rgba(102,155,209,.31); background: rgba(21,37,55,.75); }
+.reply-client-note { margin: 12px 0 20px; border: 1px solid rgba(106,142,189,.16); border-radius: 9px; background: rgba(15,27,43,.42); }
+.reply-client-note summary { cursor: pointer; padding: 11px 13px; color: #a3b5c8; font-size: 11px; font-weight: 650; }
+.reply-client-note p { padding: 0 13px 13px; margin: 0; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: #d3dfec; }
+.reply-choice-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px; }
+.reply-choice { --reply-accent:#38a3ff; min-width: 0; border: 1px solid rgba(84,140,192,.23); border-top: 2px solid var(--reply-accent); border-radius: 12px; background: #07111e; padding: 15px; }
+.reply-choice-consultative { --reply-accent:#b18aff; }
+.reply-choice-friendly { --reply-accent:#00dec3; }
+.reply-choice-header { min-height: 28px; display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+.reply-choice-header strong { color: #f2f7ff; font: 710 15px var(--font-display); }
+.reply-choice-header span { color: #899eb2; font-size: 9px; }
+.reply-choice textarea { resize: vertical; width: 100%; min-height: 215px; border: 1px solid rgba(102,154,204,.21); border-radius: 9px; background: #030a14; color: #d7e3ef; font: 400 12px/1.65 var(--font-body); padding: 13px; outline: none; }
+.reply-choice textarea:focus { border-color: var(--reply-accent); box-shadow: 0 0 0 3px rgba(60,140,255,.08); }
+.reply-loading { display: grid; place-items: center; text-align: center; min-height: 215px; border: 1px dashed rgba(102,154,204,.2); border-radius: 9px; color: #8294aa; font-size: 11px; }
+.reply-choice-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 8px; }
+.reply-choice-controls button { border-radius: 8px; min-height: 39px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.reply-choice-controls .reply-copy { border: 1px solid var(--reply-accent); background: color-mix(in srgb,var(--reply-accent) 14%,#06111b); color: #f8fbff; }
+.reply-choice-controls .reply-regenerate { border: 1px solid rgba(110,151,193,.32); background: #101e2d; color: #a9bdd1; }
+.reply-choice button:disabled { opacity: .35; cursor: not-allowed; }
+.reply-history { display: flex; align-items: center; justify-content: space-between; gap: 7px; font-size: 10px; color: #7890a9; }
+.reply-history button { color: #97b0c8; font-size: 10px; border: 0; padding: 6px 0; background: none; cursor: pointer; }
+.reply-notice { color: #b7cedf; margin: 14px 0 0; font-size: 11px; }
+.reply-assistant-footnote { color: #6e8398; margin: 14px 0 0; font-size: 10px; line-height: 1.6; }
+@media(max-width:1050px) {
+  .reply-choice-grid { grid-template-columns: 1fr; }
+  .reply-choice textarea,.reply-loading { min-height: 130px; }
+}
+@media(max-width:670px) {
+  .reply-assistant-top { align-items: flex-start; flex-direction: column; }
+  .reply-upwork-links { width: 100%; }
+  .reply-upwork-links a { flex: 1; }
+}
