@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { audit, db } from "@/lib/db";
 import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
+import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 
 const qualificationSchema = z.object({
   section: z.literal("qualification").optional(),
@@ -41,6 +42,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+  if (!isSameOriginMutation(request)) return mutationForbidden();
   let actor = "admin";
   try { actor = (await requireAdminSession()).user?.email ?? actor; } catch { return unauthorizedResponse(); }
   const body = await request.json();
