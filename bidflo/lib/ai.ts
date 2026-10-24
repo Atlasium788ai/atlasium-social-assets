@@ -38,7 +38,9 @@ async function chat(system: string, data: Record<string, unknown>, model: string
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      temperature: 0.25,
+      // GPT-5 models do not accept a custom sampling temperature.
+      ...(model.startsWith("gpt-5") ? {} : { temperature: 0.25 }),
+      max_completion_tokens: 3200,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
