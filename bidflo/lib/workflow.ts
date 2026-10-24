@@ -350,14 +350,38 @@ async function processEvent(event: Record<string, unknown>) {
     // Resume its draft instead of discarding it as a duplicate.
     const [existing] = await sql`select id from bidflo_opportunities where external_key = ${item.externalKey} limit 1`;
     if (existing) {
-      const [proposal] = await sql`select id from bidflo_proposals where opportunity_id = ${String(existing.id)} limit 1`;
+      const [proposal] = await sql`
+        select id from bidflo_proposals where opportunity_id = ${String(existing.id)}
+        order by version desc limit 1
+      `;
       if (!proposal) {
         const recovered = await qualifyAndPrepare(String(existing.id));
-        await sql`update bidflo_inbound_events set status = 'processed', error = null, processed_at = now() where id = ${String(event.id)}`;
+        await sql`update bidflo_inbound_events
+            set status = 'processed', error = null, processed_at = now()
+            where id = ${String(event.id)}`;
         return { ...recovered, recovered: true };
       }
+      // A previous worker may have inserted the proposal but crashed before
+      // changing the opportunity status. Repair that incomplete state, only
+      // while nobody has already approved or submitted it.
+      const [repair] = await sql`
+        update bidflo_opportunities set status = 'proposal_ready', updated_at = now()
+        where id = ${String(existing.id)} and status in ('new', 'qualified')
+        returning id
+      `;
+      if (repair) {
+        await sql`update bidflo_inbound_events
+           set status = 'processed', error = null, processed_at = now()
+           where id = ${String(event.id)}`;
+        await queueSlackSafely(`proposal:${String(existing.id)}`, {
+          kind: "proposal_ready", opportunityId: String(existing.id),
+          title: String(item.title),
+        });
+        return { status: "proposal_ready", recovered: true };
+      }
     }
-    await sql`update bidflo_inbound_events set status = 'duplicate', processed_at = now() where id = ${String(event.id)}`;
+    await sql`update bidflo_inbound_events set status = 'duplicate', processed_at = now()
+      where id = ${String(event.id)}`;
     return { status: "duplicate" };
   }
   const opportunityId = String(inserted.id);
