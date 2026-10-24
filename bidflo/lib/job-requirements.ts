@@ -1,15 +1,10 @@
 /** Extract only requirements supported by the pasted posting. */
 export function extractManualRequirements(description: string): string[] {
-  const bullets = description
-    .split(/\r?\n/)
+  const bulletLines = description.split(/\r?\n/)
+    .filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+/.test(line))
     .map((line) => line.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, "").trim())
-    .filter((line) => line.length > 6 && line.length < 301)
-    .filter((line) => !/^(?:to apply|proposals?|requirements?|about the client|payment|budget|client|note|important):/i.test(line));
-  // If the original posting has real bullet lines, preserve their specifics.
-  const actualBullets = description.split(/\r?\n/).filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+/.test(line));
-  if (actualBullets.length >= 2) {
-    return [...new Set(bullets)].slice(0, 10);
-  }
+    .filter((line) => line.length > 6 && line.length <= 300);
+  if (bulletLines.length >= 2) return [...new Set(bulletLines)].slice(0, 10);
 
   // Jobs copied as a single paragraph still need a meaningful scope.
   const signals: Array<[RegExp, string]> = [
