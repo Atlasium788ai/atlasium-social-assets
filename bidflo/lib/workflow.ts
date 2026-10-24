@@ -260,15 +260,17 @@ async function processEvent(event: Record<string, unknown>) {
     }
     const [inboundMessage] = await sql`
       insert into bidflo_messages (
-        opportunity_id, direction, kind, sender, subject, body, received_at, upwork_room_url
+        opportunity_id, direction, kind, sender, subject, body, received_at, upwork_room_url, source_event_id
       ) values (
         ${opportunity?.id ?? null}, 'inbound', 'client_reply',
         ${String(event.sender)}, ${parsed.subject}, ${parsed.body},
-        ${String(event.received_at)}, ${parsed.roomUrl ?? null}
-      ) returning id
+        ${String(event.received_at)}, ${parsed.roomUrl ?? null}, ${String(event.id)}
+      ) on conflict (source_event_id) do nothing returning id
     `;
     if (opportunity?.id) {
-      await sql`update bidflo_opportunities set status = 'replied', updated_at = now() where id = ${opportunity.id}`;
+      // A late email must never regress an interview or a closed opportunity.
+      await sql`update bidflo_opportunities set status = 'replied', updated_at = now()
+        where id = ${opportunity.id} and status in ('submitted', 'replied')`;
     }
     await sql`update bidflo_inbound_events set status = 'processed', processed_at = now() where id = ${String(event.id)}`;
     await audit("system:email", "reply.detected", "opportunity", opportunity?.id, {
@@ -285,7 +287,7 @@ async function processEvent(event: Record<string, unknown>) {
       });
     }
     try {
-      if (await notifyClientReply(opportunity?.id, opportunity?.title)) {
+      if (inboundMessage && await notifyClientReply(opportunity?.id, opportunity?.title)) {
         await audit("system:notification", "reply.notification_sent", "opportunity", opportunity?.id, { linked: Boolean(opportunity?.id) });
       }
     } catch (error) {
@@ -332,22 +334,51 @@ async function processEvent(event: Record<string, unknown>) {
 
 export async function processPendingEvents(limit = 5) {
   const sql = db();
-  const events = await sql`
-    select * from bidflo_inbound_events
-    where status = 'pending'
-    order by received_at asc
-    limit ${limit}
-    for update skip locked
+  // A crashed worker cannot permanently strand messages. Claim eligible work in
+  // one atomic statement; SELECT ... FOR UPDATE alone does not protect later queries.
+  await sql`
+    update bidflo_inbound_events
+       set status = 'pending', retry_at = now()
+     where status = 'processing'
+       and processed_at is null
+       and retry_at <= now()
   `;
+
+  const events = await sql`
+    with candidates as (
+      select id from bidflo_inbound_events
+       where status = 'pending' and retry_at <= now()
+       order by received_at asc
+       limit ${Math.max(1, Math.min(limit, 20))}
+       for update skip locked
+    )
+    update bidflo_inbound_events as e
+       set status = 'processing', attempts = attempts + 1,
+           retry_at = now() + interval '10 minutes'
+      from candidates
+     where e.id = candidates.id
+    returning e.*
+  `;
+
   const results: Array<Record<string, unknown>> = [];
   for (const event of events) {
     try {
       results.push(await processEvent(event));
     } catch (error) {
-      const message = error instanceof Error ? error.message.slice(0, 1000) : "Unknown processing error";
-      await sql`update bidflo_inbound_events set status = 'failed', error = ${message}, processed_at = now() where id = ${String(event.id)}`;
-      await audit("system:workflow", "inbound.failed", "inbound_event", String(event.id), { error: message });
-      results.push({ status: "failed", eventId: String(event.id), error: message });
+      const message = error instanceof Error ? error.message.slice(0, 450) : "Processing failed";
+      const attempt = Number(event.attempts ?? 1);
+      const dead = attempt >= 5;
+      const delay = Math.min(2 ** attempt, 60);
+      await sql`
+        update bidflo_inbound_events
+           set status = ${dead ? "failed" : "pending"},
+               error = ${message}, processed_at = ${dead ? new Date() : null},
+               retry_at = now() + (${delay} * interval '1 minute')
+         where id = ${String(event.id)} and status = 'processing'
+      `;
+      await audit("system:workflow", dead ? "inbound.dead_lettered" : "inbound.retry_scheduled",
+        "inbound_event", String(event.id), { attempt, delayMinutes: delay, error: message });
+      results.push({ status: dead ? "failed" : "retry_scheduled", eventId: String(event.id), attempt });
     }
   }
   return { processed: results.length, results };
