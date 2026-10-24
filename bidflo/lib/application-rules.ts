@@ -20,7 +20,14 @@ export function proposalMeetsRequiredOpening(description: string, body: string):
 
 /** Project-specific evidence must be supplied by a human, never invented. */
 export function requiresVerifiedExample(description: string): boolean {
-  return /(?:share|provide|include|show|mention)\s+(?:a|one|an|your)?\s*(?:real|genuine|relevant|similar|comparable|previous|past)?\s*(?:completed|similar|comparable|relevant)?\s*(?:project|case study|work sample|example)/i.test(description);
+  return /\b(?:share|provide|include|show|mention|give)\b.{0,100}\b(?:similar|comparable|previous|past)\b.{0,45}\b(?:project|work|case study|example)\b/i.test(description)
+    || /\b(?:share|provide|include|show)\s+(?:a|an|one|your)?\s*(?:completed|relevant)\s+(?:project|case study|work sample|example)\b/i.test(description);
+}
+
+export function requestsDeliveryCommitment(description: string): boolean {
+  return /\b(?:deliver|delivery|deadline|commitment|within|by)\b.{0,35}\b(?:30|thirty)[\s–-]*days?\b/i.test(description)
+    || /\b(?:30|thirty)[\s–-]*days?\b.{0,35}\b(?:delivery|deadline|commitment)\b/i.test(description)
+    || /\b(?:by|within)\s+day\s*(?:30|thirty)\b/i.test(description);
 }
 
 export function requestsShortProposal(description: string): boolean {
