@@ -6,6 +6,7 @@ import { db, audit } from "@/lib/db";
 import { parseUpworkEmail } from "@/lib/email-parser";
 import { qualifyAndPrepare } from "@/lib/workflow";
 import { validUpworkJobUrl } from "@/lib/manual-intake";
+import { extractManualRequirements } from "@/lib/job-requirements";
 
 export const runtime = "nodejs";
 
@@ -59,6 +60,10 @@ export async function POST(request: Request) {
   const opportunity = emailLike.opportunity;
   // The source is user-pasted. Never label this a verified live Upwork feed.
   opportunity.title = safeTitle;
+  // Preserve the actual project brief, rather than the email parser's
+  // title/URL/budget wrapper. This fixes generic fallback proposals.
+  opportunity.description = parsed.data.description;
+  opportunity.requirements = extractManualRequirements(parsed.data.description);
   opportunity.jobUrl = jobUrl;
   opportunity.externalKey = jobUrl.match(/~[a-z0-9]+/i)?.[0] ??
     createHash("sha256").update(jobUrl).digest("hex");
