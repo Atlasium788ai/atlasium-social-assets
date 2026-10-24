@@ -14,6 +14,8 @@ test("cannot approve, edit, or rescore active and closed opportunities", () => {
   assert.equal(canEditProposal("ready_to_submit"), false);
   assert.equal(canRescore("proposal_ready"), true);
   assert.equal(canRescore("interviewed"), false);
+  assert.equal(canRescore("submission_processing"), false);
+  assert.equal(canEditProposal("submission_processing"), false);
   assert.equal(canConfirmManualSubmission("ready_to_submit"), true);
   assert.equal(canConfirmManualSubmission("proposal_ready"), false);
 });
