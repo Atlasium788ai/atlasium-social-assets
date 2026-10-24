@@ -2,23 +2,11 @@ import { db, audit } from "./db";
 import { parseUpworkEmail } from "./email-parser";
 import { generateProposal, reviewProposal } from "./ai";
 import { prepareManualReviewDraft } from "./manual-draft";
-import { queueSlackAlert } from "./slack-alerts";
+import { queueSlackAlertSafely } from "./slack-alerts";
 import { notifyProposalReady, notifyClientReply } from "./owner-notifications";
 import { qualifyOpportunity, recommendCommercials } from "./qualification";
 import type { OpportunityInput, ProposalDraft, QualificationRules } from "./types";
 import { canRescore, type OpportunityStage } from "./pipeline-guards";
-
-/** Delivery queue errors must never block qualification or client reply ingestion. */
-async function queueSlackSafely(eventKey: string, input: Parameters<typeof queueSlackAlert>[1]) {
-  try {
-    await queueSlackAlert(eventKey, input);
-  } catch (error) {
-    await audit("system:slack", "slack.enqueue_failed", "opportunity", input.opportunityId ?? undefined, {
-      eventKey,
-      reason: error instanceof Error ? error.message.slice(0, 180) : "Unknown queue failure",
-    }).catch(() => {});
-  }
-}
 
 type EventPayload = {
   text?: string | null;
@@ -108,7 +96,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   await audit("system:qualification", "opportunity.scored", "opportunity", opportunityId, { score: result.score, status: nextStatus });
   if (result.rejected || result.score < rules.autoPrepareScore) {
     if (!result.rejected) {
-      await queueSlackSafely(`qualified:${opportunityId}`, {
+      await queueSlackAlertSafely(`qualified:${opportunityId}`, {
         kind: "qualified", opportunityId, title: opportunity.title,
         score: result.score, amount: commercials.bidAmount,
       });
@@ -193,7 +181,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   });
   if (!proposalId) throw new Error("Opportunity became approved or submitted while drafting");
   await audit("system:review", "proposal.prepared", "proposal", proposalId, { opportunityId, qualityScore: review.score, proposalStatus });
-  await queueSlackSafely(`proposal:${opportunityId}`, {
+  await queueSlackAlertSafely(`proposal:${opportunityId}`, {
     kind: "proposal_ready", opportunityId, title: opportunity.title,
     score: result.score, amount: commercials.bidAmount,
   });
@@ -277,7 +265,7 @@ async function processEvent(event: Record<string, unknown>) {
       });
     }
     if (messageForAlert) {
-      await queueSlackSafely(`reply:${String(messageForAlert.id)}`, {
+      await queueSlackAlertSafely(`reply:${String(messageForAlert.id)}`, {
         kind: "client_reply",
         opportunityId: opportunity?.id,
         title: opportunity?.title ?? parsed.subject,
@@ -338,7 +326,7 @@ async function processEvent(event: Record<string, unknown>) {
         await sql`update bidflo_inbound_events
            set status = 'processed', error = null, processed_at = now()
            where id = ${String(event.id)}`;
-        await queueSlackSafely(`proposal:${String(existing.id)}`, {
+        await queueSlackAlertSafely(`proposal:${String(existing.id)}`, {
           kind: "proposal_ready", opportunityId: String(existing.id),
           title: String(item.title),
         });
