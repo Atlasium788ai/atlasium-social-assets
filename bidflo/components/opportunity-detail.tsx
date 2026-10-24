@@ -20,27 +20,55 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
   const [questions, setQuestions] = useState((opportunity.proposal_questions ?? []).join("\n"));
   const breakdown = opportunity.score_breakdown as ScoreBreakdown | null;
   const latestClientReply = messages.find((message) => message.direction === "inbound" && message.kind === "client_reply");
+  const proposalLocked = ["ready_to_submit", "submission_processing", "submitted", "replied", "interviewed", "won", "lost"].includes(opportunity.status);
 
   async function action(payload: Record<string, unknown>) {
+    if (pending) return;
     setPending(String(payload.action)); setNotice("");
-    const response = await fetch(`/api/opportunities/${opportunity.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    const data = await response.json();
-    setPending("");
-    if (!response.ok) { setNotice(data.error ?? "Action failed"); return; }
-    setNotice("Saved"); setEditing(false); router.refresh();
+    try {
+      const response = await fetch(`/api/opportunities/${opportunity.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) { setNotice(data.error ?? "Action failed"); return; }
+      setNotice("Saved"); setEditing(false); router.refresh();
+    } catch {
+      setNotice("Could not reach BidFlo. Please retry once the connection is restored.");
+    } finally { setPending(""); }
   }
 
   async function submit() {
+    if (pending) return;
     setPending("submit"); setNotice("");
-    const response = await fetch(`/api/opportunities/${opportunity.id}/submit`, { method: "POST" });
-    const data = await response.json();
-    setPending("");
-    if (!response.ok) { setNotice(data.error ?? "Submission handoff failed"); return; }
-    if (data.status === "manual_required") {
-      setNotice("Opened the authenticated Upwork job. Paste the approved proposal, submit it there, then confirm below.");
-      window.open(data.jobUrl, "_blank", "noopener,noreferrer");
-    } else setNotice("Submitted through the authorized integration.");
-    router.refresh();
+    // Open immediately in the user gesture; mobile browsers commonly block
+    // popups initiated AFTER awaiting an API response.
+    const upworkTab = window.open("about:blank", "_blank");
+    try {
+      const response = await fetch(`/api/opportunities/${opportunity.id}/submit`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) {
+        upworkTab?.close();
+        setNotice(data.error ?? "Submission handoff failed");
+        return;
+      }
+      if (data.status === "manual_required") {
+        if (upworkTab && !upworkTab.closed) {
+          upworkTab.opener = null;
+          upworkTab.location.href = String(data.jobUrl);
+          setNotice("Upwork opened. Submit the approved proposal there, then confirm here.");
+        } else {
+          setNotice("Pop-up blocked. Use Open original in the opportunity brief, submit in Upwork, then confirm here.");
+        }
+      } else {
+        upworkTab?.close();
+        setNotice("Submission was acknowledged by the authorized integration.");
+      }
+      router.refresh();
+    } catch {
+      upworkTab?.close();
+      setNotice("Cannot verify submission. Check Upwork before trying again.");
+    } finally { setPending(""); }
   }
 
   return (
@@ -64,7 +92,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
         <div className="detail-main">
           <article className="card proposal-card">
             <div className="card-heading"><div><p className="eyebrow">PROPOSAL PREVIEW</p><h2>Prepared for approval</h2></div>{opportunity.quality_score != null && <span className="qc-score">QC {opportunity.quality_score}/100</span>}</div>
-            {!opportunity.proposal_id ? <div className="empty-state compact"><h3>No proposal prepared yet</h3><p>Opportunities below the auto-prepare threshold remain qualified for manual review.</p><button className="secondary-button" onClick={() => action({ action: "rescore" })}>Score &amp; prepare now</button></div> : editing ? (
+            {!opportunity.proposal_id ? <div className="empty-state compact"><h3>No proposal prepared yet</h3><p>Opportunities below the auto-prepare threshold remain qualified for manual review.</p><button className="secondary-button" disabled={Boolean(pending)} onClick={() => action({ action: "rescore" })}>Score &amp; prepare now</button></div> : editing ? (
               <div className="proposal-editor">
                 <label>Proposal<textarea value={body} onChange={(event) => setBody(event.target.value)} rows={14} /></label>
                 <div className="form-row"><label>Bid amount<input type="number" value={bidAmount} onChange={(event) => setBidAmount(Number(event.target.value))} /></label><label>Timeline<input value={timeline} onChange={(event) => setTimeline(event.target.value)} /></label></div>
@@ -74,10 +102,11 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
               <div className="proposal-copy"><p>{opportunity.proposal_body}</p>{(opportunity.proposal_questions ?? []).length > 0 && <><h3>Questions for the client</h3><ol>{opportunity.proposal_questions!.map((question) => <li key={question}>{question}</li>)}</ol></>}</div>
             )}
             {opportunity.proposal_id && <div className="proposal-actions">
-              {editing ? <><button className="primary-button" disabled={Boolean(pending)} onClick={() => action({ action: "edit", body, bidAmount, timeline, questions: questions.split("\n").map((q) => q.trim()).filter(Boolean) })}>Save edits</button><button className="ghost-button" onClick={() => setEditing(false)}>Cancel</button></> : <>
+              {proposalLocked ? <p>Proposal locked after submission begins. No further edits or approvals permitted.</p> :
+                editing ? <><button className="primary-button" disabled={Boolean(pending)} onClick={() => action({ action: "edit", body, bidAmount, timeline, questions: questions.split("\n").map((q) => q.trim()).filter(Boolean) })}>Save edits</button><button className="ghost-button" disabled={Boolean(pending)} onClick={() => setEditing(false)}>Cancel</button></> : <>
                 <button className="primary-button" disabled={Boolean(pending) || opportunity.status === "approved"} onClick={() => action({ action: "approve" })}>{opportunity.status === "approved" ? "Approved" : "Approve proposal"}</button>
-                <button className="secondary-button" onClick={() => setEditing(true)}>Edit</button>
-                <button className="ghost-button danger" onClick={() => action({ action: "reject", reason: "Rejected by Blair" })}>Reject</button>
+                <button className="secondary-button" disabled={Boolean(pending)} onClick={() => setEditing(true)}>Edit</button>
+                <button className="ghost-button danger" disabled={Boolean(pending)} onClick={() => action({ action: "reject", reason: "Rejected by Blair" })}>Reject</button>
               </>}
             </div>}
           </article>
@@ -90,7 +119,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
           <article className="card commercial-card"><p className="eyebrow">RECOMMENDED COMMERCIALS</p><div><small>Bid</small><strong>{money(opportunity.proposal_bid_amount ?? opportunity.suggested_bid)}</strong></div><div><small>Timeline</small><strong>{opportunity.proposal_timeline ?? opportunity.suggested_timeline ?? "TBD"}</strong></div>{(opportunity.proposal_milestones ?? []).map((milestone) => <section key={milestone.name}><span>{milestone.name}</span><b>{money(milestone.amount)}</b><p>{milestone.deliverable}</p></section>)}</article>
           <article className="card score-card"><p className="eyebrow">QUALIFICATION BREAKDOWN</p>{breakdown ? Object.entries(breakdown).filter(([key]) => key !== "reasons").map(([key, value]) => <div key={key}><span>{key.replace(/([A-Z])/g, " $1")}</span><i><b style={{ width: `${Math.min(100, (Number(value) / (key === "serviceFit" ? 25 : key === "recurringRevenue" ? 10 : 15)) * 100)}%` }} /></i><strong>{String(value)}</strong></div>) : <p>Pending score</p>}</article>
           {opportunity.human_judgment_required && <article className="risk-card"><strong>Human judgment required</strong><p>The reviewer detected uncertainty or risk. Check the quality notes and edit before approval.</p></article>}
-          <article className="card submit-card"><p className="eyebrow">SUBMISSION</p><h3>{opportunity.status === "approved" ? "Approved and ready" : opportunity.status === "ready_to_submit" ? "Manual submission ready" : "Approval required"}</h3><p>Submission uses the permitted integration when configured. Otherwise BidFlo opens the authenticated Upwork job for your final human-controlled action.</p><button className="primary-button" disabled={!['approved','ready_to_submit'].includes(opportunity.status) || Boolean(pending)} onClick={submit}>{pending === "submit" ? "Preparing…" : "Continue to submission"}</button>{opportunity.status === "ready_to_submit" && <button className="secondary-button" onClick={() => action({ action: "mark_submitted" })}>I submitted this bid</button>}</article>
+          <article className="card submit-card"><p className="eyebrow">SUBMISSION</p><h3>{opportunity.status === "approved" ? "Approved and ready" : opportunity.status === "ready_to_submit" ? "Manual submission ready" : opportunity.status === "submission_processing" ? "Verify status in Upwork" : "Approval required"}</h3><p>Submission uses the permitted integration when configured. Otherwise BidFlo opens the authenticated Upwork job for your final human-controlled action.</p><button className="primary-button" disabled={!['approved','ready_to_submit'].includes(opportunity.status) || Boolean(pending)} onClick={submit}>{pending === "submit" ? "Preparing…" : "Continue to submission"}</button>{opportunity.status === "ready_to_submit" && <button className="secondary-button" disabled={Boolean(pending)} onClick={() => action({ action: "mark_submitted" })}>I submitted this bid</button>}</article>
           {['submitted','replied','interviewed'].includes(opportunity.status) && <article className="card stage-actions"><p className="eyebrow">PIPELINE STAGE</p><div><button onClick={() => action({ action: "set_stage", stage: "interviewed" })}>Interview</button><button onClick={() => action({ action: "set_stage", stage: "won" })}>Won</button><button onClick={() => action({ action: "set_stage", stage: "lost" })}>Lost</button></div></article>}
         </aside>
       </section>
