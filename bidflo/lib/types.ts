@@ -5,6 +5,7 @@ export type OpportunityStatus =
   | "proposal_ready"
   | "approved"
   | "ready_to_submit"
+  | "submission_processing"
   | "submitted"
   | "replied"
   | "interviewed"
