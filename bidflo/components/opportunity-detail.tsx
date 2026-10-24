@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ReplyAssistant } from "@/components/reply-assistant";
 import type { OpportunityRow, ScoreBreakdown } from "@/lib/types";
 
 function money(value: string | number | null | undefined) {
@@ -18,6 +19,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
   const [timeline, setTimeline] = useState(opportunity.proposal_timeline ?? opportunity.suggested_timeline ?? "");
   const [questions, setQuestions] = useState((opportunity.proposal_questions ?? []).join("\n"));
   const breakdown = opportunity.score_breakdown as ScoreBreakdown | null;
+  const latestClientReply = messages.find((message) => message.direction === "inbound" && message.kind === "client_reply");
 
   async function action(payload: Record<string, unknown>) {
     setPending(String(payload.action)); setNotice("");
@@ -49,6 +51,13 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
         <div className="detail-title"><div><p className="eyebrow">UPWORK OPPORTUNITY</p><h1>{opportunity.title}</h1><p>{opportunity.client_name ?? "Upwork client"} {opportunity.client_location ? `· ${opportunity.client_location}` : ""}</p></div><div className="hero-score"><strong>{opportunity.score ?? "—"}</strong><span>FIT SCORE</span></div></div>
       </header>
       {notice && <div className="notice" role="status">{notice}</div>}
+      {latestClientReply && <ReplyAssistant
+        key={String(latestClientReply.id)}
+        opportunityId={opportunity.id}
+        messageId={String(latestClientReply.id)}
+        messageBody={String(latestClientReply.body ?? "")}
+        jobUrl={opportunity.job_url}
+      />}
 
       <section className="detail-grid">
         <div className="detail-main">
