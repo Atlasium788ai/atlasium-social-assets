@@ -1,0 +1,28 @@
+export type OpportunityStage =
+  | "new" | "rejected" | "qualified" | "proposal_ready" | "approved"
+  | "ready_to_submit" | "submitted" | "replied" | "interviewed" | "won" | "lost";
+
+export function canEditProposal(stage: OpportunityStage): boolean {
+  return stage === "proposal_ready" || stage === "approved";
+}
+
+export function canRescore(stage: OpportunityStage): boolean {
+  return ["new", "rejected", "qualified", "proposal_ready"].includes(stage);
+}
+
+export function canApproveProposal(stage: OpportunityStage): boolean {
+  return stage === "proposal_ready";
+}
+
+export function canConfirmManualSubmission(stage: OpportunityStage): boolean {
+  return stage === "ready_to_submit";
+}
+
+export function canSetStage(current: OpportunityStage, next: string): boolean {
+  const rules: Record<string, readonly string[]> = {
+    submitted: ["replied", "interviewed", "won", "lost"],
+    replied: ["interviewed", "won", "lost"],
+    interviewed: ["won", "lost"],
+  };
+  return (rules[current] ?? []).includes(next);
+}
