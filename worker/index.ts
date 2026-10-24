@@ -512,7 +512,7 @@ async function imageVariant(env: Env, binary: Uint8Array, width: number, height:
   try {
     const body = new Response(binary.slice().buffer as ArrayBuffer).body;
     if (!body) return binary;
-    const transformed = await env.IMAGES.input(body).transform({ width, height, fit: "cover", gravity: "center" }).output({ format: "image/png", quality: 95 });
+    const transformed = await env.IMAGES.input(body).transform({ width, height, fit: "cover", gravity: "center" }).output({ format: "image/jpeg", quality: 90 });
     const response = transformed.response();
     if (!response.ok) return binary;
     return new Uint8Array(await response.arrayBuffer());
@@ -520,8 +520,8 @@ async function imageVariant(env: Env, binary: Uint8Array, width: number, height:
 }
 
 async function storeGeneratedImage(request: Request, env: Env, binary: Uint8Array, brandId: string, variant: "feed" | "story") {
-  const key = `brands/${brandId}/${new Date().toISOString().slice(0, 10)}/ai-${crypto.randomUUID()}-${variant}.png`;
-  await env.UPLOADS.put(key, binary, { httpMetadata: { contentType: "image/png", cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: `echoflow-ai-${variant}.png`, brandId, surface: variant } });
+  const key = `brands/${brandId}/${new Date().toISOString().slice(0, 10)}/ai-${crypto.randomUUID()}-${variant}.jpg`;
+  await env.UPLOADS.put(key, binary, { httpMetadata: { contentType: "image/jpeg", cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: `echoflow-ai-${variant}.jpg`, brandId, surface: variant } });
   return `${new URL(request.url).origin}/i/${key}`;
 }
 
@@ -529,7 +529,7 @@ async function generateAndHostImages(request: Request, env: Env, prompt: string,
   const response = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
-    body: JSON.stringify({ model: env.OPENAI_IMAGE_MODEL || "gpt-image-2", prompt: `${prompt}. Compose a portrait master with the central subject and any essential details inside a safe area suitable for both a 4:5 feed crop and a 9:16 Story crop.`, size: "1024x1536", quality: "medium", output_format: "png" }),
+    body: JSON.stringify({ model: env.OPENAI_IMAGE_MODEL || "gpt-image-2", prompt: `${prompt}. Compose a portrait master with the central subject and any essential details inside a safe area suitable for both a 4:5 feed crop and a 9:16 Story crop.`, size: "1024x1536", quality: "medium", output_format: "jpeg" }),
   });
   const data = await response.json() as { data?: Array<{ b64_json?: string }>; error?: { message?: string } };
   if (!response.ok || !data.data?.[0]?.b64_json) throw new Error(data.error?.message || "OpenAI image generation failed.");
