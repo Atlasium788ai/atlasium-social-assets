@@ -11,9 +11,10 @@ const items = [
   ["/follow-up", "Follow Up", BellIcon],
 ] as const;
 
-export function AppShell({ children, email }: { children: React.ReactNode; email: string }) {
+export function AppShell({ children, email, publicAccess = false }: { children: React.ReactNode; email: string; publicAccess?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
+  const openAccess = publicAccess || process.env.NEXT_PUBLIC_BIDFLO_AUTH_DISABLED === "true";
   return (
     <div className="app-shell">
       <header className="workspace-topbar">
@@ -25,7 +26,7 @@ export function AppShell({ children, email }: { children: React.ReactNode; email
             </Link>
           ))}
         </nav>
-        <div className="workspace-account"><span className="sync-chip"><i /> Agent live</span><button className="profile-button" title={`${email} · Sign out`} onClick={async () => { await authClient.signOut(); router.replace("/login"); router.refresh(); }}>{email.slice(0, 1).toUpperCase()}</button></div>
+        <div className="workspace-account"><span className="sync-chip"><i /> Agent live</span>{openAccess ? <span className="public-access-chip">Open access</span> : <button className="profile-button" title={`${email} · Sign out`} onClick={async () => { await authClient.signOut(); router.replace("/login"); router.refresh(); }}>{email.slice(0, 1).toUpperCase()}</button>}</div>
       </header>
       <div className="app-content">{children}</div>
     </div>

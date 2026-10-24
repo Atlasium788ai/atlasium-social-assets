@@ -17,7 +17,14 @@ function allowedEmails() {
   );
 }
 
+export function isAuthDisabled() {
+  return process.env.BIDFLO_AUTH_DISABLED === "true";
+}
+
 export async function getAdminSession() {
+  if (isAuthDisabled()) {
+    return { user: { email: process.env.BIDFLO_OWNER_EMAIL ?? "info@atlasium788.ca", name: "BidFlo Operator" } };
+  }
   const { data } = await getAuth().getSession();
   const email = data?.user?.email?.toLowerCase();
   if (!email || !allowedEmails().has(email)) return null;

@@ -1,14 +1,17 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
 
 export default function LoginPage() {
   const router = useRouter();
+  const openAccess = process.env.NEXT_PUBLIC_BIDFLO_AUTH_DISABLED === "true";
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+
+  useEffect(() => { if (openAccess) router.replace("/"); }, [openAccess, router]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,6 +43,8 @@ export default function LoginPage() {
     if (result.error) { setError(result.error.message ?? "Could not send the access link."); return; }
     setNotice("Check your email for a secure password link.");
   }
+
+  if (openAccess) return <main className="login-shell"><p className="login-subtitle">Opening BidFlo…</p></main>;
 
   return (
     <main className="login-shell">
