@@ -119,6 +119,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   const result = qualifyOpportunity(opportunity, rules);
   const commercials = recommendCommercials(opportunity, rules.targetHourlyRate);
   const nextStatus = result.rejected ? "rejected" : "qualified";
+  const willPrepareDraft = !result.rejected && result.score >= rules.autoPrepareScore;
   // Guard the update in SQL too: state can change between the initial read
   // and scoring, especially when a reviewer has the opportunity open.
   const [claim] = await sql`
@@ -130,7 +131,9 @@ export async function qualifyAndPrepare(opportunityId: string) {
       suggested_bid = ${commercials.bidAmount},
       suggested_timeline = ${commercials.timeline},
       suggested_milestones = ${sql.json(commercials.milestones)},
-      status = ${nextStatus},
+      -- Keep the current reviewable draft visible while a replacement is prepared.
+      status = case when status = 'proposal_ready' and ${willPrepareDraft}
+                    then status else ${nextStatus} end,
       updated_at = now()
     where id = ${opportunityId}
       and status in ('new', 'rejected', 'qualified', 'proposal_ready')
