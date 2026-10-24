@@ -11,7 +11,7 @@ export function extractManualRequirements(description: string): string[] {
     [/\b(?:lead qualification|qualif(?:ied|y|ication)\s+leads?)\b/i, "Lead qualification and routing"],
     [/\b(?:crm|sales pipeline|deal pipeline)\b/i, "CRM setup and sales pipeline tracking"],
     [/\b(?:appointment booking|calendar|book(?:ed|ing)? calls?|scheduling)\b/i, "Calendar booking and appointment scheduling"],
-    [/\b(?:follow[\s-]?up|reminder|confirmation email|nurtur(?:e|ing))\b/i, "Automated follow-ups and reminders"],
+    [/\b(?:follow[\s-]?ups?|reminders?|confirmation emails?|nurtur(?:e|ing))\b/i, "Automated follow-ups and reminders"],
     [/\b(?:linkedin outreach|linkedin leads?)\b/i, "Track LinkedIn outreach leads"],
     [/\b(?:dashboard|reporting|metrics)\b/i, "Reporting and results dashboard"],
     [/\b(?:social traffic|lead funnel|funnel)\b/i, "Lead funnel and conversion flow"],
