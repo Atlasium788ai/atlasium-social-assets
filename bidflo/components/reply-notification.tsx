@@ -17,7 +17,6 @@ type IncomingReply = {
 export function ReplyNotification() {
   const pathname = usePathname();
   const [active, setActive] = useState<IncomingReply | null>(null);
-  const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
     // The opportunity detail screen displays the same reply assistant in-page.
@@ -49,7 +48,6 @@ export function ReplyNotification() {
       try { localStorage.setItem(`bidflo:reply-seen:${active.id}`, "1"); } catch {}
     }
     setActive(null);
-    setHidden(false);
   }
 
   if (!active || pathname.startsWith("/opportunities/")) return null;
