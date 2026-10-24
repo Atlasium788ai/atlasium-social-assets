@@ -1,3 +1,15 @@
+# Release hold: continue on `codex/bidflo-next`
+
+**October 24, 2026.** The owner requires **$0 additional spending**. Render has exhausted this month's build-pipeline allowance. The current live BidFlo service remains operational.
+
+- Do **not** push further BidFlo development to `codex/bidflo`; it is Render's deployment branch.
+- Switch to `codex/bidflo-next` for all next code changes. That branch has free standard GitHub Actions tests, lint, and Next.js build, without triggering Render deployments.
+- Batch and review changes. No new Render services, plan upgrades, build purchases, paid tooling, or production deploys without explicit approval.
+- Preserve existing live data and the Find / Bid / Follow Up interface. Never submit bids, spend Upwork Connects, or send client messages without explicit approval.
+- When included Render minutes reset, merge a tested release once and verify live functionality. Do not merge during the hold.
+
+---
+
 # BidFlo release constraints and integration tasks
 
 ## Hardening handoff, October 24
