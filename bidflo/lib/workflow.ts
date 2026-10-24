@@ -6,6 +6,7 @@ import { prepareManualReviewDraft } from "./manual-draft";
 import { queueSlackAlert } from "./slack-alerts";
 import { qualifyOpportunity, recommendCommercials } from "./qualification";
 import type { OpportunityInput, ProposalDraft, QualificationRules } from "./types";
+import { canRescore, type OpportunityStage } from "./pipeline-guards";
 
 /** Delivery queue errors must never block qualification or client reply ingestion. */
 async function queueSlackSafely(eventKey: string, input: Parameters<typeof queueSlackAlert>[1]) {
@@ -109,13 +110,18 @@ export async function qualifyAndPrepare(opportunityId: string) {
   const [opportunityRow] = await sql`select * from bidflo_opportunities where id = ${opportunityId}`;
   const [settings] = await sql`select * from bidflo_settings where id = 'default'`;
   if (!opportunityRow || !settings) throw new Error("Opportunity or BidFlo settings not found");
+  if (!canRescore(String(opportunityRow.status) as OpportunityStage)) {
+    throw new Error("Cannot rescore a submitted, approved, or closed opportunity");
+  }
 
   const opportunity = rowToOpportunity(opportunityRow);
   const rules = settings.qualification_rules as QualificationRules;
   const result = qualifyOpportunity(opportunity, rules);
   const commercials = recommendCommercials(opportunity, rules.targetHourlyRate);
   const nextStatus = result.rejected ? "rejected" : "qualified";
-  await sql`
+  // Guard the update in SQL too: state can change between the initial read
+  // and scoring, especially when a reviewer has the opportunity open.
+  const [claim] = await sql`
     update bidflo_opportunities set
       score = ${result.score},
       score_breakdown = ${sql.json(result.breakdown)},
@@ -127,7 +133,10 @@ export async function qualifyAndPrepare(opportunityId: string) {
       status = ${nextStatus},
       updated_at = now()
     where id = ${opportunityId}
+      and status in ('new', 'rejected', 'qualified', 'proposal_ready')
+    returning id
   `;
+  if (!claim) throw new Error("Opportunity changed status before scoring could finish");
   await audit("system:qualification", "opportunity.scored", "opportunity", opportunityId, { score: result.score, status: nextStatus });
   if (result.rejected || result.score < rules.autoPrepareScore) {
     if (!result.rejected) {
@@ -186,19 +195,36 @@ export async function qualifyAndPrepare(opportunityId: string) {
   }
   const finalDraft = (review.score ?? 0) < minimumQualityScore && review.revisedProposal ? review.revisedProposal : draft;
   const proposalStatus = aiReviewed && (review.score ?? 0) >= minimumQualityScore && !review.humanJudgmentRequired ? "ready" : "needs_review";
-  const [versionRow] = await sql`select coalesce(max(version), 0)::int + 1 as version from bidflo_proposals where opportunity_id = ${opportunityId}`;
-  const [proposal] = await sql`
-    insert into bidflo_proposals (
-      opportunity_id, version, body, questions, bid_amount, timeline, milestones,
-      quality_score, quality_review, human_judgment_required, status
-    ) values (
-      ${opportunityId}, ${Number(versionRow.version)}, ${finalDraft.body}, ${sql.json(finalDraft.questions)},
-      ${finalDraft.bidAmount}, ${finalDraft.timeline}, ${sql.json(finalDraft.milestones)},
-      ${review.score}, ${sql.json(review)}, ${review.humanJudgmentRequired}, ${proposalStatus}
-    ) returning id
-  `;
-  await sql`update bidflo_opportunities set status = 'proposal_ready', updated_at = now() where id = ${opportunityId}`;
-  await audit("system:review", "proposal.prepared", "proposal", String(proposal.id), { opportunityId, qualityScore: review.score, proposalStatus });
+  // Serialization + state recheck prevent a slow AI operation from
+  // inserting a new draft after human approval or submission. Version
+  // numbering is protected by the parent opportunity row lock.
+  const proposalId = await sql.begin(async (tx) => {
+    const [latest] = await tx`
+      select status from bidflo_opportunities where id = ${opportunityId} for update
+    `;
+    if (!latest || !canRescore(String(latest.status) as OpportunityStage)) return null;
+    const [versionRow] = await tx`
+      select coalesce(max(version), 0)::int + 1 as version
+      from bidflo_proposals where opportunity_id = ${opportunityId}
+    `;
+    const [proposal] = await tx`
+      insert into bidflo_proposals (
+        opportunity_id, version, body, questions, bid_amount, timeline, milestones,
+        quality_score, quality_review, human_judgment_required, status
+      ) values (
+        ${opportunityId}, ${Number(versionRow.version)}, ${finalDraft.body}, ${tx.json(finalDraft.questions)},
+        ${finalDraft.bidAmount}, ${finalDraft.timeline}, ${tx.json(finalDraft.milestones)},
+        ${review.score}, ${tx.json(review)}, ${review.humanJudgmentRequired}, ${proposalStatus}
+      ) returning id
+    `;
+    await tx`
+      update bidflo_opportunities set status = 'proposal_ready', updated_at = now()
+      where id = ${opportunityId}
+    `;
+    return String(proposal.id);
+  });
+  if (!proposalId) throw new Error("Opportunity became approved or submitted while drafting");
+  await audit("system:review", "proposal.prepared", "proposal", proposalId, { opportunityId, qualityScore: review.score, proposalStatus });
   await queueSlackSafely(`proposal:${opportunityId}`, {
     kind: "proposal_ready", opportunityId, title: opportunity.title,
     score: result.score, amount: commercials.bidAmount,
@@ -208,7 +234,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   } catch (error) {
     await audit("system:notification", "notification.failed", "opportunity", opportunityId, { error: error instanceof Error ? error.message : "Unknown error" });
   }
-  return { score: result.score, status: "proposal_ready", proposalId: String(proposal.id) };
+  return { score: result.score, status: "proposal_ready", proposalId };
 }
 
 async function processEvent(event: Record<string, unknown>) {
