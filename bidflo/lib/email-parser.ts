@@ -3,7 +3,7 @@ import type { OpportunityInput } from "./types";
 
 export type ParsedInbound =
   | { kind: "opportunity"; opportunity: OpportunityInput }
-  | { kind: "reply"; jobUrl?: string; subject: string; body: string }
+  | { kind: "reply"; jobUrl?: string; roomUrl?: string; subject: string; body: string }
   | { kind: "ignored"; reason: string };
 
 export function plainTextFromEmail(text?: string | null, html?: string | null) {
@@ -44,6 +44,17 @@ export function canonicalUpworkUrl(value: string) {
   } catch {
     return null;
   }
+}
+
+/** Direct Upwork Messages room link when the inbound notification contains one. */
+export function upworkRoomUrl(value: string) {
+  const found = value.match(/https?:\/\/(?:www\.)?upwork\.com\/ab\/messages\/rooms\/[^\s<>\])"']*/i);
+  return found ? canonicalUpworkUrl(found[0]) : null;
+}
+
+export function upworkJobUrl(value: string) {
+  const found = value.match(/https?:\/\/(?:www\.)?upwork\.com\/(?:jobs|nx\/search\/jobs\/details|freelance-jobs\/apply)\/[^\s<>\])"']+/i);
+  return found ? canonicalUpworkUrl(found[0]) : null;
 }
 
 function parseMoney(value?: string | null) {
@@ -103,12 +114,14 @@ export function parseUpworkEmail(input: {
   receivedAt: string;
 }): ParsedInbound {
   const body = plainTextFromEmail(input.text, input.html);
-  const combined = `${input.subject}\n${body}`;
-  const jobUrl = canonicalUpworkUrl(combined);
+  // HTML hrefs can contain the direct room link even when the rendered text does not.
+  const combined = `${input.subject}\n${input.text ?? ""}\n${input.html ?? ""}\n${body}`;
+  const jobUrl = upworkJobUrl(combined);
+  const roomUrl = upworkRoomUrl(combined);
   const looksLikeReply = /(?:replied|message from|invitation|interview|offer|re:\s*)/i.test(input.subject);
 
   if (looksLikeReply) {
-    return { kind: "reply", jobUrl: jobUrl ?? undefined, subject: input.subject.slice(0, 300), body: safeDescription(body) };
+    return { kind: "reply", jobUrl: jobUrl ?? undefined, roomUrl: roomUrl ?? undefined, subject: input.subject.slice(0, 300), body: safeDescription(body) };
   }
   if (!jobUrl) return { kind: "ignored", reason: "No permitted Upwork job link found" };
 
