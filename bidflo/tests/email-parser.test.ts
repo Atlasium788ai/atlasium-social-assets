@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canonicalUpworkUrl, parseUpworkEmail, plainTextFromEmail } from "../lib/email-parser";
+import { canonicalUpworkUrl, parseUpworkEmail, plainTextFromEmail, upworkJobUrl, upworkRoomUrl } from "../lib/email-parser";
 
 test("parses a new Upwork opportunity with commercial signals", () => {
   const result = parseUpworkEmail({
@@ -60,4 +60,32 @@ test("recognizes the current Upwork freelance-jobs/apply link format", () => {
   });
   assert.equal(result.kind, "opportunity");
   if (result.kind === "opportunity") assert.equal(result.opportunity.externalKey, "~021234567890123456789");
+});
+
+
+test("reply email captures both the job and exact Upwork Messages room", () => {
+  const message = parseUpworkEmail({
+    subject: "Client replied to your proposal: CRM Automation",
+    text: "Are you available for a quick call? https://www.upwork.com/jobs/~01ROOMJOB",
+    html: '<a href="https://www.upwork.com/ab/messages/rooms/room_live123?utm_source=email">Reply</a>',
+    receivedAt: "2026-10-24T12:00:00.000Z",
+  });
+  assert.equal(message.kind, "reply");
+  if (message.kind === "reply") {
+    assert.equal(message.jobUrl, "https://www.upwork.com/jobs/~01ROOMJOB");
+    assert.equal(message.roomUrl, "https://www.upwork.com/ab/messages/rooms/room_live123");
+  }
+});
+
+test("room URL alone is not mistaken for a new job listing", () => {
+  const url = "https://www.upwork.com/ab/messages/rooms/room_live456";
+  assert.equal(upworkJobUrl(url), null);
+  assert.equal(upworkRoomUrl(url), url);
+  const result = parseUpworkEmail({
+    subject: "A client replied to your proposal",
+    text: \`Can we meet? \${url}\`,
+    receivedAt: "2026-10-24T12:00:00.000Z",
+  });
+  assert.equal(result.kind, "reply");
+  if (result.kind === "reply") assert.equal(result.jobUrl, undefined);
 });
