@@ -73,30 +73,50 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return Response.json(result);
   }
   if (parsed.data.action === "edit") {
-    if (!canEditProposal(String(opportunity.status) as OpportunityStage)) return Response.json({ error: "Cannot edit a submitted or closed bid" }, { status: 409 });
-    const [proposal] = await sql`select id from bidflo_proposals where opportunity_id = ${id} order by version desc limit 1`;
-    if (!proposal) return Response.json({ error: "No proposal to edit" }, { status: 409 });
-    await sql`
-      update bidflo_proposals set body = ${parsed.data.body}, bid_amount = ${parsed.data.bidAmount},
-        timeline = ${parsed.data.timeline}, questions = ${sql.json(parsed.data.questions)},
-        status = 'edited', quality_score = null, quality_review = ${sql.json({ issues: ["Manual changes require review"], humanJudgmentRequired: true })},
-        human_judgment_required = true, updated_at = now()
-      where id = ${String(proposal.id)}
-    `;
-    // Manual editing revokes any previous approval; the new text must be approved again.
-    await sql`update bidflo_opportunities set status = 'proposal_ready', updated_at = now() where id = ${id} and status in ('proposal_ready', 'approved')`;
-    await audit(actor, "proposal.edited", "proposal", String(proposal.id), { opportunityId: id });
+    // Serialise against submission: editing an approved proposal revokes approval.
+    const result = await sql.begin(async (tx) => {
+      const [current] = await tx`select status from bidflo_opportunities where id = ${id} for update`;
+      if (!current || !canEditProposal(String(current.status) as OpportunityStage)) return null;
+      const [proposal] = await tx`
+        select id from bidflo_proposals where opportunity_id = ${id}
+        order by version desc limit 1
+      `;
+      if (!proposal) return null;
+      await tx`
+        update bidflo_proposals
+           set body = ${parsed.data.body}, bid_amount = ${parsed.data.bidAmount},
+               timeline = ${parsed.data.timeline}, questions = ${tx.json(parsed.data.questions)},
+               status = 'edited', quality_score = null,
+               quality_review = ${tx.json({ issues: ["Manual edits must be reviewed"], humanJudgmentRequired: true })},
+               human_judgment_required = true, updated_at = now()
+         where id = ${String(proposal.id)}
+      `;
+      await tx`update bidflo_opportunities set status = 'proposal_ready', updated_at = now()
+        where id = ${id}`;
+      return String(proposal.id);
+    });
+    if (!result) return Response.json({ error: "This proposal is no longer editable; refresh first" }, { status: 409 });
+    await audit(actor, "proposal.edited", "proposal", result, { opportunityId: id });
     return Response.json({ ok: true, status: "proposal_ready" });
   }
+
   if (parsed.data.action === "approve") {
-    if (!canApproveProposal(String(opportunity.status) as OpportunityStage)) return Response.json({ error: "Proposal is not awaiting approval" }, { status: 409 });
-    const [proposal] = await sql`select id from bidflo_proposals where opportunity_id = ${id} order by version desc limit 1`;
-    if (!proposal) return Response.json({ error: "No proposal to approve" }, { status: 409 });
-    const [updated] = await sql`update bidflo_opportunities set status = 'approved', updated_at = now()
-      where id = ${id} and status = 'proposal_ready' returning id`;
-    if (!updated) return Response.json({ error: "Approval state changed; refresh first" }, { status: 409 });
-    await sql`update bidflo_proposals set status = 'approved', updated_at = now() where id = ${String(proposal.id)}`;
-    await audit(actor, "proposal.approved", "proposal", String(proposal.id), { opportunityId: id });
+    const result = await sql.begin(async (tx) => {
+      const [current] = await tx`select status from bidflo_opportunities where id = ${id} for update`;
+      if (!current || !canApproveProposal(String(current.status) as OpportunityStage)) return null;
+      const [proposal] = await tx`
+        select id, status from bidflo_proposals
+         where opportunity_id = ${id} order by version desc limit 1
+      `;
+      if (!proposal || !["needs_review", "edited", "ready", "draft"].includes(String(proposal.status))) return null;
+      await tx`update bidflo_proposals set status = 'approved', updated_at = now()
+        where id = ${String(proposal.id)}`;
+      await tx`update bidflo_opportunities set status = 'approved', updated_at = now()
+        where id = ${id}`;
+      return String(proposal.id);
+    });
+    if (!result) return Response.json({ error: "Proposal is not awaiting approval; refresh first" }, { status: 409 });
+    await audit(actor, "proposal.approved", "proposal", result, { opportunityId: id });
     return Response.json({ ok: true, status: "approved" });
   }
   if (parsed.data.action === "reject") {
@@ -106,23 +126,38 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return Response.json({ ok: true, status: "rejected" });
   }
   if (parsed.data.action === "mark_submitted") {
-    if (!canConfirmManualSubmission(String(opportunity.status) as OpportunityStage)) return Response.json({ error: "Manual handoff is not awaiting confirmation" }, { status: 409 });
-    const [prepared] = await sql`
-      select p.id from bidflo_proposals p
-      where p.opportunity_id = ${id} and p.status = 'approved'
-        and p.version = (select max(version) from bidflo_proposals where opportunity_id = ${id})
-        and exists (select 1 from bidflo_submission_events e where e.opportunity_id = ${id} and e.status = 'manual_required')
-      limit 1
-    `;
-    if (!prepared) return Response.json({ error: "Approved proposal and manual submission handoff required" }, { status: 409 });
-    const [updated] = await sql`update bidflo_opportunities set status = 'submitted', updated_at = now()
-      where id = ${id} and status = 'ready_to_submit' returning id`;
-    if (!updated) return Response.json({ error: "Bid was already confirmed or changed" }, { status: 409 });
-    await sql`insert into bidflo_submission_events (opportunity_id, status, detail) values (${id}, 'submitted', ${sql.json({ method: "human_confirmed" })})`;
+    // This is a RECORD of a manual action already performed in Upwork,
+    // not an automated bid. Check and update inside one database transaction.
+    const completed = await sql.begin(async (tx) => {
+      const [current] = await tx`
+        select status from bidflo_opportunities where id = ${id} for update
+      `;
+      if (!current || !canConfirmManualSubmission(String(current.status) as OpportunityStage)) return false;
+      const [prepared] = await tx`
+        select p.id from bidflo_proposals p
+        where p.opportunity_id = ${id} and p.status = 'approved'
+          and p.version = (select max(version) from bidflo_proposals where opportunity_id = ${id})
+          and exists (
+            select 1 from bidflo_submission_events e
+            where e.opportunity_id = ${id} and e.proposal_id = p.id
+              and e.status = 'manual_required'
+          )
+        limit 1
+      `;
+      if (!prepared) return false;
+      await tx`update bidflo_opportunities set status = 'submitted', updated_at = now()
+        where id = ${id}`;
+      await tx`insert into bidflo_submission_events (opportunity_id, proposal_id, status, detail)
+        values (${id}, ${String(prepared.id)}, 'submitted', ${tx.json({ method: "human_confirmed" })})`;
+      return true;
+    });
+    if (!completed) return Response.json({ error: "Manual submission was not prepared or already confirmed" }, { status: 409 });
     await audit(actor, "proposal.submitted_confirmed", "opportunity", id);
     const [detail] = await sql`select title from bidflo_opportunities where id = ${id}`;
     try {
-      await queueSlackAlert(`submitted:${id}`, { kind: "submitted", opportunityId: id, title: String(detail?.title ?? "Upwork opportunity") });
+      await queueSlackAlert(`submitted:${id}`, {
+        kind: "submitted", opportunityId: id, title: String(detail?.title ?? "Upwork opportunity"),
+      });
     } catch (error) {
       await audit("system:slack", "slack.enqueue_failed", "opportunity", id, {
         reason: error instanceof Error ? error.message.slice(0, 150) : "Unknown queue failure",
