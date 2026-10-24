@@ -53,7 +53,7 @@ export function CaptureUpworkJob() {
         <label>Job title
           <input required placeholder="Paste the actual job title" value={title} onChange={(event) => setTitle(event.target.value)} minLength={8} maxLength={180}/>
         </label>
-        <label>Client's project description
+        <label>Client&apos;s project description
           <textarea required rows={4} minLength={80} maxLength={12000} placeholder="Paste the genuine job description and requirements from Upwork." value={description} onChange={(event) => setDescription(event.target.value)}/>
         </label>
         <div className="quick-capture-actions">
