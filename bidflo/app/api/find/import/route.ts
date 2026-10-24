@@ -4,6 +4,7 @@ import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
 import { db, audit } from "@/lib/db";
 import { parseUpworkEmail } from "@/lib/email-parser";
 import { qualifyAndPrepare } from "@/lib/workflow";
+import { validUpworkJobUrl } from "@/lib/manual-intake";
 
 export const runtime = "nodejs";
 
@@ -13,22 +14,6 @@ const intake = z.object({
   description: z.string().trim().min(80).max(12000),
   budgetUsd: z.number().nonnegative().max(10_000_000).nullable().optional(),
 }).strict();
-
-function validJobUrl(raw: string) {
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:" ||
-      !["upwork.com", "www.upwork.com"].includes(url.hostname.toLowerCase()) ||
-      !/^\/(?:jobs\/|nx\/search\/jobs\/details\/|freelance-jobs\/apply\/)/i.test(url.pathname)) {
-      return null;
-    }
-    url.search = "";
-    url.hash = "";
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    return null;
-  }
-}
 
 /** Manual bridge while Upwork OAuth / email job alerts are not enabled. Nothing is bid or sent. */
 export async function POST(request: Request) {
@@ -54,7 +39,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "Provide the Upwork job link, title and copied project requirements (80+ characters)." }, { status: 400 });
   }
-  const jobUrl = validJobUrl(parsed.data.jobUrl);
+  const jobUrl = validUpworkJobUrl(parsed.data.jobUrl);
   if (!jobUrl) return Response.json({ error: "Use a direct Upwork job posting URL." }, { status: 400 });
 
   const sql = db();
