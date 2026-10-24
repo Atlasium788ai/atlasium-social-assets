@@ -8,8 +8,8 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start -H 0.0.0.0 -p ${PORT:-3000}",
+    "build": "pnpm test && next build",
+    "start": "pnpm run db:migrate && next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "eslint .",
     "test": "tsx --test tests/*.test.ts",
     "db:migrate": "tsx scripts/migrate.ts",
