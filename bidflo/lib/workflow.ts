@@ -272,14 +272,18 @@ async function processEvent(event: Record<string, unknown>) {
       await sql`update bidflo_opportunities set status = 'replied', updated_at = now()
         where id = ${opportunity.id} and status in ('submitted', 'replied')`;
     }
-    await sql`update bidflo_inbound_events set status = 'processed', processed_at = now() where id = ${String(event.id)}`;
-    await audit("system:email", "reply.detected", "opportunity", opportunity?.id, {
-      subject: parsed.subject,
-      linked: Boolean(opportunity?.id),
-      hasRoomUrl: Boolean(parsed.roomUrl),
-    });
+    const [messageForAlert] = inboundMessage ? [inboundMessage] : await sql`
+      select id from bidflo_messages where source_event_id = ${String(event.id)} limit 1
+    `;
     if (inboundMessage) {
-      await queueSlackSafely(`reply:${String(inboundMessage.id)}`, {
+      await audit("system:email", "reply.detected", "opportunity", opportunity?.id, {
+        subject: parsed.subject,
+        linked: Boolean(opportunity?.id),
+        hasRoomUrl: Boolean(parsed.roomUrl),
+      });
+    }
+    if (messageForAlert) {
+      await queueSlackSafely(`reply:${String(messageForAlert.id)}`, {
         kind: "client_reply",
         opportunityId: opportunity?.id,
         title: opportunity?.title ?? parsed.subject,
@@ -295,6 +299,8 @@ async function processEvent(event: Record<string, unknown>) {
         error: error instanceof Error ? error.message.slice(0, 300) : "Unknown notification error",
       });
     }
+    await sql`update bidflo_inbound_events set status = 'processed', processed_at = now(), error = null
+      where id = ${String(event.id)} and status = 'processing'`;
     return { status: "reply", linked: Boolean(opportunity?.id) };
   }
 
