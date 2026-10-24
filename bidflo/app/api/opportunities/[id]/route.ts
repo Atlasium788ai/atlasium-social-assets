@@ -2,6 +2,7 @@ import { z } from "zod";
 import { audit, db } from "@/lib/db";
 import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
 import { qualifyAndPrepare } from "@/lib/workflow";
+import { queueSlackAlert } from "@/lib/slack-alerts";
 
 const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve") }),
@@ -94,9 +95,29 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     await sql`update bidflo_opportunities set status = 'submitted', updated_at = now() where id = ${id}`;
     await sql`insert into bidflo_submission_events (opportunity_id, status, detail) values (${id}, 'submitted', ${sql.json({ method: "human_confirmed" })})`;
     await audit(actor, "proposal.submitted_confirmed", "opportunity", id);
+    const [detail] = await sql`select title from bidflo_opportunities where id = ${id}`;
+    try {
+      await queueSlackAlert(`submitted:${id}`, { kind: "submitted", opportunityId: id, title: String(detail?.title ?? "Upwork opportunity") });
+    } catch (error) {
+      await audit("system:slack", "slack.enqueue_failed", "opportunity", id, {
+        reason: error instanceof Error ? error.message.slice(0, 150) : "Unknown queue failure",
+      }).catch(() => {});
+    }
     return Response.json({ ok: true, status: "submitted" });
   }
   await sql`update bidflo_opportunities set status = ${parsed.data.stage}, updated_at = now() where id = ${id}`;
   await audit(actor, `opportunity.${parsed.data.stage}`, "opportunity", id);
+  if (parsed.data.stage === "interviewed" || parsed.data.stage === "won") {
+    const [detail] = await sql`select title from bidflo_opportunities where id = ${id}`;
+    try {
+      await queueSlackAlert(`stage:${id}:${parsed.data.stage}`, {
+        kind: parsed.data.stage, opportunityId: id, title: String(detail?.title ?? "Upwork opportunity"),
+      });
+    } catch (error) {
+      await audit("system:slack", "slack.enqueue_failed", "opportunity", id, {
+        reason: error instanceof Error ? error.message.slice(0, 150) : "Unknown queue failure",
+      }).catch(() => {});
+    }
+  }
   return Response.json({ ok: true, status: parsed.data.stage });
 }
