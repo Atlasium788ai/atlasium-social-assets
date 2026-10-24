@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { db, audit } from "@/lib/db";
 import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
+import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 import { REPLY_TONES, safeSuggestedReply, starterReply, type ReplyTone } from "@/lib/reply-suggestions";
 
 export const runtime = "nodejs";
@@ -80,6 +81,7 @@ async function writeWithAI(
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!isSameOriginMutation(request)) return mutationForbidden();
   try {
     await requireAdminSession();
   } catch {
