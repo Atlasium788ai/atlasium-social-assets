@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
+import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 import { db, audit } from "@/lib/db";
 import { parseUpworkEmail } from "@/lib/email-parser";
 import { qualifyAndPrepare } from "@/lib/workflow";
@@ -23,17 +24,7 @@ export async function POST(request: Request) {
   } catch {
     return unauthorizedResponse();
   }
-  const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      const originUrl = new URL(origin);
-      if (originUrl.host !== request.headers.get("host") || originUrl.protocol !== "https:") {
-        return Response.json({ error: "Invalid request origin" }, { status: 403 });
-      }
-    } catch {
-      return Response.json({ error: "Invalid request origin" }, { status: 403 });
-    }
-  }
+  if (!isSameOriginMutation(request)) return mutationForbidden();
 
   const parsed = intake.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
