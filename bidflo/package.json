@@ -12,6 +12,7 @@
     "start": "pnpm run db:migrate && next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "eslint .",
     "test": "tsx --test tests/*.test.ts",
+    "readiness": "tsx scripts/check-readiness.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "auth:hash": "node scripts/hash-secret.mjs"
   },

@@ -4,8 +4,9 @@ import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
 import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 import { qualifyAndPrepare } from "@/lib/workflow";
 import { queueSlackAlertSafely } from "@/lib/slack-alerts";
-import { proposalApprovalIssues } from "@/lib/application-rules";
 import { canEditProposal, canRescore, canApproveProposal, canConfirmManualSubmission, canSetStage, type OpportunityStage } from "@/lib/pipeline-guards";
+import { proposalPreflight, rebalanceMilestones } from "@/lib/proposal-preflight";
+import type { OpportunityInput, ProposalDraft } from "@/lib/types";
 
 const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve") }),
@@ -28,6 +29,31 @@ async function sessionOrResponse() {
   } catch {
     return { session: null, response: unauthorizedResponse() };
   }
+}
+
+function preflightOpportunity(row: Record<string, unknown>): OpportunityInput {
+  return {
+    externalKey: String(row.external_key ?? row.id), title: String(row.title), description: String(row.description),
+    clientName: row.client_name ? String(row.client_name) : null,
+    clientLocation: row.client_location ? String(row.client_location) : null,
+    clientSpend: row.client_spend == null ? null : Number(row.client_spend),
+    clientRating: row.client_rating == null ? null : Number(row.client_rating),
+    budgetMin: row.budget_min == null ? null : Number(row.budget_min),
+    budgetMax: row.budget_max == null ? null : Number(row.budget_max),
+    budgetType: (row.budget_type as OpportunityInput["budgetType"]) ?? "unknown",
+    currency: String(row.currency ?? "USD"), jobUrl: String(row.job_url ?? "https://www.upwork.com/"),
+    requirements: Array.isArray(row.requirements) ? row.requirements.map(String) : [],
+    sourceSubject: String(row.source_subject ?? "Upwork opportunity"),
+    sourceReceivedAt: new Date(String(row.source_received_at ?? new Date().toISOString())).toISOString(),
+  };
+}
+
+function preflightProposal(row: Record<string, unknown>, milestones?: ProposalDraft["milestones"]): ProposalDraft {
+  return {
+    body: String(row.body), questions: Array.isArray(row.questions) ? row.questions.map(String) : [],
+    bidAmount: Number(row.bid_amount), timeline: String(row.timeline),
+    milestones: milestones ?? (Array.isArray(row.milestones) ? row.milestones as ProposalDraft["milestones"] : []),
+  };
 }
 
 export async function GET(_: Request, context: { params: Promise<{ id: string }> }) {
@@ -77,42 +103,61 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const editData = parsed.data;
     // Serialise against submission: editing an approved proposal revokes approval.
     const result = await sql.begin(async (tx) => {
-      const [current] = await tx`select status from bidflo_opportunities where id = ${id} for update`;
+      const [current] = await tx`select * from bidflo_opportunities where id = ${id} for update`;
       if (!current || !canEditProposal(String(current.status) as OpportunityStage)) return null;
       const [proposal] = await tx`
-        select id from bidflo_proposals where opportunity_id = ${id}
+        select id, bid_amount, milestones from bidflo_proposals where opportunity_id = ${id}
         order by version desc limit 1
       `;
       if (!proposal) return null;
+      const [settings] = await tx`select capability_profile, proposal_rules from bidflo_settings where id = 'default'`;
+      const milestones = rebalanceMilestones(
+        Array.isArray(proposal.milestones) ? proposal.milestones as ProposalDraft["milestones"] : [],
+        editData.bidAmount,
+      );
+      const check = proposalPreflight({
+        opportunity: preflightOpportunity(current),
+        proposal: { body: editData.body, questions: editData.questions, bidAmount: editData.bidAmount, timeline: editData.timeline, milestones },
+        capabilityProfile: settings?.capability_profile as Record<string, unknown> | undefined,
+        proposalRules: settings?.proposal_rules as Record<string, unknown> | undefined,
+        approvedExamples: ((settings?.proposal_rules as Record<string, unknown> | undefined)?.approvedExamples as string[] | undefined) ?? [],
+      });
       await tx`
         update bidflo_proposals
            set body = ${editData.body}, bid_amount = ${editData.bidAmount},
                timeline = ${editData.timeline}, questions = ${tx.json(editData.questions)},
+               milestones = ${tx.json(milestones)},
                status = 'edited', quality_score = null,
-               quality_review = ${tx.json({ issues: ["Manual edits must be reviewed"], humanJudgmentRequired: true })},
-               human_judgment_required = true, updated_at = now()
+               quality_review = ${tx.json({ issues: check.issues, humanJudgmentRequired: !check.ok })},
+               human_judgment_required = ${!check.ok}, updated_at = now()
          where id = ${String(proposal.id)}
       `;
       await tx`update bidflo_opportunities set status = 'proposal_ready', updated_at = now()
         where id = ${id}`;
-      return String(proposal.id);
+      return { proposalId: String(proposal.id), issues: check.issues };
     });
     if (!result) return Response.json({ error: "This proposal is no longer editable; refresh first" }, { status: 409 });
-    await audit(actor, "proposal.edited", "proposal", result, { opportunityId: id });
-    return Response.json({ ok: true, status: "proposal_ready" });
+    await audit(actor, "proposal.edited", "proposal", result.proposalId, { opportunityId: id, preflightIssues: result.issues });
+    return Response.json({ ok: true, status: "proposal_ready", preflightIssues: result.issues });
   }
 
   if (parsed.data.action === "approve") {
     const result = await sql.begin(async (tx) => {
-      const [current] = await tx`select status, description from bidflo_opportunities where id = ${id} for update`;
+      const [current] = await tx`select * from bidflo_opportunities where id = ${id} for update`;
       if (!current || !canApproveProposal(String(current.status) as OpportunityStage)) return null;
       const [proposal] = await tx`
-        select id, status, body from bidflo_proposals
+        select id, status, body, questions, bid_amount, timeline, milestones from bidflo_proposals
          where opportunity_id = ${id} order by version desc limit 1
       `;
       if (!proposal || !["needs_review", "edited", "ready", "draft"].includes(String(proposal.status))) return null;
-      const problems = proposalApprovalIssues(String(current.description), String(proposal.body));
-      if (problems.length) return "review_needed:" + problems[0];
+      const [settings] = await tx`select capability_profile, proposal_rules from bidflo_settings where id = 'default'`;
+      const problems = proposalPreflight({
+        opportunity: preflightOpportunity(current), proposal: preflightProposal(proposal),
+        capabilityProfile: settings?.capability_profile as Record<string, unknown> | undefined,
+        proposalRules: settings?.proposal_rules as Record<string, unknown> | undefined,
+        approvedExamples: ((settings?.proposal_rules as Record<string, unknown> | undefined)?.approvedExamples as string[] | undefined) ?? [],
+      }).issues;
+      if (problems.length) return "review_needed:" + JSON.stringify(problems);
       await tx`update bidflo_proposals set status = 'approved', updated_at = now()
         where id = ${String(proposal.id)}`;
       await tx`update bidflo_opportunities set status = 'approved', updated_at = now()
@@ -120,7 +165,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return String(proposal.id);
     });
     if (result?.startsWith("review_needed:")) {
-      return Response.json({ error: result.slice("review_needed:".length) }, { status: 409 });
+      const problems = JSON.parse(result.slice("review_needed:".length)) as string[];
+      return Response.json({ error: problems[0], issues: problems }, { status: 409 });
     }
     if (!result) return Response.json({ error: "Proposal is not awaiting approval; refresh first" }, { status: 409 });
     await audit(actor, "proposal.approved", "proposal", result, { opportunityId: id });

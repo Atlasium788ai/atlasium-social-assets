@@ -7,6 +7,8 @@ import { notifyProposalReady, notifyClientReply } from "./owner-notifications";
 import { qualifyOpportunity, recommendCommercials } from "./qualification";
 import type { OpportunityInput, ProposalDraft, QualificationRules } from "./types";
 import { canRescore, type OpportunityStage } from "./pipeline-guards";
+import { proposalPreflight } from "./proposal-preflight";
+import { retryPolicy } from "./retry-policy";
 
 type EventPayload = {
   text?: string | null;
@@ -105,10 +107,13 @@ export async function qualifyAndPrepare(opportunityId: string) {
   }
 
   const commercialDraft: ProposalDraft = { body: "", questions: [], ...commercials };
+  const capabilityProfile = settings.capability_profile as Record<string, unknown>;
+  const proposalRules = settings.proposal_rules as Record<string, unknown>;
+  const approvedExamples = (proposalRules.approvedExamples as string[] | undefined) ?? [];
   // Never block opportunity intake when the model endpoint is down or a key has expired.
   // Unreviewed fallback drafts require a human to check every claim and commercial term.
   let draft: ProposalDraft = prepareManualReviewDraft(opportunity, commercialDraft);
-  const minimumQualityScore = Number((settings.proposal_rules as Record<string, unknown>).minimumQualityScore ?? 80);
+  const minimumQualityScore = Number(proposalRules.minimumQualityScore ?? 80);
   let review: {
     score: number | null;
     issues: string[];
@@ -129,16 +134,16 @@ export async function qualifyAndPrepare(opportunityId: string) {
         opportunity,
         score: result.score,
         breakdown: result.breakdown,
-        capabilityProfile: settings.capability_profile as Record<string, unknown>,
-        proposalRules: settings.proposal_rules as Record<string, unknown>,
+        capabilityProfile,
+        proposalRules,
         commercials: commercialDraft,
-        approvedExamples: ((settings.proposal_rules as Record<string, unknown>).approvedExamples as string[] | undefined) ?? [],
+        approvedExamples,
       });
       review = await reviewProposal({
         opportunity,
         proposal: draft,
-        capabilityProfile: settings.capability_profile as Record<string, unknown>,
-        proposalRules: settings.proposal_rules as Record<string, unknown>,
+        capabilityProfile,
+        proposalRules,
         minimumQualityScore,
       });
       aiReviewed = true;
@@ -150,6 +155,12 @@ export async function qualifyAndPrepare(opportunityId: string) {
     }
   }
   const finalDraft = (review.score ?? 0) < minimumQualityScore && review.revisedProposal ? review.revisedProposal : draft;
+  const preflight = proposalPreflight({ opportunity, proposal: finalDraft, proposalRules, capabilityProfile, approvedExamples });
+  if (!preflight.ok) {
+    review.issues = [...new Set([...review.issues, ...preflight.issues])];
+    review.humanJudgmentRequired = true;
+    review.humanJudgmentReasons = [...new Set([...review.humanJudgmentReasons, ...preflight.issues])].slice(0, 12);
+  }
   const proposalStatus = aiReviewed && (review.score ?? 0) >= minimumQualityScore && !review.humanJudgmentRequired ? "ready" : "needs_review";
   // Serialization + state recheck prevent a slow AI operation from
   // inserting a new draft after human approval or submission. Version
@@ -379,8 +390,9 @@ export async function processPendingEvents(limit = 5) {
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 450) : "Processing failed";
       const attempt = Number(event.attempts ?? 1);
-      const dead = attempt >= 5;
-      const delay = Math.min(2 ** attempt, 60);
+      const retry = retryPolicy(attempt, { maxAttempts: 5, maxDelayMinutes: 60 });
+      const dead = retry.exhausted;
+      const delay = retry.delayMinutes;
       await sql`
         update bidflo_inbound_events
            set status = ${dead ? "failed" : "pending"},

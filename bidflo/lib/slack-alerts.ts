@@ -1,5 +1,6 @@
 import { audit, db } from "./db";
 import { formatSlackAlert, type SlackAlertInput } from "./slack-message";
+import { retryPolicy } from "./retry-policy";
 
 /**
  * Queue safely: event_key is unique and duplicate ingestion cannot spam Slack.
@@ -27,10 +28,10 @@ export async function queueSlackAlertSafely(eventKey: string, input: SlackAlertI
   }
 }
 
-function getDestination() {
-  const botToken = process.env.SLACK_BOT_TOKEN?.trim();
-  const destination = process.env.SLACK_DESTINATION_ID?.trim();
-  const webhook = process.env.SLACK_WEBHOOK_URL?.trim();
+function getDestination(env: Record<string, string | undefined> = process.env) {
+  const botToken = env.SLACK_BOT_TOKEN?.trim();
+  const destination = env.SLACK_DESTINATION_ID?.trim();
+  const webhook = env.SLACK_WEBHOOK_URL?.trim();
   if (botToken && destination && /^[CDGUW][A-Z0-9]{7,}$/.test(destination)) {
     return { kind: "bot" as const, botToken, destination };
   }
@@ -44,8 +45,8 @@ function getDestination() {
   return null;
 }
 
-export function slackDeliveryConfigured() {
-  return getDestination() !== null;
+export function slackDeliveryConfigured(env: Record<string, string | undefined> = process.env) {
+  return getDestination(env) !== null;
 }
 
 type SlackResponse = { ok?: boolean; error?: string; channel?: string | { id?: string } };
@@ -129,8 +130,9 @@ export async function processSlackAlerts(limit = 10) {
       failed++;
       const reason = error instanceof Error ? error.message.slice(0, 180) : "Slack delivery failed";
       // Retry with capped exponential backoff; stop after 8 attempts.
-      const exhausted = Number(item.attempts) >= 8;
-      const retryMinutes = Math.min(2 ** Math.min(Number(item.attempts), 7), 120);
+      const retry = retryPolicy(Number(item.attempts), { maxAttempts: 8, maxDelayMinutes: 120 });
+      const exhausted = retry.exhausted;
+      const retryMinutes = retry.delayMinutes;
       await sql`
         update bidflo_notifications
         set status = ${exhausted ? "failed" : "pending"},

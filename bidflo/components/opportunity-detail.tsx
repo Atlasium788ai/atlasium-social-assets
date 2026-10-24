@@ -36,8 +36,15 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
         body: JSON.stringify(payload),
       });
       const data = await response.json();
-      if (!response.ok) { setNotice(data.error ?? "Action failed"); return; }
-      setNotice("Saved"); setEditing(false); router.refresh();
+      if (!response.ok) {
+        const details = Array.isArray(data.issues) && data.issues.length > 1 ? ` Also: ${data.issues.slice(1).join("; ")}` : "";
+        setNotice((data.error ?? "Action failed") + details);
+        return;
+      }
+      const preflight = Array.isArray(data.preflightIssues) && data.preflightIssues.length
+        ? `Saved for review. Before approval: ${data.preflightIssues.join("; ")}`
+        : "Saved";
+      setNotice(preflight); setEditing(false); router.refresh();
     } catch {
       setNotice("Could not reach BidFlo. Please retry once the connection is restored.");
     } finally { setPending(""); }

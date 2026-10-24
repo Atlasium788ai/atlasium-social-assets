@@ -31,6 +31,7 @@ Do not invite team members or send teamwide alerts without explicit instruction.
 
 - Production migrations include `0005_inbound_recovery.sql`: inbound jobs are atomically claimed, retryable up to five times, and recovered after interruption. Client reply messages have a unique source-event key, so replaying the same signed webhook cannot create another message.
 - Proposal editing, approval and manual submission confirmation run in guarded database transactions. Advancing a closed opportunity backwards is blocked. Editing an approved draft revokes approval.
+- Every draft now passes a deterministic preflight after model review and again at approval. The gate blocks client-instruction misses, unresolved placeholders, unsupported proof claims, banned language, unrealistic guarantees, budget overruns, mismatched milestone totals, missing questions/timelines, and material scope omissions. Editing a bid automatically rebalances its milestone totals.
 - Manual submission is idempotent. An optional integration bridge **cannot run** while `BIDFLO_AUTH_DISABLED=true`; to enable it in future requires authenticated administration plus `UPWORK_SUBMISSION_BRIDGE_ENABLED=true`, `UPWORK_SUBMISSION_WEBHOOK_URL`, and `UPWORK_SUBMISSION_TOKEN`. A timeout leaves the item marked `submission_processing` to require manual verification, never an automatic resubmit.
 - Sensitive browser mutations check same-origin headers, and the website sets clickjacking, content-type and framing security headers. **These are not substitutes for authentication.**
 - **Critical unresolved security risk:** `BIDFLO_AUTH_DISABLED=true` grants a public visitor the operator session; this is suitable only for temporary testing with non-sensitive data. Turn it OFF, finish Neon Auth and restrict the operator user before importing confidential client replies, using real accounts, or enabling any submission bridge. The existing request-origin check does NOT authenticate a visitor.
@@ -77,6 +78,8 @@ Use the shortest path to the broken step. **Do not redesign or rebuild unrelated
 | The site errors | Render web logs, `/api/health`, Neon connectivity | Roll back the last failing deploy; preserve stored records |
 
 Production changes must pass `pnpm test`, `pnpm lint`, and `pnpm exec next build` before release. Keep **Find | Bid | Follow Up** unchanged unless an interface change is specifically requested.
+
+Before installing or rotating credentials, run `pnpm readiness`. It reports only ready/missing connection states and environment-variable names; it never prints credential values. A configured Upwork email intake is separate from hosted Upwork authorization, and submission remains manual unless the separate bridge is explicitly enabled with login active.
 
 ## Validation
 

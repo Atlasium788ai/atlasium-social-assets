@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isAuthDisabled } from "@/lib/auth/server";
 import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
+import { resolveSubmissionBridge } from "@/lib/submission-bridge";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   if (!isSameOriginMutation(request)) return mutationForbidden();
@@ -32,13 +33,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return Response.json({ error: "An approved proposal is required; this bid may already be in progress" }, { status: 409 });
   }
 
-  const bridgeUrl = process.env.UPWORK_SUBMISSION_WEBHOOK_URL;
-  const bridgeToken = process.env.UPWORK_SUBMISSION_TOKEN;
-  // Explicit opt-in AND enabled authentication before spending Upwork Connects.
-  const automatedBridgeAllowed =
-    process.env.UPWORK_SUBMISSION_BRIDGE_ENABLED === "true" &&
-    !isAuthDisabled() && Boolean(bridgeUrl && bridgeToken);
-  if (!automatedBridgeAllowed) {
+  const bridge = resolveSubmissionBridge({
+    UPWORK_SUBMISSION_BRIDGE_ENABLED: process.env.UPWORK_SUBMISSION_BRIDGE_ENABLED,
+    UPWORK_SUBMISSION_WEBHOOK_URL: process.env.UPWORK_SUBMISSION_WEBHOOK_URL,
+    UPWORK_SUBMISSION_TOKEN: process.env.UPWORK_SUBMISSION_TOKEN,
+  }, isAuthDisabled());
+  // Explicit opt-in AND enabled authentication are required before spending Upwork Connects.
+  if (bridge.mode === "manual") {
     const manualHandoffPrepared = await sql.begin(async (tx) => {
       const [claimed] = await tx`
         update bidflo_opportunities set status = 'ready_to_submit', updated_at = now()
@@ -55,15 +56,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     await audit(actor, "submission.manual_handoff", "opportunity", id);
     return Response.json({ status: "manual_required", jobUrl: row.job_url });
   }
-  try {
-    const url = new URL(bridgeUrl!);
-    if (url.protocol !== "https:" || !url.hostname.includes(".") ||
-      /^(?:localhost|127\.|10\.|192\.168\.|169\.254\.)/.test(url.hostname)) {
-      return Response.json({ error: "Unsafe submission bridge configuration" }, { status: 503 });
-    }
-  } catch {
-    return Response.json({ error: "Invalid submission bridge configuration" }, { status: 503 });
-  }
+  if (bridge.mode === "error") return Response.json({ error: bridge.error }, { status: 503 });
   // Atomic claim blocks double-clicks and simultaneous auto-submissions.
   const [claimed] = await sql`
     update bidflo_opportunities set status = 'submission_processing', updated_at = now()
@@ -72,10 +65,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!claimed) return Response.json({ error: "Submission is already being processed" }, { status: 409 });
 
   try {
-    const response = await fetch(bridgeUrl!, {
+    const response = await fetch(bridge.url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${bridgeToken}`,
+        Authorization: `Bearer ${bridge.token}`,
         "Content-Type": "application/json",
         "Idempotency-Key": `bidflo-${id}-${String(row.proposal_id)}`,
       },
