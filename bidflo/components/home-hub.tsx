@@ -4,7 +4,7 @@ import { ArrowIcon, BellIcon, DocumentIcon, LogoMark, SearchIcon } from "@/compo
 type Metrics = { approval_queue: number; submitted: number; total: number };
 
 const sections = [
-  { number: "01", href: "/find", title: "Find", copy: "Scan and surface the best Upwork opportunities.", action: "View Opportunities", tone: "blue", icon: SearchIcon },
+  { number: "01", href: "/find", title: "Find", copy: "Capture and surface the best Upwork opportunities.", action: "View Opportunities", tone: "blue", icon: SearchIcon },
   { number: "02", href: "/bid", title: "Bid", copy: "Create and review tailored proposals in minutes.", action: "Review Proposals", tone: "violet", icon: DocumentIcon },
   { number: "03", href: "/follow-up", title: "Follow Up", copy: "Track replies, set reminders and never miss a lead.", action: "View Follow Ups", tone: "aqua", icon: BellIcon },
 ] as const;
@@ -16,7 +16,7 @@ export function HomeHub({ email, metrics }: { email: string; metrics: Metrics })
     <div className="hub-orbit hub-orbit-two" aria-hidden="true" />
     <header className="hub-topbar">
       <Link href="/" className="wordmark"><LogoMark /><strong>Bid<span>Flo</span></strong></Link>
-      <div className="hub-account"><span className="live-pill"><i />Live<small>Scanning Upwork</small></span><span className="avatar">{email.slice(0, 1).toUpperCase()}</span></div>
+      <div className="hub-account"><span className="live-pill"><i />Live<small>Upwork email intake</small></span><span className="avatar">{email.slice(0, 1).toUpperCase()}</span></div>
     </header>
     <section className="hub-hero">
       <p className="hub-kicker">INTELLIGENT OPPORTUNITY &amp; PROPOSAL MANAGEMENT</p>
