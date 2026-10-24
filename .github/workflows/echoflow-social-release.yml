@@ -16,7 +16,9 @@ on:
       - "pnpm-workspace.yaml"
       - "vite.config.ts"
   push:
-    branches: [main]
+    branches:
+      - main
+      - fix/echoflow-direct-publishing-only-20261018
     paths:
       - ".github/workflows/echoflow-social-release.yml"
       - ".openai/hosting.json"
