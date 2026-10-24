@@ -182,17 +182,57 @@ async function processEvent(event: Record<string, unknown>) {
     return { status: "ignored" };
   }
   if (parsed.kind === "reply") {
-    const [opportunity] = parsed.jobUrl
-      ? await sql`select id from bidflo_opportunities where job_url = ${parsed.jobUrl} order by created_at desc limit 1`
-      : [];
+    // Link to the exact job or to a previously known Upwork conversation.
+    // Never associate a client's private message with a guessed project.
+    let opportunity: { id: string } | undefined;
+    if (parsed.jobUrl) {
+      const jobId = parsed.jobUrl.match(/~[A-Za-z0-9]+/)?.[0] ?? "";
+      const matches = await sql`
+        select id from bidflo_opportunities
+        where job_url = ${parsed.jobUrl} or external_key = ${jobId}
+        order by created_at desc limit 1
+      `;
+      if (matches[0]) opportunity = { id: String(matches[0].id) };
+    }
+    if (!opportunity && parsed.roomUrl) {
+      const matches = await sql`
+        select opportunity_id as id from bidflo_messages
+        where upwork_room_url = ${parsed.roomUrl}
+          and opportunity_id is not null
+        order by received_at desc limit 1
+      `;
+      if (matches[0]) opportunity = { id: String(matches[0].id) };
+    }
+    if (!opportunity) {
+      // An exact project-title mention is acceptable only if one active
+      // submitted opportunity matches; ambiguous results stay unlinked.
+      const candidates = await sql`
+        select id from bidflo_opportunities
+        where status in ('submitted', 'replied', 'interviewed')
+          and strpos(lower(${parsed.subject}), lower(title)) > 0
+        limit 2
+      `;
+      if (candidates.length === 1) opportunity = { id: String(candidates[0].id) };
+    }
     await sql`
-      insert into bidflo_messages (opportunity_id, direction, kind, sender, subject, body, received_at)
-      values (${opportunity?.id ?? null}, 'inbound', 'client_reply', ${String(event.sender)}, ${parsed.subject}, ${parsed.body}, ${String(event.received_at)})
+      insert into bidflo_messages (
+        opportunity_id, direction, kind, sender, subject, body, received_at, upwork_room_url
+      ) values (
+        ${opportunity?.id ?? null}, 'inbound', 'client_reply',
+        ${String(event.sender)}, ${parsed.subject}, ${parsed.body},
+        ${String(event.received_at)}, ${parsed.roomUrl ?? null}
+      )
     `;
-    if (opportunity?.id) await sql`update bidflo_opportunities set status = 'replied', updated_at = now() where id = ${String(opportunity.id)}`;
+    if (opportunity?.id) {
+      await sql`update bidflo_opportunities set status = 'replied', updated_at = now() where id = ${opportunity.id}`;
+    }
     await sql`update bidflo_inbound_events set status = 'processed', processed_at = now() where id = ${String(event.id)}`;
-    await audit("system:email", "reply.detected", "opportunity", opportunity?.id ? String(opportunity.id) : undefined, { subject: parsed.subject });
-    return { status: "reply" };
+    await audit("system:email", "reply.detected", "opportunity", opportunity?.id, {
+      subject: parsed.subject,
+      linked: Boolean(opportunity?.id),
+      hasRoomUrl: Boolean(parsed.roomUrl),
+    });
+    return { status: "reply", linked: Boolean(opportunity?.id) };
   }
 
   const item = parsed.opportunity;
