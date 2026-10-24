@@ -237,3 +237,19 @@ input, textarea { color: var(--text); background: #0c0c12; border: 1px solid var
   .reply-upwork-links { width: 100%; }
   .reply-upwork-links a { flex: 1; }
 }
+
+/* New-reply prompt: opens only for received, linked client messages. */
+.reply-alert-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 17px; background: rgba(0,5,12,.84); backdrop-filter: blur(8px); }
+.reply-alert-dialog { width: min(1320px,100%); max-height: calc(100vh - 36px); overflow-y: auto; background: #050c16; border: 1px solid rgba(25,191,193,.32); border-radius: 19px; box-shadow: 0 24px 120px rgba(0,0,0,.68); }
+.reply-alert-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 20px 23px 0; }
+.reply-alert-heading h2 { margin: 4px 0 3px; color: #f2f9ff; font: 750 26px var(--font-display); }
+.reply-alert-heading > div:first-child > p:last-child { color: #90a4b8; font-size: 11px; margin: 0; }
+.reply-alert-actions { display: flex; align-items: center; gap: 12px; }
+.reply-alert-actions > a { font-size: 11px; color: #37d5ca; text-decoration: none; }
+.reply-alert-actions > button { border: 1px solid rgba(139,177,209,.24); background: #111b2b; color: #d8e6f5; border-radius: 8px; padding: 9px 12px; cursor: pointer; font-size: 11px; }
+.reply-alert-dialog .reply-assistant { margin: 11px 16px 16px; border-color: rgba(255,255,255,.06); box-shadow: none; }
+@media(max-width:670px) {
+  .reply-alert-heading { flex-direction: column; align-items: stretch; padding: 15px 17px 0; }
+  .reply-alert-actions { justify-content: space-between; }
+  .reply-alert-dialog .reply-assistant { margin: 11px 7px 7px; }
+}
