@@ -1,22 +1,45 @@
-/**
- * Reduces cross-site browser request forgery during the temporary no-login
- * pilot. This is not authentication: a server-side caller can forge headers.
- */
+/** Validate first-party browser requests even when hosting rewrites the internal URL. */
 export function isSameOriginMutation(request: Request): boolean {
-  let target: URL;
-  try { target = new URL(request.url); } catch { return false; }
-  const supplied = request.headers.get("origin") ?? request.headers.get("referer");
-  if (supplied) {
+  let internal: URL;
+  try { internal = new URL(request.url); } catch { return false; }
+
+  // The public app URL is the authoritative external origin behind Render's proxy.
+  const publicOrigin = (() => {
+    const configured = process.env.BIDFLO_URL?.trim();
+    if (!configured) return null;
     try {
-      const source = new URL(supplied);
-      const expectedTls = target.hostname === "localhost" || target.hostname === "127.0.0.1"
-        ? target.protocol
-        : "https:";
-      return source.host === target.host && source.protocol === expectedTls;
+      const url = new URL(configured);
+      return url.protocol === "https:" ? url.origin : null;
+    } catch { return null; }
+  })();
+
+  const firstParty = new Set<string>();
+  if (publicOrigin) firstParty.add(publicOrigin);
+  else {
+    // Local development or standalone deployments without BIDFLO_URL.
+    if (internal.protocol === "https:" ||
+        (internal.protocol === "http:" && ["localhost", "127.0.0.1"].includes(internal.hostname))) {
+      firstParty.add(internal.origin);
+    }
+    const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ??
+      request.headers.get("host")?.trim();
+    if (host && /^[a-z0-9.-]+(?::[0-9]{1,5})?$/i.test(host)) {
+      const scheme = ["localhost", "127.0.0.1"].some((local) => host === local || host.startsWith(local + ":"))
+        ? "http:" : "https:";
+      firstParty.add(`${scheme}//${host}`);
+    }
+  }
+
+  const originHeader = request.headers.get("origin");
+  const referrer = request.headers.get("referer");
+  if (originHeader || referrer) {
+    try {
+      const source = new URL(originHeader || referrer!);
+      if (!firstParty.has(source.origin)) return false;
+      return request.headers.get("sec-fetch-site") !== "cross-site";
     } catch { return false; }
   }
-  // Browser fetches send Sec-Fetch-Site. A missing header plus missing
-  // Origin/Referer must NOT grant anonymous mutation access.
+  // Still require real browser provenance when neither Origin nor Referer exists.
   return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
