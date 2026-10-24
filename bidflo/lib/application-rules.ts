@@ -17,3 +17,24 @@ export function proposalMeetsRequiredOpening(description: string, body: string):
   const phrase = requiredProposalOpening(description);
   return !phrase || body.trimStart().startsWith(phrase);
 }
+
+/** Project-specific evidence must be supplied by a human, never invented. */
+export function requiresVerifiedExample(description: string): boolean {
+  return /(?:share|provide|include|show|mention)\s+(?:a|one|an|your)?\s*(?:real|genuine|relevant|similar|comparable|previous|past)?\s*(?:completed|similar|comparable|relevant)?\s*(?:project|case study|work sample|example)/i.test(description);
+}
+
+export function requestsShortProposal(description: string): boolean {
+  return /\b(?:3\s*(?:-|–|to)\s*5|three\s*(?:-|–|to)\s*five)\s+sentences?\b/i.test(description);
+}
+
+export function proposalApprovalIssues(description: string, body: string): string[] {
+  const issues: string[] = [];
+  if (!proposalMeetsRequiredOpening(description, body)) {
+    issues.push("Start the proposal with the exact client-required words: " + requiredProposalOpening(description));
+  }
+  // Review placeholders must not accidentally become submitted applications.
+  if (/\[(?:add|insert|confirm|replace|provide|verify|your)[^\]\r\n]{2,160}\]/i.test(body)) {
+    issues.push("Replace bracketed review notes with verified information");
+  }
+  return issues;
+}
