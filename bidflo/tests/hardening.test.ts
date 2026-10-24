@@ -50,3 +50,30 @@ test("sensitive writes require a same-origin browser request", () => {
   } })), false);
   assert.equal(isSameOriginMutation(new Request(url)), false);
 });
+
+test("Render proxy uses the public configured origin, not its internal target URL", () => {
+  const prior = process.env.BIDFLO_URL;
+  process.env.BIDFLO_URL = "https://atlasium-bidflo.onrender.com";
+  try {
+    const internalUrl = "http://localhost:10000/api/find/import";
+    assert.equal(isSameOriginMutation(new Request(internalUrl, { headers: {
+      origin: "https://atlasium-bidflo.onrender.com",
+      host: "atlasium-bidflo.onrender.com",
+      "x-forwarded-proto": "https",
+      "sec-fetch-site": "same-origin",
+    } })), true);
+    assert.equal(isSameOriginMutation(new Request(internalUrl, { headers: {
+      referer: "https://atlasium-bidflo.onrender.com/find",
+      "sec-fetch-site": "same-origin",
+    } })), true);
+    assert.equal(isSameOriginMutation(new Request(internalUrl, { headers: {
+      origin: "https://malicious.example",
+      "x-forwarded-host": "malicious.example",
+      "sec-fetch-site": "cross-site",
+    } })), false);
+    assert.equal(isSameOriginMutation(new Request(internalUrl)), false);
+  } finally {
+    if (prior === undefined) delete process.env.BIDFLO_URL;
+    else process.env.BIDFLO_URL = prior;
+  }
+});
