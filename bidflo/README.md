@@ -27,6 +27,16 @@ If no Slack bot token or webhook is configured, events are queued, not sent. Cha
 
 Do not invite team members or send teamwide alerts without explicit instruction. Preserve the owner's weekend-messaging preferences. For future client accounts, configure separate destinations and organization-scoped credentials after the internal pilot.
 
+## Reliability and security (October 24 pilot)
+
+- Production migrations include `0005_inbound_recovery.sql`: inbound jobs are atomically claimed, retryable up to five times, and recovered after interruption. Client reply messages have a unique source-event key, so replaying the same signed webhook cannot create another message.
+- Proposal editing, approval and manual submission confirmation run in guarded database transactions. Advancing a closed opportunity backwards is blocked. Editing an approved draft revokes approval.
+- Manual submission is idempotent. An optional integration bridge **cannot run** while `BIDFLO_AUTH_DISABLED=true`; to enable it in future requires authenticated administration plus `UPWORK_SUBMISSION_BRIDGE_ENABLED=true`, `UPWORK_SUBMISSION_WEBHOOK_URL`, and `UPWORK_SUBMISSION_TOKEN`. A timeout leaves the item marked `submission_processing` to require manual verification, never an automatic resubmit.
+- Sensitive browser mutations check same-origin headers, and the website sets clickjacking, content-type and framing security headers. **These are not substitutes for authentication.**
+- **Critical unresolved security risk:** `BIDFLO_AUTH_DISABLED=true` grants a public visitor the operator session; this is suitable only for temporary testing with non-sensitive data. Turn it OFF, finish Neon Auth and restrict the operator user before importing confidential client replies, using real accounts, or enabling any submission bridge. The existing request-origin check does NOT authenticate a visitor.
+- The health endpoint checks Neon connectivity; GitHub workflow `.github/workflows/bidflo-ci.yml` runs tests, lint, and production compilation. Render deploys independently run tests/build.
+- Avoid storing client personal data in Slack. A connected ChatGPT Slack app is not an unattended BidFlo Slack bot credential. Review backup/restore procedures, token rotation, and an authenticated end-to-end test before real-world production rollout.
+
 ## Local setup
 
 ```bash
@@ -51,7 +61,7 @@ The Neon project must have Managed Auth enabled. Add the production Render URL a
 - `CRON_SECRET`: the same random secret on the web and cron services.
 - `BIDFLO_URL`: deployed HTTPS origin used by notifications and the cron.
 
-Optional: `UPWORK_SUBMISSION_WEBHOOK_URL` and `UPWORK_SUBMISSION_TOKEN` enable a separately authorized submission bridge. Without both, the human-controlled flow is used.
+Optional submission bridge requires an authenticated operator, explicit `UPWORK_SUBMISSION_BRIDGE_ENABLED=true`, `UPWORK_SUBMISSION_WEBHOOK_URL`, and `UPWORK_SUBMISSION_TOKEN`. Manual, human-controlled submission is the default.
 
 ## Validation
 
