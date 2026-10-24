@@ -117,6 +117,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
                 editing ? <><button className="primary-button" disabled={Boolean(pending)} onClick={() => action({ action: "edit", body, bidAmount, timeline, questions: questions.split("\n").map((q) => q.trim()).filter(Boolean) })}>Save edits</button><button className="ghost-button" disabled={Boolean(pending)} onClick={() => setEditing(false)}>Cancel</button></> : <>
                 <button className="primary-button" disabled={Boolean(pending) || opportunity.status === "approved"} onClick={() => action({ action: "approve" })}>{opportunity.status === "approved" ? "Approved" : "Approve proposal"}</button>
                 <button className="secondary-button" disabled={Boolean(pending)} onClick={() => setEditing(true)}>Edit</button>
+                {opportunity.status === "proposal_ready" && <button className="secondary-button" disabled={Boolean(pending)} onClick={() => action({ action: "rescore" })}>Refresh draft</button>}
                 <button className="ghost-button danger" disabled={Boolean(pending)} onClick={() => action({ action: "reject", reason: "Rejected by Blair" })}>Reject</button>
               </>}
             </div>}
