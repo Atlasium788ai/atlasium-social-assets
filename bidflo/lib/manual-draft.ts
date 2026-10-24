@@ -1,5 +1,5 @@
 import type { OpportunityInput, ProposalDraft } from "./types";
-import { requiredProposalOpening, requestsShortProposal, requiresVerifiedExample } from "./application-rules";
+import { requiredProposalOpening, requestsShortProposal, requiresVerifiedExample, requestsDeliveryCommitment } from "./application-rules";
 import { extractManualRequirements } from "./job-requirements";
 
 function cleanLine(value: string, maxLength = 220) {
@@ -42,14 +42,16 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
   const opener = requiredProposalOpening(opportunity.description);
   const wantsExample = requiresVerifiedExample(opportunity.description);
   const wantsShort = requestsShortProposal(opportunity.description);
-  const requested30Days = /\b(?:within|by|in|deliver|delivery|end of|through)\s+(?:the\s+)?(?:30|thirty)[ -]?days?\b/i.test(opportunity.description);
+  const requested30Days = requestsDeliveryCommitment(opportunity.description);
   const honestProof = "[Insert one genuine similar project you delivered and the outcome]";
   if (wantsShort) {
     const sentences = [
       `I would map your current systems, then build ${sentenceList(priorities.map((value) => cleanLine(value, 85)))} as one connected, testable workflow.`,
-      /train|walkthrough|documentation|handoff/i.test(opportunity.description)
-        ? "I would validate the funnel and pipeline using test leads, then provide documented handoff and the requested training."
-        : "I would verify the workflow end to end before handoff and provide a clear operating guide.",
+      requirements.length > 3
+        ? `I would also deliver ${sentenceList(requirements.slice(3, 6).map((item) => item[0].toLowerCase() + item.slice(1)))}, validate the journey using test leads, and provide the requested documentation and training.`
+        : /train|walkthrough|documentation|handoff/i.test(opportunity.description)
+          ? "I would validate the funnel and pipeline using test leads, then provide documented handoff and the requested training."
+          : "I would verify the workflow end to end before handoff and provide a clear operating guide.",
       wantsExample ? `${honestProof}.`
         : "I would divide the work into discovery, implementation, and acceptance testing.",
       `My fixed-price quote is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")}, ${requested30Days ? "and [confirm ability to deliver within 30 days before applying]" : `with a preliminary timeline of ${commercials.timeline} subject to scope review`}.`,
