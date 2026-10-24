@@ -83,7 +83,7 @@ test("room URL alone is not mistaken for a new job listing", () => {
   assert.equal(upworkRoomUrl(url), url);
   const result = parseUpworkEmail({
     subject: "A client replied to your proposal",
-    text: \`Can we meet? \${url}\`,
+    text: `Can we meet? ${url}`,
     receivedAt: "2026-10-24T12:00:00.000Z",
   });
   assert.equal(result.kind, "reply");
