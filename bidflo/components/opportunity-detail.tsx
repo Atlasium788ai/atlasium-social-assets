@@ -57,6 +57,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
         messageId={String(latestClientReply.id)}
         messageBody={String(latestClientReply.body ?? "")}
         jobUrl={opportunity.job_url}
+        roomUrl={latestClientReply.upwork_room_url ? String(latestClientReply.upwork_room_url) : null}
       />}
 
       <section className="detail-grid">
