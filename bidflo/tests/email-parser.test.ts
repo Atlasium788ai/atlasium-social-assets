@@ -112,3 +112,34 @@ test("room URL alone is not mistaken for a new job listing", () => {
   assert.equal(result.kind, "reply");
   if (result.kind === "reply") assert.equal(result.jobUrl, undefined);
 });
+
+
+test("new job titles about interview scheduling and offers remain opportunities, not client replies", () => {
+  for (const subject of [
+    "New job: Interview Scheduling Automation",
+    "Upwork: New job: CRM Offer Generation Workflow",
+    "Job alert: Interview and Invitation Management",
+  ]) {
+    const result = parseUpworkEmail({
+      subject,
+      receivedAt: "2026-10-24T12:00:00.000Z",
+      text: "Budget: $1,500\nhttps://www.upwork.com/jobs/~01JOBALERTSAFE",
+    });
+    assert.equal(result.kind, "opportunity", subject);
+  }
+});
+
+test("real Upwork interview and offer notifications remain client replies", () => {
+  for (const subject of [
+    "A client replied to your proposal",
+    "Upwork: Interview invitation for your proposal",
+    "New offer from a client",
+  ]) {
+    const result = parseUpworkEmail({
+      subject,
+      receivedAt: "2026-10-24T12:00:00.000Z",
+      text: "View the conversation https://www.upwork.com/jobs/~01REPLYSAFE",
+    });
+    assert.equal(result.kind, "reply", subject);
+  }
+});
