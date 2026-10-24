@@ -16,6 +16,17 @@ export async function queueSlackAlert(eventKey: string, input: SlackAlertInput) 
   `;
 }
 
+export async function queueSlackAlertSafely(eventKey: string, input: SlackAlertInput) {
+  try {
+    await queueSlackAlert(eventKey, input);
+  } catch (error) {
+    await audit("system:slack", "slack.enqueue_failed", "opportunity", input.opportunityId ?? undefined, {
+      eventKey,
+      reason: error instanceof Error ? error.message.slice(0, 180) : "Unknown queue failure",
+    }).catch(() => {});
+  }
+}
+
 function getDestination() {
   const botToken = process.env.SLACK_BOT_TOKEN?.trim();
   const destination = process.env.SLACK_DESTINATION_ID?.trim();
