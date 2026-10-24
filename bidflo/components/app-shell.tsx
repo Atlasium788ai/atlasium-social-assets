@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
+import { ReplyNotification } from "@/components/reply-notification";
 import { BellIcon, DocumentIcon, LogoMark, SearchIcon } from "@/components/bidflo-icons";
 
 const items = [
@@ -29,6 +30,7 @@ export function AppShell({ children, email, publicAccess = false }: { children: 
         <div className="workspace-account"><span className="sync-chip"><i /> Agent live</span>{openAccess ? <span className="public-access-chip">Open access</span> : <button className="profile-button" title={`${email} · Sign out`} onClick={async () => { await authClient.signOut(); router.replace("/login"); router.refresh(); }}>{email.slice(0, 1).toUpperCase()}</button>}</div>
       </header>
       <div className="app-content">{children}</div>
+      <ReplyNotification />
     </div>
   );
 }
