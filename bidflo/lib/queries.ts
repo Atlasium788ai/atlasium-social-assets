@@ -46,6 +46,7 @@ export async function getDashboardMetrics() {
       count(*) filter (where status = 'proposal_ready')::int as approval_queue,
       count(*) filter (where status in ('submitted', 'replied', 'interviewed', 'nurture', 'won'))::int as submitted,
       count(*) filter (where status = 'won')::int as won,
+      count(*) filter (where status = 'nurture')::int as nurture,
       coalesce(sum(suggested_bid) filter (
         where status in ('approved', 'ready_to_submit', 'submitted', 'replied', 'interviewed')
           and budget_type is distinct from 'hourly'
