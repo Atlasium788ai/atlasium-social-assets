@@ -42,7 +42,7 @@ export function Dashboard({ opportunities, metrics, view }: { opportunities: Opp
   return (
     <main>
       <header className="page-header">
-        <div><p className="eyebrow">INTELLIGENT OPPORTUNITY MANAGEMENT</p><h1>Good morning, Blair.</h1><p>Here’s what BidFlo is prioritizing for Atlasium today.</p></div>
+        <div><p className="eyebrow">INTELLIGENT OPPORTUNITY MANAGEMENT</p><h1>Good morning, Blair.</h1><p>Here’s what Visez is prioritizing for Atlasium today.</p></div>
         <div className="header-actions"><span className="sync-chip"><i /> Inbox connected</span><button className="icon-button" aria-label="Notifications">♢</button></div>
       </header>
 
@@ -63,7 +63,7 @@ export function Dashboard({ opportunities, metrics, view }: { opportunities: Opp
             </select>
           </div>
           <div className="opportunity-list">
-            {filtered.length === 0 && <div className="empty-state"><span>⌁</span><h3>No opportunities here yet</h3><p>Forward an Upwork notification to the connected BidFlo inbox. The next processing cycle will score it automatically.</p></div>}
+            {filtered.length === 0 && <div className="empty-state"><span>⌁</span><h3>No opportunities here yet</h3><p>Forward an Upwork notification to the connected Visez inbox. The next processing cycle will score it automatically.</p></div>}
             {filtered.map((item) => (
               <Link href={`/opportunities/${item.id}`} className="opportunity-row" key={item.id}>
                 <Score value={item.score} />
@@ -88,7 +88,7 @@ export function Dashboard({ opportunities, metrics, view }: { opportunities: Opp
           <div className="quality-card">
             <span className="quality-orbit">✦</span><p className="eyebrow">QUALITY CONTROL</p><h3>Two-pass proposal review</h3><p>Every prepared proposal is checked for factual accuracy, fit, profitability, and delivery risk before it reaches your queue.</p>
           </div>
-          <div className="guardrail-card"><span>◈</span><div><strong>Approval guardrail active</strong><p>BidFlo cannot submit without your approval.</p></div></div>
+          <div className="guardrail-card"><span>◈</span><div><strong>Approval guardrail active</strong><p>Visez cannot submit without your approval.</p></div></div>
         </aside>
       </section>
     </main>
