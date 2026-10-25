@@ -10,6 +10,8 @@ export type OpportunityStatus =
   | "replied"
   | "interviewed"
   | "won"
+  | "nurture"
+  | "opted_out"
   | "lost";
 
 export type ScoreBreakdown = {
@@ -72,6 +74,9 @@ export type OpportunityRow = {
   job_url: string;
   requirements: string[];
   status: OpportunityStatus;
+  nurture_note?: string | null;
+  nurture_due_at?: string | null;
+  opted_out_at?: string | null;
   score: number | null;
   score_breakdown: ScoreBreakdown | null;
   rejection_reason: string | null;
