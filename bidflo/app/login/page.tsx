@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
+import { LogoMark } from "@/components/bidflo-icons";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -49,16 +50,18 @@ export default function LoginPage() {
   return (
     <main className="login-shell">
       <section className="login-panel">
-        <div className="brand-mark" aria-hidden="true"><span>7</span><i>/</i><span>88</span></div>
-        <p className="eyebrow">ATLASIUM 7/88</p>
-        <h1>Visez</h1>
-        <p className="login-subtitle">AI Opportunity &amp; Proposal Automation</p>
+        <div className="visez-login-brand"><LogoMark /><h1>Visez</h1></div>
+        <p className="visez-login-powered">POWERED BY ATLASIUM 7/88</p>
+        <div className="visez-login-divider" aria-hidden="true" />
+        <h2>Your Upwork <span>advantage.</span></h2>
+        <p className="visez-login-slogan">Aim. Pitch. Win.</p>
+        <p className="visez-login-subtitle">EVERY OPPORTUNITY. EVERY TIME.</p>
         <form onSubmit={submit} className="login-form">
-          <label>Email<input type="email" name="email" autoComplete="email" required /></label>
-          <label>Password<input type="password" name="password" autoComplete="current-password" required /></label>
+          <label className="visez-login-field"><span>Email address</span><input type="email" name="email" autoComplete="email" placeholder="Email address" required /></label>
+          <label className="visez-login-field"><span>Password</span><input type="password" name="password" autoComplete="current-password" placeholder="Password" required /></label>
           {error && <p className="form-error" role="alert">{error}</p>}
           {notice && <p className="form-success" role="status">{notice}</p>}
-          <button className="primary-button" disabled={pending}>{pending ? "Signing in…" : "Enter workspace"}</button>
+          <button className="primary-button" disabled={pending}>{pending ? "Signing in…" : "Sign In"}</button>
           <button className="text-button" type="button" disabled={pending} onClick={resetAccess}>Set or reset password</button>
         </form>
         <p className="login-note">Restricted Atlasium operations workspace</p>
