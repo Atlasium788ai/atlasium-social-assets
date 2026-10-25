@@ -41,7 +41,7 @@ export function OpportunityBoard({ opportunities, mode }: { opportunities: Oppor
   return <section className={`opportunity-board board-${mode}`}>
     <div className="board-heading"><div><p className="eyebrow">LIVE WORKSPACE</p><h2>{mode === "find" ? "Opportunity inbox" : mode === "bid" ? "Proposal queue" : "Opportunity pipeline"}</h2><p>{list.length} records in this view</p></div><select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="Filter opportunities"><option value="all">All stages</option>{modeStatuses[mode].map((status) => <option value={status} key={status}>{labels[status]}</option>)}</select></div>
     <div className="opportunity-cards">
-      {list.length === 0 && <div className="empty-state futuristic-empty"><span><Icon /></span><h3>BidFlo is standing by</h3><p>{empty}</p></div>}
+      {list.length === 0 && <div className="empty-state futuristic-empty"><span><Icon /></span><h3>Visez is standing by</h3><p>{empty}</p></div>}
       {list.map((item, index) => <Link href={`/opportunities/${item.id}`} className={`opportunity-card accent-${index % 3}`} key={item.id}>
         <span className="op-card-icon"><Icon /></span>
         <div className="op-card-main">
