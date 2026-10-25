@@ -36,3 +36,19 @@ test("AI diagnostic refuses insecure base URLs without making network requests",
   assert.equal(result.fault, "missing_config");
   assert.equal(result.httpStatus, null);
 });
+
+test("AI diagnostics honors an existing OPENAI_API_KEY environment variable", async () => {
+  let tokenHeader = "";
+  const fetcher = (async (_url: URL | RequestInfo, init?: RequestInit) => {
+    tokenHeader = String((init?.headers as Record<string, string>)?.Authorization ?? "");
+    return Response.json({ data: [{ id: "gpt-5-mini" }] });
+  }) as typeof fetch;
+  const result = await diagnoseAiProvider(
+    { AI_API_KEY: "", OPENAI_API_KEY: "alias-test-key", AI_MODEL: "gpt-5-mini" },
+    fetcher,
+  );
+  assert.equal(tokenHeader, "Bearer alias-test-key");
+  assert.equal(result.configured, true);
+  assert.equal(result.fault, null);
+  assert.equal(JSON.stringify(result).includes("alias-test-key"), false);
+});

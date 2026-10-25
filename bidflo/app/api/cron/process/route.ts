@@ -22,11 +22,11 @@ export async function POST(request: Request) {
   try {
     const sql = db();
     const [last] = await sql`select created_at from bidflo_audit_logs
-      where action = 'ai.connection_probed' and created_at > now() - interval '6 hours'
+      where action = 'ai.connection_probed_v2' and created_at > now() - interval '6 hours'
       order by created_at desc limit 1`;
     if (!last) {
       const result = await diagnoseAiProvider();
-      await audit("system:ai", "ai.connection_probed", "integration", undefined, result);
+      await audit("system:ai", "ai.connection_probed_v2", "integration", undefined, result);
       ai = { checked: true, configured: result.configured, status: result.httpStatus, fault: result.fault };
     }
   } catch (error) {
