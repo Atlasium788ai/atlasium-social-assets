@@ -14,7 +14,7 @@ const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("mark_submitted") }),
   z.object({ action: z.literal("resolve_submission"), outcome: z.enum(["submitted", "not_submitted"]) }),
   z.object({ action: z.literal("set_stage"), stage: z.enum(["replied", "interviewed", "won", "nurture"]) }),
-  z.object({ action: z.literal("update_nurture"), note: z.string().max(2000), dueDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).nullable() }),
+  z.object({ action: z.literal("update_nurture"), note: z.string().max(2000), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable() }),
   z.object({
     action: z.literal("edit"),
     body: z.string().min(20).max(5000),
