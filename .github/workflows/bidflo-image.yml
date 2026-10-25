@@ -51,11 +51,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.title=BidFlo
 
-      - name: Allow Render to pull the public release image
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api --method PATCH "/user/packages/container/bidflo" -f visibility=public
-
       - name: Verify anonymous image pull
         run: |
           docker logout ghcr.io
