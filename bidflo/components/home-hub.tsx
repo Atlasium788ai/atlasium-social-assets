@@ -15,15 +15,15 @@ export function HomeHub({ email, metrics }: { email: string; metrics: Metrics })
     <div className="hub-orbit hub-orbit-one" aria-hidden="true" />
     <div className="hub-orbit hub-orbit-two" aria-hidden="true" />
     <header className="hub-topbar">
-      <Link href="/" className="wordmark"><LogoMark /><strong>Bid<span>Flo</span></strong></Link>
+      <Link href="/" className="wordmark"><LogoMark /><strong>Visez</strong></Link>
       <div className="hub-account"><span className="live-pill"><i />Live<small>Upwork email intake</small></span><span className="avatar">{email.slice(0, 1).toUpperCase()}</span></div>
     </header>
     <section className="hub-hero">
-      <p className="hub-kicker">INTELLIGENT OPPORTUNITY &amp; PROPOSAL MANAGEMENT</p>
-      <h1>Your Upwork <span>advantage.</span></h1>
-      <p className="hub-tagline">EVERY OPPORTUNITY. EVERY TIME.</p>
+      <p className="hub-kicker">AI OPPORTUNITY &amp; PROPOSAL AUTOMATION</p>
+      <h1>Aim. Pitch. <span>Win.</span></h1>
+      <p className="hub-tagline">FIND BETTER OPPORTUNITIES. BUILD STRONGER PROPOSALS. WIN MORE CLIENTS.</p>
     </section>
-    <section className="hub-tiles" aria-label="BidFlo workspaces">
+    <section className="hub-tiles" aria-label="Visez workspaces">
       {sections.map(({ number, href, title, copy, action, tone, icon: Icon }) => <Link href={href} className={`hub-tile tone-${tone}`} key={href}>
         <span className="tile-number">{number}</span><span className="tile-dots" aria-hidden="true">•••</span>
         <span className="tile-icon"><Icon /></span>
