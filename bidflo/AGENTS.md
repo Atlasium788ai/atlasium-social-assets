@@ -1,3 +1,14 @@
+# BidFlo: zero-cost development hold (October 24, 2026)
+
+- **Development branch:** `codex/bidflo-next`. Make all further BidFlo changes here, not on `codex/bidflo` until a release is authorized.
+- **Current live branch:** Render web service and five-minute cron deploy from `codex/bidflo`. That production branch is held unchanged during the October build-pipeline limit; avoid new pushes to it.
+- **Free verification:** GitHub Actions quality gate on this development branch runs tests, lint, and production compilation on standard hosted runners. Do not create preview environments or new paid services.
+- **Release method:** Batch changes; obtain green CI; review actual deployment impact; merge/deploy once when Render included build minutes resume or the operator authorizes release. Do not attempt paid build-minute purchases, upgrades, or new subscriptions.
+- **Business controls:** Never submit Upwork bids, spend Connects, send client messages, or contact team members without explicit authorization. Do not change the approved three-section interface without a request.
+- **Continuity:** Preserve real opportunities, database records, current Render configuration, and the live site's availability. Do not apply database migrations to production during this hold.
+
+---
+
 # BidFlo release constraints and integration tasks
 
 ## Hardening handoff, October 24

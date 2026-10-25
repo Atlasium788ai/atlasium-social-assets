@@ -97,6 +97,10 @@ export function recommendCommercials(opportunity: OpportunityInput, targetHourly
   else if (maximum) bidAmount = Math.max(500, Math.round(maximum * 0.92 / 50) * 50);
   else bidAmount = 2500;
 
+  // Never automatically propose an amount above a client's stated ceiling.
+  // Low-budget opportunities still need human review for profitability.
+  if (maximum != null && maximum > 0) bidAmount = Math.min(bidAmount, maximum);
+
   const scopeSignals = opportunity.requirements.length || Math.ceil(opportunity.description.length / 500);
   const size = opportunity.budgetType === "hourly"
     ? scopeSignals <= 2 ? "1–2 weeks for initial delivery" : scopeSignals <= 5 ? "2–4 weeks for initial delivery" : "4–8 weeks for initial delivery"
