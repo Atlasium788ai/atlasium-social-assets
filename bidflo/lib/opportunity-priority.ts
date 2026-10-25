@@ -1,6 +1,6 @@
 import type { OpportunityRow, OpportunityStatus } from "./types";
 
-type OpportunityMode = "find" | "bid" | "follow";
+type OpportunityMode = "find" | "bid" | "follow" | "nurture" | "won";
 
 const statusPriority: Record<OpportunityMode, Partial<Record<OpportunityStatus, number>>> = {
   find: {
@@ -14,7 +14,8 @@ const statusPriority: Record<OpportunityMode, Partial<Record<OpportunityStatus, 
     interviewed: 4,
     submitted: 5,
     won: 6,
-    lost: 8,
+    nurture: 7,
+    opted_out: 9,
     rejected: 9,
   },
   bid: {
@@ -29,9 +30,11 @@ const statusPriority: Record<OpportunityMode, Partial<Record<OpportunityStatus, 
     interviewed: 1,
     submission_processing: 2,
     submitted: 3,
+    nurture: 4,
     won: 5,
-    lost: 6,
   },
+  nurture: { nurture: 0 },
+  won: { won: 0 },
 };
 
 function numeric(value: string | number | null | undefined) {
