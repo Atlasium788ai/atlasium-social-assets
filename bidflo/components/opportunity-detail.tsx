@@ -171,7 +171,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
               <button disabled={Boolean(pending)} onClick={() => action({ action: "set_stage", stage: "won" })}>Won</button>
               {opportunity.status !== "nurture" && <button disabled={Boolean(pending)} onClick={() => action({ action: "set_stage", stage: "nurture" })}>Move to Nurture</button>}
             </div>
-            <p>There is no Lost stage. Only a client's explicit request stops future contact.</p>
+            <p>There is no Lost stage. Only a client&apos;s explicit request stops future contact.</p>
           </article>}
           {opportunity.status === "nurture" && !contactStopped && <article className="card visez-nurture-card">
             <p className="eyebrow">NURTURE · HUMAN-REVIEWED</p><h3>Build the relationship</h3>
