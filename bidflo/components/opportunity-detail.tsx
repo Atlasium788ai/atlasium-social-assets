@@ -20,7 +20,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
   const [timeline, setTimeline] = useState(opportunity.proposal_timeline ?? opportunity.suggested_timeline ?? "");
   const [questions, setQuestions] = useState((opportunity.proposal_questions ?? []).join("\n"));
   const [nurtureNote, setNurtureNote] = useState(opportunity.nurture_note ?? "");
-  const [nurtureDue, setNurtureDue] = useState(opportunity.nurture_due_at?.slice(0, 10) ?? "");
+  const [nurtureDue, setNurtureDue] = useState(String(opportunity.nurture_due_at ?? "").slice(0, 10));
   const [nurtureDraft, setNurtureDraft] = useState("Hi, I wanted to check in with a useful update from Atlasium. If you have any CRM, automation, or sales workflow projects where we can support you, I'd be glad to discuss them here on Upwork. If you'd prefer no occasional follow-ups, just reply STOP and we'll respect that.");
   const clientRoom = messages.find((message) => message.upwork_room_url && /^https:\/\/(?:www\.)?upwork\.com\/ab\/messages\/rooms\//i.test(String(message.upwork_room_url)))?.upwork_room_url;
   const contactStopped = Boolean(opportunity.opted_out_at) || opportunity.status === "opted_out";
