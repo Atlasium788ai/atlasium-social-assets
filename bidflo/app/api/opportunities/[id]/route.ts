@@ -4,7 +4,7 @@ import { requireAdminSession, unauthorizedResponse } from "@/lib/auth/server";
 import { isSameOriginMutation, mutationForbidden } from "@/lib/security";
 import { qualifyAndPrepare } from "@/lib/workflow";
 import { queueSlackAlertSafely } from "@/lib/slack-alerts";
-import { canEditProposal, canRescore, canApproveProposal, canConfirmManualSubmission, canSetStage, type OpportunityStage } from "@/lib/pipeline-guards";
+import { canEditProposal, canRescore, canApproveProposal, canConfirmManualSubmission, canResolveUncertainSubmission, canSetStage, type OpportunityStage } from "@/lib/pipeline-guards";
 import { proposalPreflight, rebalanceMilestones } from "@/lib/proposal-preflight";
 import type { OpportunityInput, ProposalDraft } from "@/lib/types";
 
@@ -12,6 +12,7 @@ const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve") }),
   z.object({ action: z.literal("reject"), reason: z.string().max(500).optional() }),
   z.object({ action: z.literal("mark_submitted") }),
+  z.object({ action: z.literal("resolve_submission"), outcome: z.enum(["submitted", "not_submitted"]) }),
   z.object({ action: z.literal("set_stage"), stage: z.enum(["replied", "interviewed", "won", "lost"]) }),
   z.object({
     action: z.literal("edit"),
@@ -211,6 +212,37 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       kind: "submitted", opportunityId: id, title: String(detail?.title ?? "Upwork opportunity"),
     });
     return Response.json({ ok: true, status: "submitted" });
+  }
+  if (parsed.data.action === "resolve_submission") {
+    // Only a human who checked Upwork can clear an uncertain bridge result.
+    const outcome = parsed.data.outcome;
+    const resolved = await sql.begin(async (tx) => {
+      const [current] = await tx`select status from bidflo_opportunities where id = ${id} for update`;
+      if (!current || !canResolveUncertainSubmission(String(current.status) as OpportunityStage)) return null;
+      const [proposal] = await tx`
+        select id from bidflo_proposals
+        where opportunity_id = ${id} and status = 'approved'
+        order by version desc limit 1
+      `;
+      if (!proposal) return null;
+      const nextStatus = outcome === "submitted" ? "submitted" : "approved";
+      await tx`update bidflo_opportunities set status = ${nextStatus}, updated_at = now() where id = ${id}`;
+      if (outcome === "submitted") {
+        await tx`insert into bidflo_submission_events (opportunity_id, proposal_id, status, detail)
+          values (${id}, ${String(proposal.id)}, 'submitted', ${tx.json({ method: "human_verified_after_uncertain_result" })})
+          on conflict do nothing`;
+      }
+      return String(proposal.id);
+    });
+    if (!resolved) return Response.json({ error: "This submission is no longer awaiting verification; refresh first" }, { status: 409 });
+    await audit(actor, `submission.verified_${outcome}`, "opportunity", id, { proposalId: resolved });
+    if (outcome === "submitted") {
+      const [detail] = await sql`select title from bidflo_opportunities where id = ${id}`;
+      await queueSlackAlertSafely(`submitted:${id}`, {
+        kind: "submitted", opportunityId: id, title: String(detail?.title ?? "Upwork opportunity"),
+      });
+    }
+    return Response.json({ ok: true, status: outcome === "submitted" ? "submitted" : "approved" });
   }
   if (!canSetStage(String(opportunity.status) as OpportunityStage, parsed.data.stage)) {
     return Response.json({ error: "Invalid stage transition; refresh the opportunity" }, { status: 409 });

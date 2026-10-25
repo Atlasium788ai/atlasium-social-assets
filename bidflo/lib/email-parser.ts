@@ -127,7 +127,10 @@ export function parseUpworkEmail(input: {
   const combined = `${input.subject}\n${input.text ?? ""}\n${input.html ?? ""}\n${body}`;
   const jobUrl = upworkJobUrl(combined);
   const roomUrl = upworkRoomUrl(combined);
-  const looksLikeReply = /(?:replied|message from|invitation|interview|offer|re:\s*)/i.test(input.subject);
+  // Job titles such as "Interview Booking Automation" or "Offer Workflow CRM"
+  // are opportunities, not client replies. Explicit job alerts take precedence.
+  const jobAlertSubject = /^(?:upwork\s*[-:]\s*)?(?:new job\b|job alert\b|new opportunity\b|recommended jobs?\b)/i.test(input.subject.trim());
+  const looksLikeReply = !jobAlertSubject && /(?:replied|message from|invitation|interview|offer|re:\s*)/i.test(input.subject);
 
   if (looksLikeReply) {
     return { kind: "reply", jobUrl: jobUrl ?? undefined, roomUrl: roomUrl ?? undefined, subject: input.subject.slice(0, 300), body: safeDescription(body) };
@@ -136,7 +139,7 @@ export function parseUpworkEmail(input: {
 
   const budget = extractBudget(body);
   const jobId = jobUrl.match(/~[A-Za-z0-9]+/)?.[0];
-  const externalKey = jobId ?? createHash("sha256").update(jobUrl).digest("hex");
+  const externalKey = (jobId ?? createHash("sha256").update(jobUrl).digest("hex")).toLowerCase();
   const clientRating = parseMoney(firstMatch(body, [/client rating\s*:?\s*([\d.]+)/i, /([\d.]+)\s*(?:out of 5|stars)/i]));
   const clientSpend = parseMoney(firstMatch(body, [/\$([\d,.]+)\+?\s*(?:total )?spent/i]));
 

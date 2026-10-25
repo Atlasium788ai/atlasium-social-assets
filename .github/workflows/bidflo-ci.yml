@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/bidflo
+      - codex/bidflo-next
     paths:
       - 'bidflo/**'
       - '.github/workflows/bidflo-ci.yml'

@@ -1,12 +1,19 @@
-# Release hold: continue on `codex/bidflo-next`
+# BidFlo production release candidate
 
-**October 24, 2026.** The owner requires **$0 additional spending**. Render has exhausted this month's build-pipeline allowance. The current live BidFlo service remains operational.
+## Verified state, October 25, 2026
 
-- Do **not** push further BidFlo development to `codex/bidflo`; it is Render's deployment branch.
-- Switch to `codex/bidflo-next` for all next code changes. That branch has free standard GitHub Actions tests, lint, and Next.js build, without triggering Render deployments.
-- Batch and review changes. No new Render services, plan upgrades, build purchases, paid tooling, or production deploys without explicit approval.
-- Preserve existing live data and the Find / Bid / Follow Up interface. Never submit bids, spend Upwork Connects, or send client messages without explicit approval.
-- When included Render minutes reset, merge a tested release once and verify live functionality. Do not merge during the hold.
+- This release combines the qualification, proposal-quality, duplicate-application, fast-review, uncertain-submission recovery, and job-alert parsing work. Local tests, lint, production compilation, and GitHub's **BidFlo Quality Gate** passed after the merge (70 tests).
+- Neon migration `0006_duplicate_application_guards.sql` was validated on the isolated `codex-bidflo-migration-0006` branch and then applied successfully to the production `bidflo` database. Production has all three indexes and the migration record; prechecks found zero duplicate job keys, submissions, or manual handoffs.
+- The live web health endpoint reports the database ready. The five-minute Render processor continues to complete successfully, but processed zero new events during the verification window.
+- Render still cancels new builds because the workspace has exhausted its build-pipeline minutes. Do not push this candidate to `codex/bidflo` until minutes resume or Blair explicitly authorizes paid build capacity.
+- Slack is not configured in the processor environment. AI remains unconfigured because the previous key was revoked. These require new secrets from Blair; do not invent, recover, print, or commit credentials.
+- Temporary Neon test branch `codex-bidflo-migration-0006` remains available for inspection. Deleting it is destructive and requires explicit operator confirmation.
+
+- **Development branch:** Continue future BidFlo changes on `codex/bidflo-next`.
+- **Production branch:** Render web and cron services deploy from `codex/bidflo`.
+- **Release method:** Push this tested release once after build capacity is restored, monitor both Render deploys to `live`, verify `/api/health`, then exercise one genuine notification-to-approval flow.
+- **Business controls:** Never submit Upwork bids, spend Connects, send client messages, or contact team members without explicit authorization. Do not change the approved three-section interface without a request.
+- **Continuity:** Preserve real opportunities, database records, current Render configuration, and the live site's availability.
 
 ---
 

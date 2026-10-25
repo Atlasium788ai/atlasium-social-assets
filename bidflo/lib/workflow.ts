@@ -226,7 +226,7 @@ async function processEvent(event: Record<string, unknown>) {
       const jobId = parsed.jobUrl.match(/~[A-Za-z0-9]+/)?.[0] ?? "";
       const matches = await sql`
         select id, title from bidflo_opportunities
-        where job_url = ${parsed.jobUrl} or external_key = ${jobId}
+        where job_url = ${parsed.jobUrl} or lower(external_key) = lower(${jobId})
         order by created_at desc limit 1
       `;
       if (matches[0]) opportunity = { id: String(matches[0].id), title: String(matches[0].title) };
@@ -307,12 +307,12 @@ async function processEvent(event: Record<string, unknown>) {
       ${item.clientSpend ?? null}, ${item.clientRating ?? null}, ${item.budgetMin ?? null}, ${item.budgetMax ?? null},
       ${item.budgetType ?? "unknown"}, ${item.currency ?? "USD"}, ${item.jobUrl}, ${sql.json(item.requirements)},
       ${item.sourceSubject}, ${item.sourceReceivedAt}
-    ) on conflict (external_key) do nothing returning id
+    ) on conflict do nothing returning id
   `;
   if (!inserted) {
     // A previous processing attempt can fail after creating/scoring the opportunity.
     // Resume its draft instead of discarding it as a duplicate.
-    const [existing] = await sql`select id from bidflo_opportunities where external_key = ${item.externalKey} limit 1`;
+    const [existing] = await sql`select id from bidflo_opportunities where lower(external_key) = lower(${item.externalKey}) limit 1`;
     if (existing) {
       const [proposal] = await sql`
         select id from bidflo_proposals where opportunity_id = ${String(existing.id)}
