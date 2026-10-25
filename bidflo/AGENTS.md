@@ -1,5 +1,14 @@
 # BidFlo: zero-cost development hold (October 24, 2026)
 
+## Verified state, October 25, 2026
+
+- `codex/bidflo-next` now combines the qualification, proposal-quality, duplicate-application, fast-review, uncertain-submission recovery, and job-alert parsing work. Local tests, lint, production compilation, and GitHub's **BidFlo Quality Gate** passed after the merge (70 tests).
+- Neon migration `0006_duplicate_application_guards.sql` was validated on the isolated `codex-bidflo-migration-0006` branch and then applied successfully to the production `bidflo` database. Production has all three indexes and the migration record; prechecks found zero duplicate job keys, submissions, or manual handoffs.
+- The live web health endpoint reports the database ready. The five-minute Render processor continues to complete successfully, but processed zero new events during the verification window.
+- Render still cancels new builds because the workspace has exhausted its build-pipeline minutes. Keep `codex/bidflo` unchanged until minutes resume or Blair explicitly authorizes paid build capacity; the verified changes remain on `codex/bidflo-next`.
+- Slack is not configured in the processor environment. AI remains unconfigured because the previous key was revoked. These require new secrets from Blair; do not invent, recover, print, or commit credentials.
+- Temporary Neon test branch `codex-bidflo-migration-0006` remains available for inspection. Deleting it is destructive and requires explicit operator confirmation.
+
 - **Development branch:** `codex/bidflo-next`. Make all further BidFlo changes here, not on `codex/bidflo` until a release is authorized.
 - **Current live branch:** Render web service and five-minute cron deploy from `codex/bidflo`. That production branch is held unchanged during the October build-pipeline limit; avoid new pushes to it.
 - **Free verification:** GitHub Actions quality gate on this development branch runs tests, lint, and production compilation on standard hosted runners. Do not create preview environments or new paid services.
