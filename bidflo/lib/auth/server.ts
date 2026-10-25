@@ -35,10 +35,10 @@ export async function getAuthenticatedAdminSession() {
 
 /** Temporary public browsing remains possible, but it does not grant write access. */
 export async function getAdminSession() {
-  if (isAuthDisabled()) {
-    return { user: { email: process.env.BIDFLO_OWNER_EMAIL ?? "info@atlasium788.ca", name: "Visez Preview" } };
-  }
-  return getAuthenticatedAdminSession();
+  // In preview mode, a verified team login upgrades the same UI to full authorized access.
+  if (!isAuthDisabled()) return getAuthenticatedAdminSession();
+  const actual = await getAuthenticatedAdminSession();
+  return actual ?? { user: { email: process.env.BIDFLO_OWNER_EMAIL ?? "info@atlasium788.ca", name: "Visez Preview" } };
 }
 
 export async function requireAdminSession() {
