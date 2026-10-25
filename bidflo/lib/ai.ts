@@ -63,7 +63,7 @@ function extractJson(text: string) {
 }
 
 async function chat(system: string, data: Record<string, unknown>, model: string, format: { name: string; schema: object }) {
-  const apiKey = process.env.AI_API_KEY;
+  const apiKey = process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
   const baseUrl = (process.env.AI_API_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
   if (!apiKey || !model) throw new Error("AI provider is not configured");
   const response = await fetch(`${baseUrl}/chat/completions`, {
