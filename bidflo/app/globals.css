@@ -277,7 +277,7 @@ input, textarea { color: var(--text); background: #0c0c12; border: 1px solid var
 @media(max-width:600px) { .quick-capture > summary { padding-inline: 15px; } .quick-capture-form { padding: 16px 15px; }.quick-capture-actions { flex-direction: column; align-items: stretch; }.quick-capture-actions > label { width: 100%; } }
 
 
-/* Visez visual-only refresh. Preserves all routing, forms, data and operation controls. */
+/* Visez release visuals: branding only; existing workflows and sign-in logic remain intact. */
 .hub-shell {
   background: linear-gradient(180deg, rgba(1,4,12,.05) 0%, rgba(1,4,12,.06) 47%,rgba(1,4,12,.40) 100%), url("/visez-dashboard-scene.svg") center / cover no-repeat, #020610;
   min-height: 100vh;
