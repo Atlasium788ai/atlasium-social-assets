@@ -4,7 +4,7 @@ import { ArrowIcon, BellIcon, DocumentIcon, LogoMark, SearchIcon } from "@/compo
 type Metrics = { approval_queue: number; submitted: number; total: number };
 
 const sections = [
-  { number: "01", href: "/find", title: "Find", copy: "Capture and surface the best Upwork opportunities.", action: "View Opportunities", tone: "blue", icon: SearchIcon },
+  { number: "01", href: "/find", title: "Find", copy: "Scan and surface the best Upwork opportunities.", action: "View Opportunities", tone: "blue", icon: SearchIcon },
   { number: "02", href: "/bid", title: "Bid", copy: "Create and review tailored proposals in minutes.", action: "Review Proposals", tone: "violet", icon: DocumentIcon },
   { number: "03", href: "/follow-up", title: "Follow Up", copy: "Track replies, set reminders and never miss a lead.", action: "View Follow Ups", tone: "aqua", icon: BellIcon },
 ] as const;
@@ -16,12 +16,13 @@ export function HomeHub({ email, metrics }: { email: string; metrics: Metrics })
     <div className="hub-orbit hub-orbit-two" aria-hidden="true" />
     <header className="hub-topbar">
       <Link href="/" className="wordmark"><LogoMark /><strong>Visez</strong></Link>
-      <div className="hub-account"><span className="live-pill"><i />Live<small>Upwork email intake</small></span><span className="avatar">{email.slice(0, 1).toUpperCase()}</span></div>
+      <div className="hub-account"><span className="live-pill"><i />Live<small>Upwork alerts</small></span><span className="avatar">{email.slice(0, 1).toUpperCase()}</span></div>
     </header>
     <section className="hub-hero">
       <p className="hub-kicker">AI OPPORTUNITY &amp; PROPOSAL AUTOMATION</p>
-      <h1>Aim. Pitch. <span>Win.</span></h1>
-      <p className="hub-tagline">FIND BETTER OPPORTUNITIES. BUILD STRONGER PROPOSALS. WIN MORE CLIENTS.</p>
+      <h1>Your Upwork <span>advantage.</span></h1>
+      <p className="hub-tagline">AIM. PITCH. WIN.</p>
+      <p className="hub-support">Find better opportunities. Build stronger proposals. Win more clients.</p>
     </section>
     <section className="hub-tiles" aria-label="Visez workspaces">
       {sections.map(({ number, href, title, copy, action, tone, icon: Icon }) => <Link href={href} className={`hub-tile tone-${tone}`} key={href}>
