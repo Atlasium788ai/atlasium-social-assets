@@ -1,20 +1,21 @@
-# BidFlo: zero-cost development hold (October 24, 2026)
+# BidFlo: internal launch handoff (October 25, 2026)
 
 ## Verified state, October 25, 2026
 
-- `codex/bidflo-next` now combines the qualification, proposal-quality, duplicate-application, fast-review, uncertain-submission recovery, and job-alert parsing work. Local tests, lint, production compilation, and GitHub's **BidFlo Quality Gate** passed after the merge (70 tests).
+- `codex/bidflo-next` combines the qualification, proposal-quality, duplicate-application, fast-review, uncertain-submission recovery, and job-alert parsing work. Local tests, lint, production compilation, GitHub's **BidFlo Quality Gate**, and the container build all passed (70 tests).
 - Neon migration `0006_duplicate_application_guards.sql` was validated on the isolated `codex-bidflo-migration-0006` branch and then applied successfully to the production `bidflo` database. Production has all three indexes and the migration record; prechecks found zero duplicate job keys, submissions, or manual handoffs.
-- The live web health endpoint reports the database ready. The five-minute Render processor continues to complete successfully, but processed zero new events during the verification window.
-- Render still cancels new builds because the workspace has exhausted its build-pipeline minutes. Keep `codex/bidflo` unchanged until minutes resume or Blair explicitly authorizes paid build capacity; the verified changes remain on `codex/bidflo-next`.
+- The tested release is live on both existing Render services as immutable image `ghcr.io/atlasium788ai/bidflo:37e55e923cbc74dc6a3fd70693016257b512f47a` (`sha256:1e1907676f9545f7747615b316744e432d1a552abfdcb51dccf7f269d5c70b42`). The existing web URL, Neon database, environment variables, free web plan, and five-minute cron schedule were preserved.
+- The web service uses the image's default `pnpm start`, health check path `/api/health`, and reports `database: ready`. The cron image overrides the command with `node scripts/run-cron.mjs`. Confirm a successful scheduled run after each future image update.
+- Render native build minutes remain exhausted, so releases use `.github/workflows/bidflo-image.yml` on GitHub's free standard runner. It builds `linux/amd64`, runs the app's complete build gate inside the image, publishes to public GHCR, and verifies an anonymous pull before Render is updated. Do not switch back to a Render Git build while the limit remains exhausted.
 - Slack is not configured in the processor environment. AI remains unconfigured because the previous key was revoked. These require new secrets from Blair; do not invent, recover, print, or commit credentials.
 - Temporary Neon test branch `codex-bidflo-migration-0006` remains available for inspection. Deleting it is destructive and requires explicit operator confirmation.
 
 - **Development branch:** `codex/bidflo-next`. Make all further BidFlo changes here, not on `codex/bidflo` until a release is authorized.
-- **Current live branch:** Render web service and five-minute cron deploy from `codex/bidflo`. That production branch is held unchanged during the October build-pipeline limit; avoid new pushes to it.
+- **Current live source:** Render web and cron both pull the immutable GHCR image above. The old `codex/bidflo` Git branch remains available for history but is no longer the active Render source.
 - **Free verification:** GitHub Actions quality gate on this development branch runs tests, lint, and production compilation on standard hosted runners. Do not create preview environments or new paid services.
-- **Release method:** Batch changes; obtain green CI; review actual deployment impact; merge/deploy once when Render included build minutes resume or the operator authorizes release. Do not attempt paid build-minute purchases, upgrades, or new subscriptions.
+- **Release method:** Batch changes; obtain green CI; publish a dedicated `codex/bidflo-release-*` image; require the image workflow and anonymous pull to pass; then pin both existing Render services to that exact immutable tag. Do not attempt paid build-minute purchases, upgrades, or new subscriptions.
 - **Business controls:** Never submit Upwork bids, spend Connects, send client messages, or contact team members without explicit authorization. Do not change the approved three-section interface without a request.
-- **Continuity:** Preserve real opportunities, database records, current Render configuration, and the live site's availability. Do not apply database migrations to production during this hold.
+- **Continuity:** Preserve real opportunities, database records, current Render configuration, and the live site's availability. Inspect and back up production data before future migrations.
 
 ---
 
@@ -47,12 +48,12 @@
 
 ## Codex handoff from ChatGPT code edits
 
-- Repo: `Atlasium788ai/atlasium-social-assets`, branch `codex/bidflo`, app in `bidflo/`.
-- Live service: `https://atlasium-bidflo.onrender.com`; web and 5-minute processor hosted on Render, database `bidflo` in Neon.
+- Repo: `Atlasium788ai/atlasium-social-assets`, development branch `codex/bidflo-next`, app in `bidflo/`. Production Render services are image-backed; do not assume the old `codex/bidflo` branch is live.
+- Live service: `https://atlasium-bidflo.onrender.com`; web and 5-minute processor hosted on Render from the pinned GHCR image above, database `bidflo` in Neon.
 - New Follow Up feature committed: `components/reply-assistant.tsx` renders editable Direct/Consultative/Friendly messages with **Copy**, per-tone **Refresh**, and **Previous/Next** versions persisted to browser localStorage for that message; draft-generation API `app/api/opportunities/[id]/reply-suggestions/route.ts`. All replies encourage the client to meet *inside Upwork*. There is no auto-send.
 - `components/reply-notification.tsx` mounted in `components/app-shell.tsx`; while the app is open, it polls `app/api/follow-up/replies/route.ts` every 45 seconds for linked inbound client messages and shows a dismissible popup. It only shows a reply on the associated opportunity; if no exact match, messages remain unlinked rather than guess. Client conversation deep links saved to `bidflo_messages.upwork_room_url` when notifications contain one; otherwise open Upwork Messages inbox and show original job link.
 - Parser and workflow: `lib/email-parser.ts`, `lib/workflow.ts`. DB migration: `db/migrations/0002_upwork_reply_room.sql`. Migrator fixed to run in TSX CommonJS `scripts/migrate.ts`; `package.json` build runs `pnpm test && next build`, start runs DB migrations then Next.
-- Tests: 15 passed in Render build on October 24. Latest production build and health check passed; no actual linked inbound client replies yet, so the popup/reply copy flow must be exercised end-to-end on a genuine incoming response before claiming that behavior proven. A previously received real job (Run That Rehab CRM automation) scored 90 and received a manual-review draft. **Do not fabricate Upwork data, fake wins, or pretend fake events are real prospects.**
+- Tests: 70 passed in the release image build on October 25, with lint and Next production compilation also passing. The production image and database-backed health check passed; no actual linked inbound client replies yet, so the popup/reply copy flow must be exercised end-to-end on a genuine incoming response before claiming that behavior proven. A previously received real job (Run That Rehab CRM automation) scored 90 and received a manual-review draft. **Do not fabricate Upwork data, fake wins, or pretend fake events are real prospects.**
 - AI status: `AI_API_KEY` unset in Render because an earlier key was leaked and revoked; Neon AI Gateway on Free plan returned 403. Reply cards currently use clearly labeled editable **starter variants**, not personalized GPT replies. After a new account-owner-created OpenAI API key is privately installed in Render, verify live personalized reply generation, distinct tones, regeneration, review, safeguards, and model costs. Never commit or print keys.
 - Upwork status: `.codex/config.toml` registers official Upwork OAuth MCP for Codex; this does **not** mean the Render-hosted application has automatically connected to the user's Upwork account. OAuth authorization and consented backend polling remain outstanding. Email ingestion works for permitted forwarded notifications; do not misrepresent it as live autonomous scanning.
 - UX/design: app is dark-mode only and Apple-clean. Preserve other sections when asked for one edit. Keep wording free of unsubstantiated scanning/win claims and keep branding `Powered by Atlasium 7/88`. Any sign-in design is conceptual while auth bypass remains on.
