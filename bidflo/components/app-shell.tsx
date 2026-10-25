@@ -29,10 +29,10 @@ export function AppShell({ children, email, publicAccess = false }: { children: 
             </Link>
           ))}
         </nav>
-        <div className="workspace-account"><span className="sync-chip"><i /> Agent live</span>{openAccess ? <span className="public-access-chip">Open access</span> : <button className="profile-button" title={`${email} · Sign out`} onClick={async () => { await authClient.signOut(); router.replace("/login"); router.refresh(); }}>{email.slice(0, 1).toUpperCase()}</button>}</div>
+        <div className="workspace-account"><span className="sync-chip"><i /> Agent live</span>{openAccess ? <Link href="/login" className="public-access-chip" title="Sign in to manage proposals">View only · Sign in</Link> : <button className="profile-button" title={`${email} · Sign out`} onClick={async () => { await authClient.signOut(); router.replace("/login"); router.refresh(); }}>{email.slice(0, 1).toUpperCase()}</button>}</div>
       </header>
       <div className="app-content">{children}</div>
-      <ReplyNotification />
+      {!openAccess && <ReplyNotification />}
     </div>
   );
 }
