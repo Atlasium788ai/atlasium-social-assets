@@ -14,8 +14,23 @@ export async function listOpportunityCards(): Promise<OpportunityRow[]> {
       select * from bidflo_proposals where opportunity_id = o.id order by version desc limit 1
     ) p on true
     order by
-      case when o.status in ('proposal_ready', 'approved', 'ready_to_submit') then 0 else 1 end,
+      case o.status
+        when 'proposal_ready' then 0
+        when 'qualified' then 1
+        when 'new' then 2
+        when 'approved' then 3
+        when 'ready_to_submit' then 3
+        when 'submission_processing' then 3
+        when 'replied' then 4
+        when 'interviewed' then 4
+        when 'submitted' then 5
+        when 'won' then 6
+        when 'lost' then 8
+        when 'rejected' then 9
+        else 10
+      end,
       o.score desc nulls last,
+      o.budget_max desc nulls last,
       o.created_at desc
     limit 100
   `;
@@ -27,9 +42,12 @@ export async function getDashboardMetrics() {
     select
       count(*)::int as total,
       count(*) filter (where status = 'proposal_ready')::int as approval_queue,
-      count(*) filter (where status in ('submitted', 'replied', 'interviewed', 'won'))::int as submitted,
+      count(*) filter (where status in ('submitted', 'replied', 'interviewed', 'won', 'lost'))::int as submitted,
       count(*) filter (where status = 'won')::int as won,
-      coalesce(sum(suggested_bid) filter (where status in ('approved', 'ready_to_submit', 'submitted', 'replied', 'interviewed')), 0) as pipeline,
+      coalesce(sum(suggested_bid) filter (
+        where status in ('approved', 'ready_to_submit', 'submitted', 'replied', 'interviewed')
+          and budget_type is distinct from 'hourly'
+      ), 0) as pipeline,
       coalesce(avg(score) filter (where score is not null), 0)::numeric(5,1) as average_score
     from bidflo_opportunities
   `;

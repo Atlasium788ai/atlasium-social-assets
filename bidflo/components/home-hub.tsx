@@ -29,7 +29,7 @@ export function HomeHub({ email, metrics }: { email: string; metrics: Metrics })
         <span className="tile-icon"><Icon /></span>
         <h2>{title}</h2><p>{copy}</p>
         <span className="tile-action"><span>{action}</span><ArrowIcon /></span>
-        <span className="tile-stat">{title === "Find" ? `${metrics.total} captured` : title === "Bid" ? `${metrics.approval_queue} awaiting review` : `${metrics.submitted} active`}</span>
+        <span className="tile-stat">{title === "Find" ? `${metrics.total} captured` : title === "Bid" ? `${metrics.approval_queue} awaiting review` : `${metrics.submitted} applications tracked`}</span>
       </Link>)}
     </section>
     <footer className="hub-footer">POWERED BY <strong>ATLASIUM <span>7/88</span></strong></footer>

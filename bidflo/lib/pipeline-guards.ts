@@ -19,6 +19,10 @@ export function canConfirmManualSubmission(stage: OpportunityStage): boolean {
   return stage === "ready_to_submit";
 }
 
+export function canResolveUncertainSubmission(stage: OpportunityStage): boolean {
+  return stage === "submission_processing";
+}
+
 export function canSetStage(current: OpportunityStage, next: string): boolean {
   const rules: Record<string, readonly string[]> = {
     submitted: ["replied", "interviewed", "won", "lost"],

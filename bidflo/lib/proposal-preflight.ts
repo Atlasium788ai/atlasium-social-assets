@@ -62,6 +62,27 @@ function concreteClaimNeedsEvidence(body: string) {
     || /\b(?:increased|improved|reduced|generated|saved)\b.{0,50}\b(?:\d+(?:\.\d+)?%|\$[\d,.]+)\b/i.test(body);
 }
 
+function proposalMentionsAmount(body: string, amount: number) {
+  const plain = String(Math.round(amount * 100) / 100);
+  const formatted = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(amount);
+  return body.replace(/,/g, "").includes(plain.replace(/,/g, "")) || body.includes(formatted);
+}
+
+function hasPracticalPlan(body: string) {
+  const actions = body.match(/\b(?:audit|build|configure|connect|design|document|implement|integrate|map|migrate|prototype|set up|test|validate|verify)\b/gi) ?? [];
+  return new Set(actions.map((action) => action.toLowerCase())).size >= 2;
+}
+
+function hasRelevantQuestion(opportunity: OpportunityInput, questions: string[]) {
+  const scopeTerms = new Set(distinctiveWords(`${opportunity.title} ${opportunity.requirements.join(" ")}`));
+  return questions.some((question) => {
+    if (!question.trim().endsWith("?")) return false;
+    const terms = distinctiveWords(question);
+    return terms.some((term) => scopeTerms.has(term))
+      || /\b(?:acceptance|access|calendar|crm|current|data|demonstration|metric|priority|result|source|system|tool|user|workflow)\b/i.test(question);
+  });
+}
+
 export function rebalanceMilestones(milestones: ProposalDraft["milestones"], bidAmount: number) {
   if (!milestones.length) return milestones;
   const oldTotal = milestones.reduce((sum, milestone) => sum + Number(milestone.amount || 0), 0);
@@ -93,22 +114,31 @@ export function proposalPreflight(input: PreflightInput) {
   const bannedPhrases = stringArray(rules.bannedPhrases);
   const usedBannedPhrase = bannedPhrases.find((phrase) => proposal.body.toLowerCase().includes(phrase.toLowerCase()));
   if (usedBannedPhrase) issues.push(`Remove the banned phrase: ${usedBannedPhrase}`);
+  if (/\b(?:dear hiring manager|i am excited to apply|i would love the opportunity|i am confident i (?:am|would be) the perfect fit)\b/i.test(proposal.body)) {
+    issues.push("Replace the generic proposal opening with a direct client-specific opening");
+  }
 
-  if (opportunity.budgetType === "fixed" && opportunity.budgetMax != null && proposal.bidAmount > opportunity.budgetMax) {
-    issues.push(`Bid amount exceeds the client's stated ${opportunity.currency ?? "USD"} ${opportunity.budgetMax} maximum`);
+  if (["fixed", "hourly"].includes(opportunity.budgetType ?? "") && opportunity.budgetMax != null && proposal.bidAmount > opportunity.budgetMax) {
+    issues.push(`${opportunity.budgetType === "hourly" ? "Hourly rate" : "Bid amount"} exceeds the client's stated ${opportunity.currency ?? "USD"} ${opportunity.budgetMax} maximum`);
   }
 
   if (!Number.isFinite(proposal.bidAmount) || proposal.bidAmount <= 0) issues.push("Set a valid positive bid amount");
+  else if (!proposalMentionsAmount(proposal.body, proposal.bidAmount)) {
+    issues.push(`State the proposed ${opportunity.budgetType === "hourly" ? "hourly rate" : "price"} in the proposal body`);
+  }
   const milestoneTotal = proposal.milestones.reduce((sum, milestone) => sum + Number(milestone.amount || 0), 0);
   if (!proposal.milestones.length) issues.push("Add at least one priced delivery milestone");
   else if (Math.abs(milestoneTotal - proposal.bidAmount) > 0.01) issues.push("Make milestone amounts add up to the bid amount");
 
   if (!proposal.timeline.trim() || /^(?:tbd|unknown|n\/?a)$/i.test(proposal.timeline.trim())) {
     issues.push("Set a realistic delivery timeline");
+  } else if (!/\b(?:day|days|week|weeks|month|months|ongoing)\b/i.test(proposal.body)) {
+    issues.push("State the expected delivery timeline in the proposal body");
   }
-  if (!proposal.questions.some((question) => question.trim().endsWith("?"))) {
+  if (!hasRelevantQuestion(opportunity, proposal.questions)) {
     issues.push("Add at least one client-specific question");
   }
+  if (!hasPracticalPlan(proposal.body)) issues.push("Describe a practical delivery approach with concrete implementation and validation steps");
 
   const requirements = (opportunity.requirements.length ? opportunity.requirements : extractManualRequirements(opportunity.description))
     .filter((requirement) => requirement.trim().length > 5)
@@ -125,7 +155,7 @@ export function proposalPreflight(input: PreflightInput) {
   }
 
   if (requestsDeliveryCommitment(opportunity.description)
-    && !/(?:30|thirty)[\s–-]*days?|4\s*weeks?/i.test(`${proposal.body} ${proposal.timeline}`)) {
+    && !/(?:30|thirty)[\s–-]*days?/i.test(`${proposal.body} ${proposal.timeline}`)) {
     issues.push("Explicitly confirm the requested 30-day delivery commitment after verifying feasibility");
   }
 

@@ -65,8 +65,8 @@ export async function POST(request: Request) {
   opportunity.description = parsed.data.description;
   opportunity.requirements = extractManualRequirements(parsed.data.description);
   opportunity.jobUrl = jobUrl;
-  opportunity.externalKey = jobUrl.match(/~[a-z0-9]+/i)?.[0] ??
-    createHash("sha256").update(jobUrl).digest("hex");
+  opportunity.externalKey = (jobUrl.match(/~[a-z0-9]+/i)?.[0] ??
+    createHash("sha256").update(jobUrl).digest("hex")).toLowerCase();
   opportunity.sourceSubject = "Manual Upwork job import";
   opportunity.sourceReceivedAt = receivedAt;
 
@@ -84,13 +84,13 @@ export async function POST(request: Request) {
       ${opportunity.jobUrl}, ${sql.json(opportunity.requirements)},
       ${opportunity.sourceSubject}, ${opportunity.sourceReceivedAt}
     )
-    on conflict (external_key) do nothing
+    on conflict do nothing
     returning id
   `;
 
   if (!inserted) {
     const [existing] = await sql`
-      select id from bidflo_opportunities where external_key = ${opportunity.externalKey}
+      select id from bidflo_opportunities where lower(external_key) = lower(${opportunity.externalKey})
     `;
     if (!existing) return Response.json({ error: "Could not resolve duplicate posting." }, { status: 409 });
     return Response.json({ opportunityId: String(existing.id), duplicate: true });

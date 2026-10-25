@@ -18,7 +18,7 @@ https://www.upwork.com/jobs/~01ABCDEF123?source=jobAlert`,
   });
   assert.equal(result.kind, "opportunity");
   if (result.kind !== "opportunity") return;
-  assert.equal(result.opportunity.externalKey, "~01ABCDEF123");
+  assert.equal(result.opportunity.externalKey, "~01abcdef123");
   assert.equal(result.opportunity.budgetMax, 5000);
   assert.equal(result.opportunity.clientRating, 4.9);
   assert.equal(result.opportunity.jobUrl, "https://www.upwork.com/jobs/~01ABCDEF123");
@@ -111,4 +111,22 @@ test("room URL alone is not mistaken for a new job listing", () => {
   });
   assert.equal(result.kind, "reply");
   if (result.kind === "reply") assert.equal(result.jobUrl, undefined);
+});
+
+test("normalizes case variants of an Upwork job key for duplicate prevention", () => {
+  const first = parseUpworkEmail({
+    subject: "New job: Automation",
+    text: "Build a detailed automation workflow with testing and documentation.\nhttps://www.upwork.com/jobs/~01CaseKey",
+    receivedAt: "2026-10-24T12:00:00.000Z",
+  });
+  const second = parseUpworkEmail({
+    subject: "New job: Automation duplicate",
+    text: "Build a detailed automation workflow with testing and documentation.\nhttps://www.upwork.com/jobs/~01casekey?source=alert",
+    receivedAt: "2026-10-24T12:05:00.000Z",
+  });
+  assert.equal(first.kind, "opportunity");
+  assert.equal(second.kind, "opportunity");
+  if (first.kind === "opportunity" && second.kind === "opportunity") {
+    assert.equal(first.opportunity.externalKey, second.opportunity.externalKey);
+  }
 });

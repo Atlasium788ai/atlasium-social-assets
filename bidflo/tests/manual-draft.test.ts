@@ -68,3 +68,27 @@ test("a job with exact opening and short-proposal instructions uses 5 focused se
   assert.match(draft.body, /Insert one genuine similar project/);
   assert.match(draft.body, /confirm ability to deliver within 30 days/);
 });
+
+test("hourly fallback states the rate without misrepresenting it as fixed price", () => {
+  const opportunity: OpportunityInput = {
+    externalKey: "~hourly-draft",
+    title: "CRM automation support",
+    description: "Build and test CRM lead routing, booking, and reporting with a documented weekly handoff.",
+    budgetMin: 100,
+    budgetMax: 150,
+    budgetType: "hourly",
+    currency: "USD",
+    jobUrl: "https://www.upwork.com/jobs/~hourly-draft",
+    requirements: ["CRM lead routing", "Calendar booking"],
+    sourceSubject: "New job",
+    sourceReceivedAt: "2026-10-24T12:00:00.000Z",
+  };
+  const commercials: ProposalDraft = {
+    body: "", questions: [], bidAmount: 125, timeline: "2–4 weeks for initial delivery",
+    milestones: [{ name: "Hourly delivery rate", amount: 125, deliverable: "Implementation and testing" }],
+  };
+  const draft = prepareManualReviewDraft(opportunity, commercials);
+  assert.match(draft.body, /\$125 per hour/i);
+  assert.match(draft.body, /2–4 weeks for initial delivery/i);
+  assert.doesNotMatch(draft.body, /fixed-price/i);
+});

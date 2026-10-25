@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canApproveProposal, canConfirmManualSubmission, canEditProposal,
-  canRescore, canSetStage,
+  canRescore, canResolveUncertainSubmission, canSetStage,
 } from "../lib/pipeline-guards";
 import { isSameOriginMutation } from "../lib/security";
 
@@ -18,6 +18,9 @@ test("cannot approve, edit, or rescore active and closed opportunities", () => {
   assert.equal(canEditProposal("submission_processing"), false);
   assert.equal(canConfirmManualSubmission("ready_to_submit"), true);
   assert.equal(canConfirmManualSubmission("proposal_ready"), false);
+  assert.equal(canResolveUncertainSubmission("submission_processing"), true);
+  assert.equal(canResolveUncertainSubmission("approved"), false);
+  assert.equal(canResolveUncertainSubmission("submitted"), false);
 });
 
 test("pipeline stage advances, never silently regresses", () => {

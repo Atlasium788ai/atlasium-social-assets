@@ -83,6 +83,23 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
     } finally { setPending(""); }
   }
 
+  async function copyProposal() {
+    if (!opportunity.proposal_body) return;
+    try {
+      await navigator.clipboard.writeText(opportunity.proposal_body);
+      setNotice("Proposal copied. Review it in Upwork before submitting.");
+    } catch {
+      setNotice("Copy was blocked by the browser. Select the proposal text and copy it manually.");
+    }
+  }
+
+  function resolveUncertainSubmission(outcome: "submitted" | "not_submitted") {
+    const message = outcome === "submitted"
+      ? "Confirm only if Upwork shows this proposal as submitted."
+      : "Confirm only if Upwork shows that no proposal was submitted. BidFlo will return it to approved status.";
+    if (window.confirm(message)) void action({ action: "resolve_submission", outcome });
+  }
+
   return (
     <main>
       <header className="detail-header">
@@ -127,6 +144,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
                 {opportunity.status === "proposal_ready" && <button className="secondary-button" disabled={Boolean(pending)} onClick={() => action({ action: "rescore" })}>Refresh draft</button>}
                 <button className="ghost-button danger" disabled={Boolean(pending)} onClick={() => action({ action: "reject", reason: "Rejected by Blair" })}>Reject</button>
               </>}
+              {!editing && <><button className="secondary-button" disabled={Boolean(pending)} onClick={copyProposal}>Copy proposal</button><a className="secondary-button" href={opportunity.job_url} target="_blank" rel="noreferrer">Open Upwork job ↗</a></>}
             </div>}
           </article>
 
@@ -135,11 +153,11 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
         </div>
 
         <aside className="detail-side">
-          <article className="card commercial-card"><p className="eyebrow">RECOMMENDED COMMERCIALS</p><div><small>Bid</small><strong>{money(opportunity.proposal_bid_amount ?? opportunity.suggested_bid)}</strong></div><div><small>Timeline</small><strong>{opportunity.proposal_timeline ?? opportunity.suggested_timeline ?? "TBD"}</strong></div>{(opportunity.proposal_milestones ?? []).map((milestone) => <section key={milestone.name}><span>{milestone.name}</span><b>{money(milestone.amount)}</b><p>{milestone.deliverable}</p></section>)}</article>
+          <article className="card commercial-card"><p className="eyebrow">RECOMMENDED COMMERCIALS</p><div><small>{opportunity.budget_type === "hourly" ? "Hourly rate" : "Bid"}</small><strong>{money(opportunity.proposal_bid_amount ?? opportunity.suggested_bid)}{opportunity.budget_type === "hourly" ? "/hr" : ""}</strong></div><div><small>Timeline</small><strong>{opportunity.proposal_timeline ?? opportunity.suggested_timeline ?? "TBD"}</strong></div>{(opportunity.proposal_milestones ?? []).map((milestone) => <section key={milestone.name}><span>{milestone.name}</span><b>{money(milestone.amount)}{opportunity.budget_type === "hourly" ? "/hr" : ""}</b><p>{milestone.deliverable}</p></section>)}</article>
           <article className="card score-card"><p className="eyebrow">QUALIFICATION BREAKDOWN</p>{breakdown ? Object.entries(breakdown).filter(([key]) => key !== "reasons").map(([key, value]) => <div key={key}><span>{key.replace(/([A-Z])/g, " $1")}</span><i><b style={{ width: `${Math.min(100, (Number(value) / (key === "serviceFit" ? 25 : key === "recurringRevenue" ? 10 : 15)) * 100)}%` }} /></i><strong>{String(value)}</strong></div>) : <p>Pending score</p>}</article>
           {opportunity.human_judgment_required && <article className="risk-card"><strong>Human judgment required</strong><p>The reviewer detected uncertainty or risk. Check the quality notes and edit before approval.</p></article>}
-          <article className="card submit-card"><p className="eyebrow">SUBMISSION</p><h3>{opportunity.status === "approved" ? "Approved and ready" : opportunity.status === "ready_to_submit" ? "Manual submission ready" : opportunity.status === "submission_processing" ? "Verify status in Upwork" : "Approval required"}</h3><p>Submission uses the permitted integration when configured. Otherwise BidFlo opens the authenticated Upwork job for your final human-controlled action.</p><button className="primary-button" disabled={!['approved','ready_to_submit'].includes(opportunity.status) || Boolean(pending)} onClick={submit}>{pending === "submit" ? "Preparing…" : "Continue to submission"}</button>{opportunity.status === "ready_to_submit" && <button className="secondary-button" disabled={Boolean(pending)} onClick={() => action({ action: "mark_submitted" })}>I submitted this bid</button>}</article>
-          {['submitted','replied','interviewed'].includes(opportunity.status) && <article className="card stage-actions"><p className="eyebrow">PIPELINE STAGE</p><div><button onClick={() => action({ action: "set_stage", stage: "interviewed" })}>Interview</button><button onClick={() => action({ action: "set_stage", stage: "won" })}>Won</button><button onClick={() => action({ action: "set_stage", stage: "lost" })}>Lost</button></div></article>}
+          <article className="card submit-card"><p className="eyebrow">SUBMISSION</p><h3>{opportunity.status === "approved" ? "Approved and ready" : opportunity.status === "ready_to_submit" ? "Manual submission ready" : opportunity.status === "submission_processing" ? "Verify status in Upwork" : "Approval required"}</h3><p>{opportunity.status === "submission_processing" ? "The result is uncertain. Check the Upwork job before choosing either outcome; BidFlo will never retry automatically." : "Submission uses the permitted integration when configured. Otherwise BidFlo opens the authenticated Upwork job for your final human-controlled action."}</p><button className="primary-button" disabled={!['approved','ready_to_submit'].includes(opportunity.status) || Boolean(pending)} onClick={submit}>{pending === "submit" ? "Preparing…" : "Continue to submission"}</button>{opportunity.status === "ready_to_submit" && <button className="secondary-button" disabled={Boolean(pending)} onClick={() => action({ action: "mark_submitted" })}>I submitted this bid</button>}{opportunity.status === "submission_processing" && <><button className="secondary-button" disabled={Boolean(pending)} onClick={() => resolveUncertainSubmission("submitted")}>Verified: submitted</button><button className="secondary-button" disabled={Boolean(pending)} onClick={() => resolveUncertainSubmission("not_submitted")}>Verified: not submitted</button></>}</article>
+          {['submitted','replied','interviewed'].includes(opportunity.status) && <article className="card stage-actions"><p className="eyebrow">PIPELINE STAGE</p><div>{opportunity.status !== "interviewed" && <button onClick={() => action({ action: "set_stage", stage: "interviewed" })}>Interview</button>}<button onClick={() => action({ action: "set_stage", stage: "won" })}>Won</button><button onClick={() => action({ action: "set_stage", stage: "lost" })}>Lost</button></div></article>}
         </aside>
       </section>
     </main>

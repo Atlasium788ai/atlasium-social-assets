@@ -13,7 +13,7 @@ const opportunity: OpportunityInput = {
 };
 
 const proposal: ProposalDraft = {
-  body: "I would map your CRM lead routing, connect the calendar booking integration, and verify the complete workflow with test leads before handoff.",
+  body: "I would map your CRM lead routing, connect the calendar booking integration, and verify the complete workflow with test leads before handoff. My proposed fixed price is $1,850 with delivery in 2–4 weeks.",
   questions: ["Which CRM and calendar tools are currently in place?"],
   bidAmount: 1_850, timeline: "2–4 weeks",
   milestones: [
@@ -83,4 +83,34 @@ test("stress: repeated approval checks stay deterministic and never mutate the d
     assert.equal(result.ok, true);
   }
   assert.equal(JSON.stringify(proposal), original);
+});
+
+test("blocks generic writing that lacks a practical client-specific plan", () => {
+  const result = proposalPreflight({
+    opportunity,
+    proposal: {
+      ...proposal,
+      body: "Dear Hiring Manager, I am excited to apply. My proposed fixed price is $1,850 with delivery in 2 weeks.",
+      questions: ["Can you tell me more?"],
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((issue) => /generic proposal opening/i.test(issue)));
+  assert.ok(result.issues.some((issue) => /practical delivery approach/i.test(issue)));
+  assert.ok(result.issues.some((issue) => /client-specific question/i.test(issue)));
+});
+
+test("blocks an hourly proposal above the client's stated maximum", () => {
+  const hourlyOpportunity = { ...opportunity, budgetType: "hourly" as const, budgetMin: 75, budgetMax: 100 };
+  const result = proposalPreflight({
+    opportunity: hourlyOpportunity,
+    proposal: {
+      ...proposal,
+      body: "I would map the CRM workflow, connect the calendar, and verify it with test leads. My proposed rate is $125 per hour with initial delivery in 2 weeks.",
+      bidAmount: 125,
+      milestones: [{ name: "Hourly delivery rate", amount: 125, deliverable: "Implementation and validation" }],
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((issue) => /Hourly rate exceeds/i.test(issue)));
 });

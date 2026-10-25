@@ -3,29 +3,38 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowIcon, BriefcaseIcon, ChartIcon, DocumentIcon } from "@/components/bidflo-icons";
+import { prioritizeOpportunities } from "@/lib/opportunity-priority";
 import type { OpportunityRow, OpportunityStatus } from "@/lib/types";
 
 type Mode = "find" | "bid" | "follow";
 
 const labels: Record<string, string> = {
   new: "New opportunity", qualified: "Qualified", rejected: "Not a fit", proposal_ready: "Ready to review",
-  approved: "Approved", ready_to_submit: "Ready to submit", submitted: "Submitted", replied: "Client replied",
+  approved: "Approved", ready_to_submit: "Ready to submit", submission_processing: "Verify in Upwork", submitted: "Submitted", replied: "Client replied",
   interviewed: "Interview", won: "Won", lost: "Lost",
 };
 
 const modeStatuses: Record<Mode, OpportunityStatus[]> = {
-  find: ["new", "qualified", "rejected", "proposal_ready", "approved", "ready_to_submit", "submitted", "replied", "interviewed", "won", "lost"],
-  bid: ["qualified", "proposal_ready", "approved", "ready_to_submit"],
-  follow: ["submitted", "replied", "interviewed", "won", "lost"],
+  find: ["new", "qualified", "rejected", "proposal_ready", "approved", "ready_to_submit", "submission_processing", "submitted", "replied", "interviewed", "won", "lost"],
+  bid: ["qualified", "proposal_ready", "approved", "ready_to_submit", "submission_processing"],
+  follow: ["submission_processing", "submitted", "replied", "interviewed", "won", "lost"],
 };
 
-function money(value: string | number | null | undefined) {
-  return value ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(value)) : "Budget open";
+function budgetLabel(item: OpportunityRow) {
+  const minimum = Number(item.budget_min ?? 0);
+  const maximum = Number(item.budget_max ?? 0);
+  if (!minimum && !maximum) return "Budget open";
+  const format = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: item.currency || "USD", maximumFractionDigits: 0 }).format(value);
+  const amount = minimum && maximum && minimum !== maximum ? `${format(minimum)}–${format(maximum)}` : format(maximum || minimum);
+  return item.budget_type === "hourly" ? `${amount}/hr` : amount;
 }
 
 export function OpportunityBoard({ opportunities, mode }: { opportunities: OpportunityRow[]; mode: Mode }) {
   const [filter, setFilter] = useState("all");
-  const list = useMemo(() => opportunities.filter((item) => modeStatuses[mode].includes(item.status) && (filter === "all" || item.status === filter)), [filter, mode, opportunities]);
+  const list = useMemo(() => prioritizeOpportunities(
+    opportunities.filter((item) => modeStatuses[mode].includes(item.status) && (filter === "all" || item.status === filter)),
+    mode,
+  ), [filter, mode, opportunities]);
   const Icon = mode === "find" ? BriefcaseIcon : mode === "bid" ? DocumentIcon : ChartIcon;
   const empty = mode === "find" ? "New notifications will appear here automatically." : mode === "bid" ? "Qualified proposals will appear here for review." : "Submitted bids and client replies will appear here.";
 
@@ -40,7 +49,7 @@ export function OpportunityBoard({ opportunities, mode }: { opportunities: Oppor
           <h3>{item.title}</h3><p>{item.description.slice(0, 190)}{item.description.length > 190 ? "…" : ""}</p>
           <div className="op-tags"><span>{item.budget_type ?? "project"}</span><span>{item.recurring_potential ? "Recurring potential" : "Project delivery"}</span><span>{item.client_location ?? "Upwork"}</span>{mode === "follow" && item.follow_up_state && <span>{item.follow_up_state.label}</span>}</div>
         </div>
-        <div className="op-card-commercial"><small>{item.client_name ?? "Upwork client"}</small><strong>{money(item.budget_max)}</strong><span>Fit score: {item.score ?? "—"}/100</span><i><b style={{ width: `${item.score ?? 0}%` }} /></i><span className="op-open">{mode === "follow" && item.status === "replied" ? "Write client reply" : "View Opportunity"} <ArrowIcon /></span></div>
+        <div className="op-card-commercial"><small>{item.client_name ?? "Upwork client"}</small><strong>{budgetLabel(item)}</strong><span>Fit score: {item.score ?? "—"}/100</span><i><b style={{ width: `${item.score ?? 0}%` }} /></i><span className="op-open">{mode === "follow" && item.status === "replied" ? "Write client reply" : "View Opportunity"} <ArrowIcon /></span></div>
       </Link>)}
     </div>
   </section>;

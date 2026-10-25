@@ -44,6 +44,10 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
   const wantsShort = requestsShortProposal(opportunity.description);
   const requested30Days = requestsDeliveryCommitment(opportunity.description);
   const honestProof = "[Insert one genuine similar project you delivered and the outcome]";
+  const isHourly = opportunity.budgetType === "hourly";
+  const commercialLine = isHourly
+    ? `My proposed rate is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")} per hour, with an initial delivery window of ${commercials.timeline} subject to scope review`
+    : `My fixed-price quote is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")}, ${requested30Days ? "and [confirm ability to deliver within 30 days before applying]" : `with a preliminary timeline of ${commercials.timeline} subject to scope review`}`;
   if (wantsShort) {
     const sentences = [
       `I would map your current systems, then build ${sentenceList(priorities.map((value) => cleanLine(value, 85)))} as one connected, testable workflow.`,
@@ -54,7 +58,7 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
           : "I would verify the workflow end to end before handoff and provide a clear operating guide.",
       wantsExample ? `${honestProof}.`
         : "I would divide the work into discovery, implementation, and acceptance testing.",
-      `My fixed-price quote is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")}, ${requested30Days ? "and [confirm ability to deliver within 30 days before applying]" : `with a preliminary timeline of ${commercials.timeline} subject to scope review`}.`,
+      `${commercialLine}.`,
       questions[0] + (questions[0].endsWith("?") ? "" : "?"),
     ];
     return {
@@ -73,7 +77,9 @@ export function prepareManualReviewDraft(opportunity: OpportunityInput, commerci
     "",
     milestones ? `Proposed milestones:\n${milestones}` : "The work would be divided into discovery, implementation, and QA/handoff milestones.",
     "",
-    `The preliminary bid is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")} over ${commercials.timeline}. I would confirm that after reviewing the existing systems and access requirements; no scope or integration is assumed at this stage.`,
+    isHourly
+      ? `The proposed rate is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")} per hour, with ${commercials.timeline}. I would confirm the weekly hour range after reviewing the existing systems and access requirements; no scope or integration is assumed at this stage.`
+      : `The preliminary fixed-price bid is ${currency(commercials.bidAmount, opportunity.currency ?? "USD")} over ${commercials.timeline}. I would confirm that after reviewing the existing systems and access requirements; no scope or integration is assumed at this stage.`,
     "",
     wantsExample ? `${honestProof}.` : "",
     questions.join(" "),

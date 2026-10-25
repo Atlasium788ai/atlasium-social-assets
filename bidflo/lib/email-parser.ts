@@ -136,7 +136,7 @@ export function parseUpworkEmail(input: {
 
   const budget = extractBudget(body);
   const jobId = jobUrl.match(/~[A-Za-z0-9]+/)?.[0];
-  const externalKey = jobId ?? createHash("sha256").update(jobUrl).digest("hex");
+  const externalKey = (jobId ?? createHash("sha256").update(jobUrl).digest("hex")).toLowerCase();
   const clientRating = parseMoney(firstMatch(body, [/client rating\s*:?\s*([\d.]+)/i, /([\d.]+)\s*(?:out of 5|stars)/i]));
   const clientSpend = parseMoney(firstMatch(body, [/\$([\d,.]+)\+?\s*(?:total )?spent/i]));
 
