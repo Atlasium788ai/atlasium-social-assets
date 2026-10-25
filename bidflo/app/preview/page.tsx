@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import "./preview.css";
 import { ArrowIcon, BellIcon, DocumentIcon, LogoMark, SearchIcon } from "@/components/bidflo-icons";
 type Area = "home" | "find" | "bid" | "follow";
 const sections = [
