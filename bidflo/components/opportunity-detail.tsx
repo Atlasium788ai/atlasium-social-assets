@@ -148,7 +148,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
             </div>}
           </article>
 
-          <article className="card"><div className="card-heading"><div><p className="eyebrow">OPPORTUNITY BRIEF</p><h2>Client requirements</h2></div><a href={opportunity.job_url} target="_blank" rel="noreferrer">Open original ↗</a></div><div className="description-copy">{opportunity.description}</div>{opportunity.requirements?.length > 0 && <ul className="requirements-list">{opportunity.requirements.map((item) => <li key={item}>{item}</li>)}</ul>}</article>
+          <article className="card"><div className="card-heading"><div><p className="eyebrow">OPPORTUNITY BRIEF</p><h2>Client requirements</h2></div><a href={opportunity.job_url} target="_blank" rel="noreferrer">Open original ↗</a></div><div className="description-copy">{opportunity.description.replaceAll("BidFlo", "Visez")}</div>{opportunity.requirements?.length > 0 && <ul className="requirements-list">{opportunity.requirements.map((item) => <li key={item}>{item}</li>)}</ul>}</article>
           {messages.length > 0 && <article className="card"><div className="card-heading"><div><p className="eyebrow">CLIENT REPLIES</p><h2>Conversation updates</h2></div></div>{messages.map((message) => <div className="message" key={String(message.id)}><div><strong>{String(message.sender ?? "Client")}</strong><span>{new Date(String(message.received_at ?? message.created_at)).toLocaleString()}</span></div><p>{String(message.body)}</p></div>)}</article>}
         </div>
 
