@@ -79,6 +79,12 @@ Use the shortest path to the broken step. **Do not redesign or rebuild unrelated
 
 Production changes must pass `pnpm test`, `pnpm lint`, and `pnpm exec next build` before release. Keep **Find | Bid | Follow Up** unchanged unless an interface change is specifically requested.
 
+### Prebuilt image release
+
+When Render's native build minutes are unavailable, `.github/workflows/bidflo-image.yml` builds the same tested application on GitHub's standard runner and publishes an immutable `linux/amd64` image to `ghcr.io/atlasium788ai/bidflo:<commit-sha>`. The image contains no environment secrets; production credentials remain runtime variables in Render.
+
+For the web service, use the image's default `pnpm start` command. For the existing five-minute cron service, override the Docker command with `node scripts/run-cron.mjs`. Keep both services pinned to the same immutable image tag and verify the web health endpoint plus a successful cron run after every release.
+
 Before installing or rotating credentials, run `pnpm readiness`. It reports only ready/missing connection states and environment-variable names; it never prints credential values. A configured Upwork email intake is separate from hosted Upwork authorization, and submission remains manual unless the separate bridge is explicitly enabled with login active.
 
 ## Validation

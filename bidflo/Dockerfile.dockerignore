@@ -1,0 +1,10 @@
+**
+!bidflo/
+!bidflo/**
+
+bidflo/.env
+bidflo/.env.*
+bidflo/.next
+bidflo/node_modules
+bidflo/*.log
+bidflo/.DS_Store
