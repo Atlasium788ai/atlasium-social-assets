@@ -19,7 +19,7 @@ export function AppShell({ children, email, publicAccess = false }: { children: 
   return (
     <div className="app-shell">
       <header className="workspace-topbar">
-        <Link href="/" className="wordmark compact"><LogoMark /><strong>Bid<span>Flo</span></strong></Link>
+        <Link href="/" className="wordmark compact"><LogoMark /><strong>Visez</strong></Link>
         <nav aria-label="Main navigation">
           {items.map(([href, label, Icon]) => (
             <Link key={label} href={href} className={pathname === href ? "active" : ""}>
