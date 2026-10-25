@@ -11,14 +11,14 @@ const sections = [
   { number: "05", href: "/nurture", title: "Nurture", copy: "Stay connected, share updates and build future opportunities.", action: "View Relationships", tone: "green", icon: NurtureIcon },
 ] as const;
 
-export function HomeHub({ email, metrics }: { email: string; metrics: Metrics }) {
+export function HomeHub({ email, metrics, previewMode = false }: { email: string; metrics: Metrics; previewMode?: boolean }) {
   return <main className="hub-shell">
     <div className="hub-grid" aria-hidden="true" />
     <div className="hub-orbit hub-orbit-one" aria-hidden="true" />
     <div className="hub-orbit hub-orbit-two" aria-hidden="true" />
     <header className="hub-topbar">
       <Link href="/" className="wordmark"><LogoMark /><strong>Visez</strong></Link>
-      <div className="hub-account"><span className="live-pill"><i />Live<small>Upwork alerts</small></span><span className="avatar">{email.slice(0, 1).toUpperCase()}</span></div>
+      <div className="hub-account"><span className="live-pill"><i />Live<small>Inbox listening</small></span>{previewMode && <Link href="/login" className="public-access-chip">View only · Sign in to work</Link>}<span className="avatar">{email.slice(0, 1).toUpperCase()}</span></div>
     </header>
     <section className="hub-hero">
       <p className="hub-kicker">AI OPPORTUNITY &amp; PROPOSAL AUTOMATION</p>
