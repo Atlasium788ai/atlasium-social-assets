@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { OpportunityBoard } from "@/components/opportunity-board";
-import { getAdminSession, isAuthDisabled } from "@/lib/auth/server";
+import { getAdminSession } from "@/lib/auth/server";
 import { listOpportunityCards } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export default async function NurturePage() {
   const session = await getAdminSession();
   if (!session?.user?.email) redirect("/login");
   const opportunities = await listOpportunityCards();
-  return <AppShell email={session.user.email} publicAccess={isAuthDisabled()}>
+  return <AppShell email={session.user.email} publicAccess={session.user.name === "Visez Preview"}>
     <main className="section-page section-nurture">
       <header className="section-hero"><div>
         <p className="eyebrow">05 · RELATIONSHIPS</p>
