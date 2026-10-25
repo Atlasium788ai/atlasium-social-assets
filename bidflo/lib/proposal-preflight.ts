@@ -83,6 +83,11 @@ function hasRelevantQuestion(opportunity: OpportunityInput, questions: string[])
   });
 }
 
+function hasClientCallToAction(body: string) {
+  const questions = body.match(/[^?\n]{8,}\?/g) ?? [];
+  return questions.some((question) => /\b(?:available|calendar|call|confirm|current|discuss|priority|review|share|start|system|tool|workflow)\b/i.test(question));
+}
+
 export function rebalanceMilestones(milestones: ProposalDraft["milestones"], bidAmount: number) {
   if (!milestones.length) return milestones;
   const oldTotal = milestones.reduce((sum, milestone) => sum + Number(milestone.amount || 0), 0);
@@ -137,6 +142,9 @@ export function proposalPreflight(input: PreflightInput) {
   }
   if (!hasRelevantQuestion(opportunity, proposal.questions)) {
     issues.push("Add at least one client-specific question");
+  }
+  if (!hasClientCallToAction(proposal.body)) {
+    issues.push("End with a brief client-specific question that invites the next step");
   }
   if (!hasPracticalPlan(proposal.body)) issues.push("Describe a practical delivery approach with concrete implementation and validation steps");
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowIcon, BriefcaseIcon, ChartIcon, DocumentIcon, TrophyIcon, NurtureIcon } from "@/components/bidflo-icons";
+import { ArrowIcon, BriefcaseIcon, ChartIcon, DocumentIcon, TrophyIcon, NurtureIcon } from "@/components/visez-icons";
 import { prioritizeOpportunities } from "@/lib/opportunity-priority";
 import type { OpportunityRow, OpportunityStatus } from "@/lib/types";
 
@@ -11,13 +11,13 @@ type Mode = "find" | "bid" | "follow" | "won" | "nurture";
 const labels: Record<string, string> = {
   new: "New opportunity", qualified: "Qualified", rejected: "Not a fit", proposal_ready: "Ready to review",
   approved: "Approved", ready_to_submit: "Ready to submit", submission_processing: "Verify in Upwork", submitted: "Submitted", replied: "Client replied",
-  interviewed: "Interview", won: "Won", nurture: "Nurture",
+  interviewed: "Interview", won: "Won", nurture: "Nurture", opted_out: "Do not contact",
 };
 
 const modeStatuses: Record<Mode, OpportunityStatus[]> = {
   find: ["new", "qualified", "rejected", "proposal_ready", "approved", "ready_to_submit", "submission_processing", "submitted", "replied", "interviewed", "nurture", "won"],
   bid: ["qualified", "proposal_ready", "approved", "ready_to_submit", "submission_processing"],
-  follow: ["submission_processing", "submitted", "replied", "interviewed"],
+  follow: ["submission_processing", "submitted", "replied", "interviewed", "nurture", "won", "opted_out"],
   won: ["won"],
   nurture: ["nurture"],
 };
@@ -48,7 +48,7 @@ export function OpportunityBoard({ opportunities, mode }: { opportunities: Oppor
         <span className="op-card-icon"><Icon /></span>
         <div className="op-card-main">
           <div className="op-card-brand"><span className="mini-mark">V</span><strong>Visez</strong><em>{labels[item.status] ?? item.status}</em></div>
-          <h3>{item.title}</h3><p>{item.description.replaceAll("BidFlo", "Visez").slice(0, 190)}{item.description.length > 190 ? "…" : ""}</p>
+          <h3>{item.title}</h3><p>{item.description.slice(0, 190)}{item.description.length > 190 ? "…" : ""}</p>
           <div className="op-tags"><span>{item.budget_type ?? "project"}</span><span>{item.recurring_potential ? "Recurring potential" : "Project delivery"}</span><span>{item.client_location ?? "Upwork"}</span>{mode === "follow" && item.follow_up_state && <span>{item.follow_up_state.label}</span>}</div>
         </div>
         <div className="op-card-commercial"><small>{item.client_name ?? "Upwork client"}</small><strong>{budgetLabel(item)}</strong><span>Fit score: {item.score ?? "—"}/100</span><i><b style={{ width: `${item.score ?? 0}%` }} /></i><span className="op-open">{mode === "follow" && item.status === "replied" ? "Write client reply" : "View Opportunity"} <ArrowIcon /></span></div>

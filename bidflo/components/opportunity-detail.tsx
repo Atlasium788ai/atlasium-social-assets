@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ReplyAssistant } from "@/components/reply-assistant";
 import { requiredProposalOpening, proposalApprovalIssues } from "@/lib/application-rules";
+import { getProposalChecks } from "@/lib/proposal-checks";
 import type { OpportunityRow, ScoreBreakdown } from "@/lib/types";
 
 function money(value: string | number | null | undefined) {
@@ -28,6 +29,16 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
   const requiredOpening = requiredProposalOpening(opportunity.description);
   const currentProposal = editing ? body : String(opportunity.proposal_body ?? "");
   const approvalIssues = proposalApprovalIssues(opportunity.description, currentProposal);
+  const proposalChecks = getProposalChecks({
+    score: opportunity.score,
+    bidAmount,
+    budgetMax: opportunity.budget_max == null ? null : Number(opportunity.budget_max),
+    timeline,
+    proposalStatus: opportunity.proposal_status,
+    humanJudgmentRequired: Boolean(opportunity.human_judgment_required),
+    approvalIssues,
+  });
+  const allChecksPassed = proposalChecks.every((check) => check.state === "pass");
   const missingOpening = Boolean(requiredOpening) && approvalIssues.some((issue) => issue.startsWith("Start the proposal"));
   const latestClientReply = messages.find((message) => message.direction === "inbound" && message.kind === "client_reply");
   const proposalLocked = ["ready_to_submit", "submission_processing", "submitted", "replied", "interviewed", "won", "nurture", "opted_out", "lost"].includes(opportunity.status);
@@ -127,6 +138,14 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
         <div className="detail-main">
           <article className="card proposal-card">
             <div className="card-heading"><div><p className="eyebrow">PROPOSAL PREVIEW</p><h2>Prepared for approval</h2></div>{opportunity.quality_score != null && <span className="qc-score">QC {opportunity.quality_score}/100</span>}</div>
+            {opportunity.proposal_id && <section className="proposal-checks" aria-label="Three-check proposal gate">
+              <div><p className="eyebrow">3-CHECK PROPOSAL GATE</p><h3>One quick decision.</h3></div>
+              <ol>{proposalChecks.map((check, index) => <li className={`check-${check.state}`} key={check.label}>
+                <span>{check.state === "pass" ? "✓" : check.state === "review" ? "!" : "…"}</span>
+                <div><strong>{index + 1}. {check.label}</strong><small>{check.detail}</small></div>
+              </li>)}</ol>
+              <p className="proposal-next-action"><strong>Next:</strong> {allChecksPassed ? "Review once, then approve." : "Fix or confirm the highlighted item, then approve."}</p>
+            </section>}
             {opportunity.proposal_id && approvalIssues.some((issue) => issue.startsWith("Replace bracketed")) && <p className="notice" role="alert">
               The draft has unfinished proof or delivery notes. Replace them with verified information before approval.
             </p>}
@@ -154,7 +173,7 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
             </div>}
           </article>
 
-          <article className="card"><div className="card-heading"><div><p className="eyebrow">OPPORTUNITY BRIEF</p><h2>Client requirements</h2></div><a href={opportunity.job_url} target="_blank" rel="noreferrer">Open original ↗</a></div><div className="description-copy">{opportunity.description.replaceAll("BidFlo", "Visez")}</div>{opportunity.requirements?.length > 0 && <ul className="requirements-list">{opportunity.requirements.map((item) => <li key={item}>{item}</li>)}</ul>}</article>
+          <article className="card"><div className="card-heading"><div><p className="eyebrow">OPPORTUNITY BRIEF</p><h2>Client requirements</h2></div><a href={opportunity.job_url} target="_blank" rel="noreferrer">Open original ↗</a></div><div className="description-copy">{opportunity.description}</div>{opportunity.requirements?.length > 0 && <ul className="requirements-list">{opportunity.requirements.map((item) => <li key={item}>{item}</li>)}</ul>}</article>
           {messages.length > 0 && <article className="card"><div className="card-heading"><div><p className="eyebrow">CLIENT REPLIES</p><h2>Conversation updates</h2></div></div>{messages.map((message) => <div className="message" key={String(message.id)}><div><strong>{String(message.sender ?? "Client")}</strong><span>{new Date(String(message.received_at ?? message.created_at)).toLocaleString()}</span></div><p>{String(message.body)}</p></div>)}</article>}
         </div>
 

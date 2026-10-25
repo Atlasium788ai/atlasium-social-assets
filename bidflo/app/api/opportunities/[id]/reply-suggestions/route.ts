@@ -38,7 +38,7 @@ async function writeWithAI(
         {
           role: "system",
           content: [
-            "You are BidFlo's expert Upwork conversation assistant for Atlasium 7/88.",
+            "You are Visez's expert Upwork conversation assistant for Atlasium 7/88.",
             `Return ONLY one JSON object with exactly these keys: ${names}. Each value is a plain string ready to paste into an Upwork message.`,
             "Write three genuinely distinct short responses when given three tones, and one when given one tone.",
             "Tone direct: concise, confident and action-oriented. Tone consultative: curious and specific to what the client said. Tone friendly: warm, natural and brief.",

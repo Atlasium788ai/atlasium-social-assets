@@ -30,7 +30,7 @@ export function ReplyNotification() {
         if (cancelled || !Array.isArray(data.replies)) return;
         const newest = data.replies.find((item) => {
           if (!item.id || !item.opportunity_id) return false;
-          try { return localStorage.getItem(`bidflo:reply-seen:${item.id}`) !== "1"; }
+          try { return localStorage.getItem(`visez:reply-seen:${item.id}`) !== "1"; }
           catch { return true; }
         });
         if (newest) setActive((current) => current?.id === newest.id ? current : newest);
@@ -45,7 +45,7 @@ export function ReplyNotification() {
 
   function dismiss() {
     if (active) {
-      try { localStorage.setItem(`bidflo:reply-seen:${active.id}`, "1"); } catch {}
+      try { localStorage.setItem(`visez:reply-seen:${active.id}`, "1"); } catch {}
     }
     setActive(null);
   }

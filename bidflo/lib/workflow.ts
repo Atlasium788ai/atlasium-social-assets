@@ -65,7 +65,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   const sql = db();
   const [opportunityRow] = await sql`select * from bidflo_opportunities where id = ${opportunityId}`;
   const [settings] = await sql`select * from bidflo_settings where id = 'default'`;
-  if (!opportunityRow || !settings) throw new Error("Opportunity or BidFlo settings not found");
+  if (!opportunityRow || !settings) throw new Error("Opportunity or Visez settings not found");
   if (!canRescore(String(opportunityRow.status) as OpportunityStage)) {
     throw new Error("Cannot rescore a submitted, approved, or closed opportunity");
   }

@@ -25,7 +25,7 @@ export function slackEscape(text: string) {
 
 export function formatSlackAlert(input: SlackAlertInput, baseUrl: string) {
   const lines = [
-    `*BidFlo | ${descriptions[input.kind]}*`,
+    `*Visez | ${descriptions[input.kind]}*`,
     `*${slackEscape(input.title || "Upwork opportunity")}*`,
   ];
   if (Number.isFinite(input.score)) lines.push(`Fit score: ${input.score}/100`);
@@ -33,12 +33,12 @@ export function formatSlackAlert(input: SlackAlertInput, baseUrl: string) {
     lines.push(`Suggested bid: US$${Math.round(input.amount).toLocaleString("en-US")} (review required)`);
   }
   const origin = baseUrl.replace(/\/$/, "");
-  const safeOrigin = origin.startsWith("https://atlasium-bidflo.onrender.com") ||
+  const safeOrigin = origin.startsWith("https://atlasium-visez.onrender.com") ||
     /^https:\/\/([a-z0-9-]+\.)?atlasium788\.ca$/i.test(origin) ? origin : "";
   const link = input.opportunityId && /^[0-9a-f-]{36}$/i.test(input.opportunityId)
     ? `${safeOrigin}/opportunities/${input.opportunityId}`
     : `${safeOrigin}/follow-up`;
-  if (safeOrigin) lines.push(`<${link}|Open in BidFlo>`);
+  if (safeOrigin) lines.push(`<${link}|Open in Visez>`);
   if (input.clientRoomUrl) {
     try {
       const url = new URL(input.clientRoomUrl);

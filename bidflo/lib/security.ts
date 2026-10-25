@@ -5,7 +5,7 @@ export function isSameOriginMutation(request: Request): boolean {
 
   // The public app URL is the authoritative external origin behind Render's proxy.
   const publicOrigin = (() => {
-    const configured = process.env.BIDFLO_URL?.trim();
+    const configured = process.env.VISEZ_URL?.trim();
     if (!configured) return null;
     try {
       const url = new URL(configured);
@@ -16,7 +16,7 @@ export function isSameOriginMutation(request: Request): boolean {
   const firstParty = new Set<string>();
   if (publicOrigin) firstParty.add(publicOrigin);
   else {
-    // Local development or standalone deployments without BIDFLO_URL.
+    // Local development or standalone deployments without VISEZ_URL.
     if (internal.protocol === "https:" ||
         (internal.protocol === "http:" && ["localhost", "127.0.0.1"].includes(internal.hostname))) {
       firstParty.add(internal.origin);

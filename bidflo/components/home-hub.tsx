@@ -1,14 +1,12 @@
 import Link from "next/link";
-import { ArrowIcon, BellIcon, DocumentIcon, LogoMark, SearchIcon, TrophyIcon, NurtureIcon } from "@/components/bidflo-icons";
+import { ArrowIcon, BellIcon, DocumentIcon, LogoMark, SearchIcon } from "@/components/visez-icons";
 
 type Metrics = { approval_queue: number; submitted: number; total: number; won: number; nurture: number };
 
 const sections = [
   { number: "01", href: "/find", title: "Find", copy: "Scan and surface the best Upwork opportunities.", action: "View Opportunities", tone: "blue", icon: SearchIcon },
   { number: "02", href: "/bid", title: "Bid", copy: "Create and review tailored proposals in minutes.", action: "Review Proposals", tone: "violet", icon: DocumentIcon },
-  { number: "03", href: "/follow-up", title: "Follow Up", copy: "Track replies, set reminders and never miss a lead.", action: "View Follow Ups", tone: "aqua", icon: BellIcon },
-  { number: "04", href: "/won", title: "Won", copy: "Celebrate clients and the work you secured.", action: "View Wins", tone: "gold", icon: TrophyIcon },
-  { number: "05", href: "/nurture", title: "Nurture", copy: "Stay connected, share updates and build future opportunities.", action: "View Relationships", tone: "green", icon: NurtureIcon },
+  { number: "03", href: "/follow-up", title: "Follow Up", copy: "Track replies, reminders, relationships, and wins.", action: "View Follow Ups", tone: "aqua", icon: BellIcon },
 ] as const;
 
 export function HomeHub({ email, metrics, previewMode = false }: { email: string; metrics: Metrics; previewMode?: boolean }) {
@@ -32,7 +30,7 @@ export function HomeHub({ email, metrics, previewMode = false }: { email: string
         <span className="tile-icon"><Icon /></span>
         <h2>{title}</h2><p>{copy}</p>
         <span className="tile-action"><span>{action}</span><ArrowIcon /></span>
-        <span className="tile-stat">{title === "Find" ? `${metrics.total} captured` : title === "Bid" ? `${metrics.approval_queue} awaiting review` : title === "Follow Up" ? `${metrics.submitted} applications tracked` : title === "Won" ? `${metrics.won} wins` : `${metrics.nurture} relationships`}</span>
+        <span className="tile-stat">{title === "Find" ? `${metrics.total} captured` : title === "Bid" ? `${metrics.approval_queue} awaiting review` : `${metrics.submitted} applications tracked`}</span>
       </Link>)}
     </section>
     <footer className="hub-footer">POWERED BY <strong>ATLASIUM <span>7/88</span></strong></footer>

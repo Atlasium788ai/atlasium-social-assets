@@ -52,7 +52,7 @@ export function ReplyAssistant({
   const [working, setWorking] = useState<ReplyTone | "all" | null>(null);
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState<ReplyTone | null>(null);
-  const storageKey = `bidflo:reply-options:${messageId}`;
+  const storageKey = `visez:reply-options:${messageId}`;
   const directRoomHref = (() => {
     if (!roomUrl) return null;
     try {

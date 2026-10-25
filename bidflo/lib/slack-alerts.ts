@@ -4,12 +4,12 @@ import { retryPolicy } from "./retry-policy";
 
 /**
  * Queue safely: event_key is unique and duplicate ingestion cannot spam Slack.
- * Queueing is independent from delivery so a Slack outage never blocks BidFlo.
+ * Queueing is independent from delivery so a Slack outage never blocks Visez.
  */
 export async function queueSlackAlert(eventKey: string, input: SlackAlertInput) {
   if (!/^[a-z0-9_.:-]{6,200}$/i.test(eventKey)) throw new Error("Invalid Slack event key");
   const sql = db();
-  const content = formatSlackAlert(input, process.env.BIDFLO_URL ?? "");
+  const content = formatSlackAlert(input, process.env.VISEZ_URL ?? "");
   await sql`
     insert into bidflo_notifications (event_key, event_type, opportunity_id, message)
     values (${eventKey}, ${input.kind}, ${input.opportunityId ?? null}, ${content})

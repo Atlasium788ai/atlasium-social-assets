@@ -20,7 +20,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const [row] = await sql`
     select o.*, p.id as proposal_id, p.body, p.questions, p.bid_amount, p.timeline, p.milestones, p.status as proposal_status
     from bidflo_opportunities o
-    join lateral (select * from bidflo_proposals where opportunity_id = o.id order by version desc limit 1) p on true
+    join lateral (select * from visez_proposals where opportunity_id = o.id order by version desc limit 1) p on true
     where o.id = ${id}
   `;
   if (!row) return Response.json({ error: "Not found" }, { status: 404 });
@@ -70,7 +70,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       headers: {
         Authorization: `Bearer ${bridge.token}`,
         "Content-Type": "application/json",
-        "Idempotency-Key": `bidflo-${id}-${String(row.proposal_id)}`,
+        "Idempotency-Key": `visez-${id}-${String(row.proposal_id)}`,
       },
       body: JSON.stringify({
         opportunityId: id,

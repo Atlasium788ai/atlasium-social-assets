@@ -1,7 +1,7 @@
-const baseUrl = process.env.BIDFLO_URL?.replace(/\/$/, "");
+const baseUrl = process.env.VISEZ_URL?.replace(/\/$/, "");
 const secret = process.env.CRON_SECRET;
 
-if (!baseUrl || !secret) throw new Error("BIDFLO_URL and CRON_SECRET are required");
+if (!baseUrl || !secret) throw new Error("VISEZ_URL and CRON_SECRET are required");
 
 const response = await fetch(`${baseUrl}/api/cron/process`, {
   method: "POST",
@@ -10,5 +10,5 @@ const response = await fetch(`${baseUrl}/api/cron/process`, {
 });
 
 const body = await response.text();
-if (!response.ok) throw new Error(`BidFlo processing failed (${response.status}): ${body.slice(0, 500)}`);
+if (!response.ok) throw new Error(`Visez processing failed (${response.status}): ${body.slice(0, 500)}`);
 console.log(body);

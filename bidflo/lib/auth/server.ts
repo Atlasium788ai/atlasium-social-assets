@@ -10,7 +10,7 @@ export function getAuth() {
 
 function allowedEmails() {
   return new Set(
-    (process.env.BIDFLO_ALLOWED_EMAILS ?? "")
+    (process.env.VISEZ_ALLOWED_EMAILS ?? "")
       .split(",")
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean),
@@ -18,7 +18,7 @@ function allowedEmails() {
 }
 
 export function isAuthDisabled() {
-  return process.env.BIDFLO_AUTH_DISABLED === "true";
+  return process.env.VISEZ_AUTH_DISABLED === "true";
 }
 
 /** Verified account and allowlist access. Never bypass for API calls or private data. */
@@ -38,7 +38,7 @@ export async function getAdminSession() {
   // In preview mode, a verified team login upgrades the same UI to full authorized access.
   if (!isAuthDisabled()) return getAuthenticatedAdminSession();
   const actual = await getAuthenticatedAdminSession();
-  return actual ?? { user: { email: process.env.BIDFLO_OWNER_EMAIL ?? "info@atlasium788.ca", name: "Visez Preview" } };
+  return actual ?? { user: { email: process.env.VISEZ_OWNER_EMAIL ?? "info@atlasium788.ca", name: "Visez Preview" } };
 }
 
 export async function requireAdminSession() {

@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
-import { LogoMark } from "@/components/bidflo-icons";
+import { LogoMark } from "@/components/visez-icons";
 
 export default function LoginPage() {
   const router = useRouter();
