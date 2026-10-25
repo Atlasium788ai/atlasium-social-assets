@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { OpportunityBoard } from "@/components/opportunity-board";
-import { getAdminSession } from "@/lib/auth/server";
+import { getAdminSession, isAuthDisabled } from "@/lib/auth/server";
 import { listOpportunityCards } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export default async function WonPage() {
   const session = await getAdminSession();
   if (!session?.user?.email) redirect("/login");
   const opportunities = await listOpportunityCards();
-  return <AppShell email={session.user.email}>
+  return <AppShell email={session.user.email} publicAccess={isAuthDisabled()}>
     <main className="section-page section-won">
       <header className="section-hero"><div>
         <p className="eyebrow">04 · CLIENT WINS</p>
