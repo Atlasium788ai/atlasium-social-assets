@@ -18,7 +18,7 @@ jobs:
     env:
       REPO_IMAGE: ghcr.io/atlasium788ai/bidflo
       CURRENT_RENDER_TAG: 37e55e923cbc74dc6a3fd70693016257b512f47a
-      NEW_VISEZ_TAG: 0c015a107ab493b512ca1a148446e5102ab2b0b8
+      NEW_VISEZ_TAG: a0bc24980b0a355e39fba00010a013edf2a226a6
       ROLLBACK_TAG: backup-pre-visez-2026-10-25
     steps:
       - name: Login to existing GitHub Container Registry
