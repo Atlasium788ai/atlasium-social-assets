@@ -19,7 +19,7 @@ export async function diagnoseAiProvider(
   fetcher: typeof fetch = fetch,
 ): Promise<AIProbeResult> {
   const checkedAt = new Date().toISOString();
-  const key = env.AI_API_KEY;
+  const key = env.AI_API_KEY?.trim() || env.OPENAI_API_KEY?.trim();
   const model = env.AI_MODEL?.trim() || null;
   const rawBase = env.AI_API_BASE_URL?.trim() || "https://api.openai.com/v1";
   const initial: AIProbeResult = {
