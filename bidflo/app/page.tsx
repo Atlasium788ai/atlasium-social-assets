@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAdminSession, isAuthDisabled } from "@/lib/auth/server";
+import { getAdminSession } from "@/lib/auth/server";
 import { getDashboardMetrics } from "@/lib/queries";
 import { HomeHub } from "@/components/home-hub";
 
@@ -9,5 +9,5 @@ export default async function Home() {
   const session = await getAdminSession();
   if (!session?.user?.email) redirect("/login");
   const metrics = await getDashboardMetrics();
-  return <HomeHub email={session.user.email} metrics={metrics as never} previewMode={isAuthDisabled()} />;
+  return <HomeHub email={session.user.email} metrics={metrics as never} previewMode={session.user.name === "Visez Preview"} />;
 }
