@@ -129,7 +129,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
     revisedProposal: null,
   };
   let aiReviewed = false;
-  if (process.env.AI_API_KEY && process.env.AI_MODEL) {
+  if ((process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()) && process.env.AI_MODEL) {
     try {
       draft = await generateProposal({
         opportunity,
