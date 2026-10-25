@@ -44,15 +44,15 @@ export default function LoginPage() {
     setNotice("Check your email for a secure password link.");
   }
 
-  if (openAccess) return <main className="login-shell"><p className="login-subtitle">Opening BidFlo…</p></main>;
+  if (openAccess) return <main className="login-shell"><p className="login-subtitle">Opening Visez…</p></main>;
 
   return (
     <main className="login-shell">
       <section className="login-panel">
         <div className="brand-mark" aria-hidden="true"><span>7</span><i>/</i><span>88</span></div>
         <p className="eyebrow">ATLASIUM 7/88</p>
-        <h1>BidFlo</h1>
-        <p className="login-subtitle">Intelligent Opportunity &amp; Proposal Management</p>
+        <h1>Visez</h1>
+        <p className="login-subtitle">AI Opportunity &amp; Proposal Automation</p>
         <form onSubmit={submit} className="login-form">
           <label>Email<input type="email" name="email" autoComplete="email" required /></label>
           <label>Password<input type="password" name="password" autoComplete="current-password" required /></label>
