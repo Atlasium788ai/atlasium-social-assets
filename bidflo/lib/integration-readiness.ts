@@ -12,7 +12,7 @@ function httpsUrl(value: string | undefined) {
 }
 
 export function integrationReadiness(env: Environment) {
-  const aiConfigured = present(env.AI_API_KEY) && present(env.AI_MODEL) && httpsUrl(env.AI_API_BASE_URL ?? "https://api.openai.com/v1");
+  const aiConfigured = (present(env.AI_API_KEY) || present(env.OPENAI_API_KEY)) && present(env.AI_MODEL) && httpsUrl(env.AI_API_BASE_URL ?? "https://api.openai.com/v1");
   const allowedSenders = (env.UPWORK_ALLOWED_SENDERS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
   const emailIntakeConfigured = present(env.RESEND_API_KEY) && present(env.RESEND_WEBHOOK_SECRET) && allowedSenders.length > 0;
   const ownerEmailConfigured = present(env.RESEND_API_KEY) && present(env.BIDFLO_OWNER_EMAIL) && present(env.BIDFLO_EMAIL_FROM);
@@ -25,7 +25,7 @@ export function integrationReadiness(env: Environment) {
 
   return {
     database: { ready: present(env.DATABASE_URL), missing: present(env.DATABASE_URL) ? [] : ["DATABASE_URL"] },
-    ai: { ready: aiConfigured, missing: aiConfigured ? [] : ["valid AI_API_KEY, AI_MODEL, and HTTPS AI_API_BASE_URL"] },
+    ai: { ready: aiConfigured, missing: aiConfigured ? [] : ["valid AI_API_KEY (or OPENAI_API_KEY), AI_MODEL, and HTTPS AI_API_BASE_URL"] },
     upworkEmailIntake: { ready: emailIntakeConfigured, missing: emailIntakeConfigured ? [] : ["RESEND_API_KEY, RESEND_WEBHOOK_SECRET, and UPWORK_ALLOWED_SENDERS"] },
     ownerEmail: { ready: ownerEmailConfigured, missing: ownerEmailConfigured ? [] : ["RESEND_API_KEY, BIDFLO_OWNER_EMAIL, and BIDFLO_EMAIL_FROM"] },
     slack: { ready: slackDeliveryConfigured(env), missing: slackDeliveryConfigured(env) ? [] : ["Slack bot + destination or private webhook"] },
