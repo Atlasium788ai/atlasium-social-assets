@@ -275,3 +275,105 @@ input, textarea { color: var(--text); background: #0c0c12; border: 1px solid var
 .quick-capture-caption { color: #6c849e; margin: 0; font-size: 10px; }
 .quick-capture-error { color: #ff9c9c; font-size: 11px; margin: 0; }
 @media(max-width:600px) { .quick-capture > summary { padding-inline: 15px; } .quick-capture-form { padding: 16px 15px; }.quick-capture-actions { flex-direction: column; align-items: stretch; }.quick-capture-actions > label { width: 100%; } }
+
+
+/* Visez visual-only refresh. Preserves all routing, forms, data and operation controls. */
+.hub-shell {
+  background: linear-gradient(180deg, rgba(1,4,12,.05) 0%, rgba(1,4,12,.06) 47%,rgba(1,4,12,.40) 100%), url("/visez-dashboard-scene.svg") center / cover no-repeat, #020610;
+  min-height: 100vh;
+}
+.hub-shell::before { opacity: .14; }
+.hub-shell::after { opacity: .58; }
+.hub-topbar { position: relative; z-index: 5; }
+.hub-topbar .wordmark strong, .workspace-topbar .wordmark strong {
+  color: #f7faff; letter-spacing: -1.7px;
+  text-shadow: 0 0 17px rgba(42,136,255,.36);
+}
+.hub-topbar .wordmark strong::first-letter { color: #f5f8ff; }
+.hub-hero { margin-top: clamp(32px,5vh,60px); margin-bottom: clamp(34px,5vh,62px); }
+.hub-hero h1 { font-size: clamp(38px,5.4vw,78px); letter-spacing: -.05em; }
+.hub-kicker { color: #8caee4; font-size: 10px; font-weight: 700; letter-spacing: .21em; }
+.hub-tagline { margin-top: 20px; font-size: clamp(12px,1.4vw,17px); letter-spacing: .46em; color: #dce8ff; }
+.hub-support { margin: 13px 0 0; color: #b3c9e7; font-size: clamp(12px,1.35vw,16px); letter-spacing: .03em; }
+.hub-tiles { max-width: 1380px; gap: clamp(14px,1.8vw,30px); }
+.hub-tile {
+  min-height: clamp(320px,35vw,390px); 
+  border: 2px solid color-mix(in srgb,var(--tone) 82%,#d4f5ff);
+  background: radial-gradient(circle at 50% 12%, color-mix(in srgb,var(--tone) 12%,transparent), transparent 43%), linear-gradient(165deg,rgba(4,12,27,.97),rgba(2,5,13,.98));
+  box-shadow: 0 0 33px color-mix(in srgb,var(--tone) 37%,transparent), inset 0 0 25px rgba(0,126,255,.045);
+}
+.hub-tile h2 { font-size: clamp(27px,2.6vw,36px); text-shadow: 0 0 7px rgba(255,255,255,.17); }
+.hub-tile > p { font-size: clamp(12px,1.25vw,15px); color: #e0eaff; max-width: 290px; }
+.hub-tile .tile-icon { width: 99px; height: 99px; box-shadow: 0 0 26px color-mix(in srgb,var(--tone) 32%,transparent), inset 0 0 22px color-mix(in srgb,var(--tone) 16%,transparent); }
+.hub-tile .tile-action { height: 56px; font-size: 13px; box-shadow: 0 0 17px color-mix(in srgb,var(--tone) 23%,transparent),inset 0 0 13px color-mix(in srgb,var(--tone) 24%,transparent); }
+.hub-footer { margin-top: clamp(30px,4vh,45px); color: #c1cfe6; }
+
+/* Functional login form styled to match the approved Visez visual direction. */
+.login-shell {
+  min-height: 100vh; padding: 35px 18px;
+  background: linear-gradient(180deg,rgba(1,3,10,.12),rgba(1,3,10,.2)), url("/visez-login-earth.svg") center center / cover no-repeat, #030917;
+}
+.login-panel {
+  position: relative; width: min(100%,620px); max-width: 620px;
+  padding: clamp(26px,4vw,65px) clamp(23px,5vw,65px);
+  border: 2px solid transparent;
+  border-radius: 25px;
+  background: linear-gradient(160deg,rgba(2,7,17,.98),rgba(1,8,21,.96)) padding-box,
+              linear-gradient(125deg,#ffcd83 0%,#efac4b 22%,#264766 49%,#139dff 79%,#0c7de9 100%) border-box;
+  box-shadow: -12px 5px 65px rgba(233,145,47,.12), 14px 10px 80px rgba(15,137,255,.19),0 38px 110px rgba(0,0,0,.65);
+  backdrop-filter: blur(20px);
+}
+.visez-login-brand { display: flex; align-items: center; justify-content: center; gap: 16px; }
+.visez-login-brand .logo-mark { flex: none; width: 57px; height: 57px; }
+.visez-login-brand .logo-mark::before { inset: 12px; }
+.visez-login-brand .logo-mark i { inset: 23px; }
+.visez-login-brand h1 {
+  margin: 0; font: 800 clamp(42px,5vw,69px)/1 var(--font-display);
+  letter-spacing: -.06em;
+  background: linear-gradient(100deg,#fff1d5,#e7f4ff 55%,#079aff 92%);
+  background-clip: text; -webkit-background-clip: text; color: transparent;
+}
+.visez-login-powered { margin: 12px 0 0; font-size: 9px; letter-spacing: .44em; color: #e4eaf8; }
+.visez-login-divider { width: 160px; height: 2px; margin: 23px auto 28px; background: linear-gradient(90deg,transparent,#e5b460 45%,#138ef3 56%,transparent); }
+.login-panel h2 { font: 500 clamp(26px,3vw,36px)/1.2 var(--font-display); letter-spacing: -.035em; margin: 0; }
+.login-panel h2 span { color: #159aff; }
+.visez-login-slogan { margin: 8px 0 0; font: 500 19px var(--font-display); color: #e9effa; }
+.visez-login-subtitle { margin: 11px 0 25px; font-size: 10px; color: #92a9c5; letter-spacing: .3em; }
+.login-panel .login-form { gap: 15px; }
+.login-panel .visez-login-field { position: relative; }
+.login-panel .visez-login-field > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.login-panel .visez-login-field input {
+  display: block; width: 100%; min-height: 62px; padding: 16px 21px;
+  background: linear-gradient(115deg,rgba(3,8,17,.96),rgba(5,21,40,.97));
+  border: 1px solid rgba(116,164,218,.48); border-radius: 11px; color: #eef7ff;
+  font-size: 15px; outline: none; box-sizing: border-box;
+}
+.login-panel .visez-login-field input:focus { border-color: #49bbff; box-shadow: 0 0 0 3px rgba(30,145,255,.17); }
+.login-panel .visez-login-field input::placeholder { color: #a2acc0; opacity: 1; }
+.login-panel .login-form .primary-button {
+  min-height: 65px; margin-top: 5px; border: 1px solid #ffd890; border-radius: 10px;
+  background: linear-gradient(155deg,#c48b41,#98601d 54%,#e3a94f);
+  box-shadow: 0 0 26px rgba(239,170,71,.46), inset 0 0 22px rgba(255,225,151,.23);
+  color: white; text-transform: uppercase; letter-spacing: .2em; font-size: 16px;
+}
+.login-panel .login-form .primary-button:hover { filter: brightness(1.12); }
+.login-panel .text-button { color: #bdd9ff; font-size: 12px; margin-top: 5px; }
+.login-panel .login-note { color: #8f9eb2; letter-spacing: .17em; font-size: 9px; }
+@media(max-width:900px) {
+  .hub-shell { background-position: center top; }
+  .hub-hero { margin: 44px auto 42px; }
+  .hub-tiles { max-width: 600px; grid-template-columns: 1fr; }
+  .hub-tile { min-height: 315px; }
+}
+@media(max-width:520px) {
+  .hub-hero h1 { font-size: 38px; }
+  .hub-tagline { letter-spacing: .23em; font-size: 12px; }
+  .hub-support { line-height: 1.5; }
+  .visez-login-brand .logo-mark { width: 40px; height: 40px; }
+  .visez-login-brand .logo-mark::before { inset: 8px; }
+  .visez-login-brand .logo-mark i { inset: 15px; }
+  .visez-login-powered { letter-spacing: .21em; font-size: 8px; }
+  .login-panel h2 { font-size: 25px; }
+  .visez-login-slogan { font-size: 16px; }
+  .visez-login-subtitle { font-size: 8px; letter-spacing: .15em; }
+}
