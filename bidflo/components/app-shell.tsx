@@ -17,7 +17,7 @@ const items = [
 export function AppShell({ children, email, publicAccess = false }: { children: React.ReactNode; email: string; publicAccess?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
-  const openAccess = publicAccess || process.env.NEXT_PUBLIC_BIDFLO_AUTH_DISABLED === "true";
+  const openAccess = publicAccess;
   return (
     <div className="app-shell">
       <header className="workspace-topbar">
