@@ -1,0 +1,46 @@
+name: Promote Visez visual release to existing Render image tag
+
+on:
+  push:
+    branches:
+      - codex/bidflo-release-visez-2026-10-25
+    paths:
+      - .github/workflows/visez-switch-render-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  promote:
+    name: Back up old image and publish Visez to configured Render tag
+    runs-on: ubuntu-latest
+    env:
+      REPO_IMAGE: ghcr.io/atlasium788ai/bidflo
+      CURRENT_RENDER_TAG: 37e55e923cbc74dc6a3fd70693016257b512f47a
+      NEW_VISEZ_TAG: 9378fc9e47e6918e2bde4a2332db80f7569c48cd
+      ROLLBACK_TAG: backup-pre-visez-2026-10-25
+    steps:
+      - name: Login to existing GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Preserve previously deployed image as independent rollback tag
+        run: |
+          set -euo pipefail
+          docker pull "${REPO_IMAGE}:${CURRENT_RENDER_TAG}"
+          docker tag "${REPO_IMAGE}:${CURRENT_RENDER_TAG}" "${REPO_IMAGE}:${ROLLBACK_TAG}"
+          docker push "${REPO_IMAGE}:${ROLLBACK_TAG}"
+      - name: Point current Render image tag to the already-tested Visez release
+        run: |
+          set -euo pipefail
+          docker pull "${REPO_IMAGE}:${NEW_VISEZ_TAG}"
+          docker tag "${REPO_IMAGE}:${NEW_VISEZ_TAG}" "${REPO_IMAGE}:${CURRENT_RENDER_TAG}"
+          docker push "${REPO_IMAGE}:${CURRENT_RENDER_TAG}"
+      - name: Confirm image tag and retain rollback reference
+        run: |
+          docker buildx imagetools inspect "${REPO_IMAGE}:${CURRENT_RENDER_TAG}"
+          echo "Visez image made available under existing Render tag; redeploy existing web service to pull the updated image." >> "${GITHUB_STEP_SUMMARY}"
+          echo "Rollback image: ${REPO_IMAGE}:${ROLLBACK_TAG}" >> "${GITHUB_STEP_SUMMARY}"
