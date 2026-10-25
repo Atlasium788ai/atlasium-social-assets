@@ -18,7 +18,7 @@ jobs:
     env:
       REPO_IMAGE: ghcr.io/atlasium788ai/bidflo
       CURRENT_RENDER_TAG: 37e55e923cbc74dc6a3fd70693016257b512f47a
-      NEW_VISEZ_TAG: 9378fc9e47e6918e2bde4a2332db80f7569c48cd
+      NEW_VISEZ_TAG: be9309b65d0d60679b18e6269ff4cc78bdda0214
       ROLLBACK_TAG: backup-pre-visez-2026-10-25
     steps:
       - name: Login to existing GitHub Container Registry
@@ -27,12 +27,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Preserve previously deployed image as independent rollback tag
+      - name: Verify the original pre-Visez rollback image is still available
         run: |
           set -euo pipefail
-          docker pull "${REPO_IMAGE}:${CURRENT_RENDER_TAG}"
-          docker tag "${REPO_IMAGE}:${CURRENT_RENDER_TAG}" "${REPO_IMAGE}:${ROLLBACK_TAG}"
-          docker push "${REPO_IMAGE}:${ROLLBACK_TAG}"
+          docker pull "${REPO_IMAGE}:${ROLLBACK_TAG}"
       - name: Point current Render image tag to the already-tested Visez release
         run: |
           set -euo pipefail
