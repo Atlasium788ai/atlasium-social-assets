@@ -21,18 +21,28 @@ export function isAuthDisabled() {
   return process.env.BIDFLO_AUTH_DISABLED === "true";
 }
 
-export async function getAdminSession() {
-  if (isAuthDisabled()) {
-    return { user: { email: process.env.BIDFLO_OWNER_EMAIL ?? "info@atlasium788.ca", name: "BidFlo Operator" } };
+/** Verified account and allowlist access. Never bypass for API calls or private data. */
+export async function getAuthenticatedAdminSession() {
+  try {
+    const { data } = await getAuth().getSession();
+    const email = data?.user?.email?.toLowerCase();
+    if (!email || !allowedEmails().has(email)) return null;
+    return data;
+  } catch {
+    return null;
   }
-  const { data } = await getAuth().getSession();
-  const email = data?.user?.email?.toLowerCase();
-  if (!email || !allowedEmails().has(email)) return null;
-  return data;
+}
+
+/** Temporary public browsing remains possible, but it does not grant write access. */
+export async function getAdminSession() {
+  // In preview mode, a verified team login upgrades the same UI to full authorized access.
+  if (!isAuthDisabled()) return getAuthenticatedAdminSession();
+  const actual = await getAuthenticatedAdminSession();
+  return actual ?? { user: { email: process.env.BIDFLO_OWNER_EMAIL ?? "info@atlasium788.ca", name: "Visez Preview" } };
 }
 
 export async function requireAdminSession() {
-  const session = await getAdminSession();
+  const session = await getAuthenticatedAdminSession();
   if (!session) throw new Error("UNAUTHORIZED");
   return session;
 }

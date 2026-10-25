@@ -24,8 +24,10 @@ export async function listOpportunityCards(): Promise<OpportunityRow[]> {
         when 'replied' then 4
         when 'interviewed' then 4
         when 'submitted' then 5
-        when 'won' then 6
-        when 'lost' then 8
+        when 'nurture' then 6
+        when 'won' then 7
+        when 'opted_out' then 8
+        when 'lost' then 9
         when 'rejected' then 9
         else 10
       end,
@@ -42,8 +44,9 @@ export async function getDashboardMetrics() {
     select
       count(*)::int as total,
       count(*) filter (where status = 'proposal_ready')::int as approval_queue,
-      count(*) filter (where status in ('submitted', 'replied', 'interviewed', 'won', 'lost'))::int as submitted,
+      count(*) filter (where status in ('submitted', 'replied', 'interviewed', 'nurture', 'won'))::int as submitted,
       count(*) filter (where status = 'won')::int as won,
+      count(*) filter (where status = 'nurture')::int as nurture,
       coalesce(sum(suggested_bid) filter (
         where status in ('approved', 'ready_to_submit', 'submitted', 'replied', 'interviewed')
           and budget_type is distinct from 'hourly'

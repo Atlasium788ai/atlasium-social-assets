@@ -1,25 +1,25 @@
-# BidFlo: internal launch handoff (October 25, 2026)
+# Visez: internal launch handoff (October 25, 2026)
 
 ## Verified state, October 25, 2026
 
-- `codex/bidflo-next` combines the qualification, proposal-quality, duplicate-application, fast-review, uncertain-submission recovery, and job-alert parsing work. Local tests, lint, production compilation, GitHub's **BidFlo Quality Gate**, and the container build all passed (70 tests).
+- `codex/bidflo-next` combines qualification, proposal quality, duplicate-application protection, fast review, uncertain-submission recovery, job-alert parsing, the Visez visual release, Won/Nurture stages, client opt-out safeguards, preview protections, and AI-provider diagnostics. Local tests, lint, production compilation, the quality gate, and container build passed before the integration.
 - Neon migration `0006_duplicate_application_guards.sql` was validated on the isolated `codex-bidflo-migration-0006` branch and then applied successfully to the production `bidflo` database. Production has all three indexes and the migration record; prechecks found zero duplicate job keys, submissions, or manual handoffs.
-- The tested release is live on both existing Render services as immutable image `ghcr.io/atlasium788ai/bidflo:37e55e923cbc74dc6a3fd70693016257b512f47a` (`sha256:1e1907676f9545f7747615b316744e432d1a552abfdcb51dccf7f269d5c70b42`). The existing web URL, Neon database, environment variables, free web plan, and five-minute cron schedule were preserved.
+- The previously verified release was live on both existing Render services as immutable image `ghcr.io/atlasium788ai/bidflo:37e55e923cbc74dc6a3fd70693016257b512f47a` (`sha256:1e1907676f9545f7747615b316744e432d1a552abfdcb51dccf7f269d5c70b42`). Replace it with the fully tested Visez image, keeping the existing web URL, Neon database, environment variables, free web plan, and five-minute cron schedule.
 - The web service uses the image's default `pnpm start`, health check path `/api/health`, and reports `database: ready`. The cron image overrides the command with `node scripts/run-cron.mjs`. Confirm a successful scheduled run after each future image update.
-- Render native build minutes remain exhausted, so releases use `.github/workflows/bidflo-image.yml` on GitHub's free standard runner. It builds `linux/amd64`, runs the app's complete build gate inside the image, publishes to public GHCR, and verifies an anonymous pull before Render is updated. Do not switch back to a Render Git build while the limit remains exhausted.
+- Render native build minutes remain exhausted, so releases use the repository's image workflow on GitHub's free standard runner. It builds `linux/amd64`, runs the complete build gate inside the image, publishes to public GHCR, and verifies an anonymous pull before Render is updated. Do not switch back to a Render Git build while the limit remains exhausted.
 - Slack is not configured in the processor environment. AI remains unconfigured because the previous key was revoked. These require new secrets from Blair; do not invent, recover, print, or commit credentials.
 - Temporary Neon test branch `codex-bidflo-migration-0006` remains available for inspection. Deleting it is destructive and requires explicit operator confirmation.
 
-- **Development branch:** `codex/bidflo-next`. Make all further BidFlo changes here, not on `codex/bidflo` until a release is authorized.
-- **Current live source:** Render web and cron both pull the immutable GHCR image above. The old `codex/bidflo` Git branch remains available for history but is no longer the active Render source.
+- **Development branch:** `codex/bidflo-next`. Make all further Visez changes here.
+- **Current live source:** Render web and cron are image-backed. Keep both pinned to the same immutable Visez image.
 - **Free verification:** GitHub Actions quality gate on this development branch runs tests, lint, and production compilation on standard hosted runners. Do not create preview environments or new paid services.
-- **Release method:** Batch changes; obtain green CI; publish a dedicated `codex/bidflo-release-*` image; require the image workflow and anonymous pull to pass; then pin both existing Render services to that exact immutable tag. Do not attempt paid build-minute purchases, upgrades, or new subscriptions.
+- **Release method:** Batch changes; obtain green CI; publish a dedicated release image; require the image workflow and anonymous pull to pass; then pin both existing Render services to that exact immutable tag. Do not attempt paid build-minute purchases, upgrades, or new subscriptions.
 - **Business controls:** Never submit Upwork bids, spend Connects, send client messages, or contact team members without explicit authorization. Do not change the approved three-section interface without a request.
 - **Continuity:** Preserve real opportunities, database records, current Render configuration, and the live site's availability. Inspect and back up production data before future migrations.
 
 ---
 
-# BidFlo release constraints and integration tasks
+# Visez release constraints and integration tasks
 
 ## Hardening handoff, October 24
 

@@ -17,6 +17,7 @@ export async function GET() {
     from bidflo_messages m
     join bidflo_opportunities o on o.id = m.opportunity_id
     where m.direction = 'inbound' and m.kind = 'client_reply'
+      and o.opted_out_at is null
       and coalesce(m.received_at, m.created_at) > now() - interval '14 days'
     order by coalesce(m.received_at, m.created_at) desc, m.created_at desc
     limit 10

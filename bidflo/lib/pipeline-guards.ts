@@ -25,9 +25,10 @@ export function canResolveUncertainSubmission(stage: OpportunityStage): boolean 
 
 export function canSetStage(current: OpportunityStage, next: string): boolean {
   const rules: Record<string, readonly string[]> = {
-    submitted: ["replied", "interviewed", "won", "lost"],
-    replied: ["interviewed", "won", "lost"],
-    interviewed: ["won", "lost"],
+    submitted: ["replied", "interviewed", "won", "nurture"],
+    replied: ["interviewed", "won", "nurture"],
+    interviewed: ["won", "nurture"],
+    nurture: ["replied", "interviewed", "won"],
   };
   return (rules[current] ?? []).includes(next);
 }

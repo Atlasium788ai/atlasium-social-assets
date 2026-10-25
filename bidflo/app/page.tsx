@@ -9,5 +9,5 @@ export default async function Home() {
   const session = await getAdminSession();
   if (!session?.user?.email) redirect("/login");
   const metrics = await getDashboardMetrics();
-  return <HomeHub email={session.user.email} metrics={metrics as never} />;
+  return <HomeHub email={session.user.email} metrics={metrics as never} previewMode={session.user.name === "Visez Preview"} />;
 }

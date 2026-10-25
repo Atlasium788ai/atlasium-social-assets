@@ -35,3 +35,18 @@ export function ArrowIcon(props: IconProps) {
 export function LogoMark({ className = "" }: { className?: string }) {
   return <span className={`logo-mark ${className}`} aria-hidden="true"><i /><b /></span>;
 }
+
+/** Futuristic celebration icon, animated with surrounding CSS only. */
+export function TrophyIcon(props: IconProps) {
+  return <svg {...base} {...props}>
+    <path d="M7 4h10v6a5 5 0 0 1-10 0V4zM7 6H4v2a4 4 0 0 0 4 4m9-6h3v2a4 4 0 0 1-4 4M12 15v4M8.5 21h7" />
+    <path d="m12 1-.8 2m-7 14 2-1m11 0 2 1" />
+  </svg>;
+}
+/** Growing connection: a sprout held by two orbital rings. */
+export function NurtureIcon(props: IconProps) {
+  return <svg {...base} {...props}>
+    <path d="M12 20v-9M12 14c-5 0-8-2.7-8-7 5 0 8 2.7 8 7zM12 11c0-4 3-6.5 7.5-6.5 0 4.5-2.5 6.5-7.5 6.5z" />
+    <path d="M4.2 18.5a10 10 0 0 0 15.6 0M5.4 4.7A10 10 0 0 1 12 2.4" />
+  </svg>;
+}

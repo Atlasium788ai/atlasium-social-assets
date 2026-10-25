@@ -13,7 +13,8 @@ const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reject"), reason: z.string().max(500).optional() }),
   z.object({ action: z.literal("mark_submitted") }),
   z.object({ action: z.literal("resolve_submission"), outcome: z.enum(["submitted", "not_submitted"]) }),
-  z.object({ action: z.literal("set_stage"), stage: z.enum(["replied", "interviewed", "won", "lost"]) }),
+  z.object({ action: z.literal("set_stage"), stage: z.enum(["replied", "interviewed", "won", "nurture"]) }),
+  z.object({ action: z.literal("update_nurture"), note: z.string().max(2000), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable() }),
   z.object({
     action: z.literal("edit"),
     body: z.string().min(20).max(5000),
@@ -243,6 +244,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       });
     }
     return Response.json({ ok: true, status: outcome === "submitted" ? "submitted" : "approved" });
+  }
+  if (parsed.data.action === "update_nurture") {
+    const { note, dueDate } = parsed.data;
+    const [saved] = await sql`update bidflo_opportunities set nurture_note = ${note.trim()}, nurture_due_at = ${dueDate}::date, updated_at = now()
+      where id = ${id} and status = 'nurture' and opted_out_at is null returning id`;
+    if (!saved) return Response.json({ error: "Only active nurture relationships can be updated" }, { status: 409 });
+    await audit(actor, "opportunity.nurture_updated", "opportunity", id, { dueDate, noteLength: note.trim().length });
+    return Response.json({ ok: true, status: "nurture" });
   }
   if (!canSetStage(String(opportunity.status) as OpportunityStage, parsed.data.stage)) {
     return Response.json({ error: "Invalid stage transition; refresh the opportunity" }, { status: 409 });

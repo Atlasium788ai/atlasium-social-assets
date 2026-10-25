@@ -103,6 +103,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     join bidflo_opportunities o on o.id = m.opportunity_id
     where m.id = ${input.messageId} and o.id = ${id}
       and m.direction = 'inbound' and m.kind = 'client_reply'
+      and o.opted_out_at is null
     limit 1
   `;
   if (!row) return Response.json({ error: "No matching client reply" }, { status: 404 });

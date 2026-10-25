@@ -1,5 +1,6 @@
 import { db, audit } from "./db";
 import { parseUpworkEmail } from "./email-parser";
+import { isExplicitClientStopRequest } from "./client-opt-out";
 import { generateProposal, reviewProposal } from "./ai";
 import { prepareManualReviewDraft } from "./manual-draft";
 import { queueSlackAlertSafely } from "./slack-alerts";
@@ -128,7 +129,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
     revisedProposal: null,
   };
   let aiReviewed = false;
-  if (process.env.AI_API_KEY && process.env.AI_MODEL) {
+  if ((process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()) && process.env.AI_MODEL) {
     try {
       draft = await generateProposal({
         opportunity,
@@ -260,10 +261,23 @@ async function processEvent(event: Record<string, unknown>) {
         ${String(event.received_at)}, ${parsed.roomUrl ?? null}, ${String(event.id)}
       ) on conflict (source_event_id) do nothing returning id
     `;
-    if (opportunity?.id) {
-      // A late email must never regress an interview or a closed opportunity.
+    if (opportunity?.id && inboundMessage && isExplicitClientStopRequest(payload.text ?? "")) {
+      // The client, not the operator, explicitly requested no contact.
+      // A won project remains a win; all other leads leave outreach queues.
+      await sql`update bidflo_opportunities
+        set opted_out_at = coalesce(opted_out_at, now()),
+            opt_out_source = 'explicit_upwork_reply',
+            status = case when status = 'won' then 'won' else 'opted_out' end,
+            nurture_due_at = null,
+            updated_at = now()
+        where id = ${opportunity.id}`;
+      await audit("system:upwork_client", "contact.opted_out", "opportunity", opportunity.id, {
+        sourceEventId: String(event.id), clientRequested: true,
+      });
+    } else if (opportunity?.id) {
+      // Client messages may resume active follow-ups; opted-out status cannot be reversed.
       await sql`update bidflo_opportunities set status = 'replied', updated_at = now()
-        where id = ${opportunity.id} and status in ('submitted', 'replied')`;
+        where id = ${opportunity.id} and status in ('submitted', 'replied', 'nurture') and opted_out_at is null`;
     }
     const [messageForAlert] = inboundMessage ? [inboundMessage] : await sql`
       select id from bidflo_messages where source_event_id = ${String(event.id)} limit 1
