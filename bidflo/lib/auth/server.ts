@@ -21,8 +21,13 @@ export function isAuthDisabled() {
   return process.env.VISEZ_AUTH_DISABLED === "true";
 }
 
-/** Verified account and allowlist access. Never bypass for API calls or private data. */
+function internalTestSession() {
+  return { user: { email: process.env.VISEZ_OWNER_EMAIL ?? "info@atlasium788.ca", name: "Visez Operator" } };
+}
+
+/** Verified account and allowlist access, except for the explicit internal no-login test mode. */
 export async function getAuthenticatedAdminSession() {
+  if (isAuthDisabled()) return internalTestSession();
   try {
     const { data } = await getAuth().getSession();
     const email = data?.user?.email?.toLowerCase();
@@ -33,12 +38,9 @@ export async function getAuthenticatedAdminSession() {
   }
 }
 
-/** Temporary public browsing remains possible, but it does not grant write access. */
+/** Temporary no-login operator access remains available only when explicitly configured. */
 export async function getAdminSession() {
-  // In preview mode, a verified team login upgrades the same UI to full authorized access.
-  if (!isAuthDisabled()) return getAuthenticatedAdminSession();
-  const actual = await getAuthenticatedAdminSession();
-  return actual ?? { user: { email: process.env.VISEZ_OWNER_EMAIL ?? "info@atlasium788.ca", name: "Visez Preview" } };
+  return getAuthenticatedAdminSession();
 }
 
 export async function requireAdminSession() {
