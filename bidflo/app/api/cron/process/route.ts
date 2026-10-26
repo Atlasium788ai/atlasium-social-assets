@@ -33,5 +33,11 @@ export async function POST(request: Request) {
     ai = { checked: false, fault: "probe_failed" };
     console.error("Visez AI readiness diagnostic failed", error instanceof Error ? error.name : "Unknown");
   }
+  await audit("system:processor", "processor.checked", "integration", undefined, {
+    eventCount: events.processed,
+    resultStatuses: events.results.map((result) => String(result.status ?? "unknown")),
+    slackDelivered: slack.delivered,
+    slackFailed: slack.failed,
+  });
   return Response.json({ ...events, slack, ai });
 }
