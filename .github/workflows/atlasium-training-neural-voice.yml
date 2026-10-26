@@ -1,0 +1,76 @@
+name: Atlasium training neural narration
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthesize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install neural TTS
+        run: python -m pip install --quiet edge-tts
+      - name: Generate narrated lessons
+        shell: bash
+        run: |
+          cat > /tmp/make_audio.py <<'PY'
+          import asyncio, json, pathlib, subprocess, edge_tts
+          SLIDES = [
+            [
+              "Open Upwork dot com and sign in with your own account. If you're new, create your own freelancer account. Never share your password.",
+              "If Atlasium invited you, open the Upwork invitation in your email and follow the steps. Everyone uses their own login.",
+              "Open your profile. Add a real professional photo of yourself, with your face clearly visible and a simple background.",
+              "Enter your name, location, work experience, and professional details accurately. Only include skills you can actually deliver.",
+              "Check for missing sections and save your profile. If you're unsure about your specialty, ask Atlasium for guidance."
+            ],
+            [
+              "Choose one clear service you can deliver. For example: lead generation, or C R M implementation. Don't crowd your title with buzzwords.",
+              "Write a short introduction. Say who you help, what you do, and how you approach a project. Keep it clear and professional.",
+              "Add skills you can demonstrate. Our main areas include lead generation, C R M workflows, marketing automation, sales operations, and A I integrations.",
+              "Add real examples of your work. Explain exactly what you contributed. Never claim another person's work as your own.",
+              "Review your hourly rate, language level, profile visibility, and availability. Make sure they are accurate, then save."
+            ],
+            [
+              "Select Find Work. Search one service at a time, such as C R M implementation, lead generation, A I automation, or appointment booking.",
+              "Use filters to narrow the results. Look for recent listings, reasonable budgets, and work that matches our team's skills.",
+              "Open the listing and read it all. Check the deliverables, tools, deadlines, and whether the project can be delivered profitably.",
+              "Review the client's payment verification and hiring history when available. No history isn't automatically bad, but be careful.",
+              "Save strong listings using the heart or Save Job option. Keep the best matches rather than saving everything."
+            ],
+            [
+              "Before sharing a job, check that it matches our services and can realistically be delivered. Don't promise a budget or deadline we can't meet.",
+              "Open the original listing and copy its direct Upwork link. Don't send just a screenshot or a search-results page.",
+              "Send Atlasium the job title, direct link, visible budget, and one sentence on why the opportunity fits.",
+              "The proposal needs human approval. Do not spend Connects, submit proposals, boost applications, or contact the client on your own.",
+              "Remember four steps: search, assess, save, and share. Focus on a few high-quality opportunities each day."
+            ]
+          ]
+          ROOT = pathlib.Path("atlasium_training_audio")
+          ROOT.mkdir(exist_ok=True)
+          async def generate():
+            for i, lesson in enumerate(SLIDES, 1):
+              for j, message in enumerate(lesson, 1):
+                path = ROOT / f"lesson{i}_{j:02}.mp3"
+                await edge_tts.Communicate(message, voice="en-US-AndrewNeural", rate="-3%", pitch="-2Hz").save(str(path))
+            for i in range(1, 5):
+              files = sorted(ROOT.glob(f"lesson{i}_*.mp3"))
+              playlist = ROOT / f"lesson{i}_concat.txt"
+              playlist.write_text("".join("file '"+f.name+"'\n" for f in files))
+              subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-f","concat","-safe","0","-i",str(playlist),"-c:a","libmp3lame","-b:a","160k",str(ROOT/f"Lesson_{i}.mp3")],check=True)
+            playlist = ROOT/"full_concat.txt"
+            playlist.write_text("".join("file '"+f"Lesson_{i}.mp3"+"'\n" for i in range(1,5)))
+            subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-f","concat","-safe","0","-i",str(playlist),"-c:a","libmp3lame","-b:a","160k",str(ROOT/"Atlasium_Training_Neural_Voice.mp3")],check=True)
+            (ROOT/"narration.txt").write_text("\n\n".join("\n".join(s) for s in SLIDES))
+            subprocess.run(["ffprobe","-v","error","-show_entries","format=duration","-of","default=noprint_wrappers=1",str(ROOT/"Atlasium_Training_Neural_Voice.mp3")],check=True)
+          asyncio.run(generate())
+          
+          PY
+          python /tmp/make_audio.py
+      - name: Upload completed audio files
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlasium-training-neural-voice
+          path: atlasium_training_audio/*.mp3
+          retention-days: 7
