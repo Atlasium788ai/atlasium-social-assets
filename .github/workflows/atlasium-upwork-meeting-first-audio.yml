@@ -1,0 +1,36 @@
+name: Atlasium Upwork opportunity and booking training voices
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install neural narration
+        run: python -m pip install --quiet edge-tts
+      - name: Generate approved Atlasium voice
+        run: |
+          cat > /tmp/atlasium_train.py <<'PY'
+          import asyncio, pathlib, edge_tts, json
+          SCRIPTS = [["Your Upwork profile represents you as an Atlasium revenue consultant. Your job is to spot business needs and help arrange the first conversation. Atlasium coordinates fulfilment.","Choose a truthful title about client outreach, appointment setting, or business development, based on your own experience. You don't need to claim you build C R M systems or manage advertising.","In your overview, explain that you listen to business needs, connect prospective clients with Atlasium specialists, and coordinate discovery calls. Keep it short and clear.","Use your genuine professional photo and real experience. Add only skills you personally have, such as lead qualification, client communication, sales, and appointment scheduling.","Check your availability, details, and Atlasium agency membership. Save your profile and ask your manager to review it before you start identifying opportunities."],["Open Find Work. Search for business problems. Try lead generation, C R M setup, Google Ads, S E O, website design, sales automation, and appointment booking.","Look for businesses that need more leads, faster follow up, more meetings, better advertising, stronger search visibility, or a website. Atlasium can explore all these needs.","Our services include ReeVIQ C R M, LinkLatch booking, XipherX lead intelligence, managed ads, search optimization, and content. Websites and integrations need scope approval.","Open a promising listing. Check three things: a clear business need, a realistic budget or scope, and an actual potential client. You do not need to design the technical solution.","Save the listing. Copy the direct Upwork job link, its title, the posted budget if there is one, and a sentence on why Atlasium fits. Send that information internally."],["Our goal is simple. Find a business that needs help and get it into a discovery conversation with Atlasium. Our team handles the solution, pricing, and delivery.","Share the opportunity with Atlasium. An authorized agency manager reviews the fit and handles any proposal or invitation response needed to open a client conversation.","When the client replies and an Upwork message conversation exists, an authorized team member can help arrange a discovery meeting there. We only book through the approved conversation.","Open the Upwork Messages thread and select the calendar icon. Offer the approved available time slots and send the invitation. Upwork converts times to each person's time zone.","Once the client accepts, confirm the booking in the Upwork thread and notify Atlasium internally. Before a contract begins, keep client messages and meeting links on Upwork."]]
+          ROOT = pathlib.Path("atlasium_upwork_meeting_audio")
+          ROOT.mkdir(exist_ok=True)
+          async def main():
+            for i, lesson in enumerate(SCRIPTS, start=2):
+              for j, line in enumerate(lesson, start=1):
+                target=ROOT / f"lesson{i}_step{j:02}.mp3"
+                await edge_tts.Communicate(line,voice="en-US-AndrewNeural",rate="-3%",pitch="-2Hz").save(str(target))
+                print(target.name, target.stat().st_size,flush=True)
+            (ROOT/"voice_scripts.json").write_text(json.dumps(SCRIPTS,indent=2))
+          asyncio.run(main())
+          PY
+          python /tmp/atlasium_train.py
+      - name: Archive narration
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlasium-meeting-first-training-audio
+          path: atlasium_upwork_meeting_audio/
+          retention-days: 4
