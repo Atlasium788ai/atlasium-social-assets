@@ -1,0 +1,35 @@
+name: Atlasium agency invitation voice correction
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  contents: read
+jobs:
+  correct-narration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Install neural voice
+        run: python -m pip install --quiet edge-tts
+      - name: Generate corrected invitation narration
+        run: |
+          cat > /tmp/correct.py <<'PY'
+          import asyncio, pathlib, edge_tts
+          out = pathlib.Path("corrected_lesson1_audio")
+          out.mkdir(exist_ok=True)
+          scripts = ["Begin with the Upwork agency invitation from Atlasium. Open the invitation email and select the link to join our team. Please do not sign up separately. Start from our invitation.","Follow the invitation steps to sign in, or finish the account setup it requests. Confirm Atlasium is listed as your agency, and then accept. Keep your password private."]
+          async def main():
+              for i, text in enumerate(scripts, 1):
+                  path = out / f"lesson1_{i:02d}_corrected.mp3"
+                  await edge_tts.Communicate(text, voice="en-US-AndrewNeural", rate="-3%", pitch="-2Hz").save(str(path))
+                  print(f"Generated {path}: {path.stat().st_size} bytes")
+          asyncio.run(main())
+          
+          PY
+          python /tmp/correct.py
+      - name: Upload corrected audio
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlasium-agency-invitation-voice-correction
+          path: corrected_lesson1_audio/*.mp3
+          retention-days: 3
