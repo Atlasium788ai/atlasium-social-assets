@@ -1,0 +1,33 @@
+name: Atlasium positive invitation narration
+on:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  contents: read
+jobs:
+  voices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Install neural speech engine
+        run: python -m pip install --quiet edge-tts
+      - name: Generate two revised scenes
+        run: |
+          cat > /tmp/generate.py <<'PY'
+          import asyncio, pathlib, edge_tts
+          out=pathlib.Path('corrected_invitation'); out.mkdir(exist_ok=True)
+          SCRIPTS=["Welcome to Atlasium's Upwork training. Start with the agency invitation we sent to your email. Open the message, and select the invitation link to join our team.","Follow the steps shown in your Atlasium invitation. Sign in when prompted, accept the agency invitation, and confirm that Atlasium appears in your agency details."]
+          async def main():
+            for i, line in enumerate(SCRIPTS,1):
+              p=out / f'invite_step_{i}.mp3'
+              await edge_tts.Communicate(line, voice='en-US-AndrewNeural', rate='-3%', pitch='-2Hz').save(str(p))
+              print(f'{p}: {p.stat().st_size} bytes')
+          asyncio.run(main())
+          PY
+          python /tmp/generate.py
+      - name: Export audio
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlasium-positive-invitation-narration
+          path: corrected_invitation/*.mp3
+          retention-days: 3
