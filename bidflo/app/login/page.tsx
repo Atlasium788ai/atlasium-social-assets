@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
 import { LogoMark } from "@/components/visez-icons";
+import { withDeadline } from "@/lib/with-deadline";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,17 +19,22 @@ export default function LoginPage() {
     setNotice("");
     setPending(true);
     const form = new FormData(event.currentTarget);
-    const result = await authClient.signIn.email({
-      email: String(form.get("email")),
-      password: String(form.get("password")),
-    });
-    setPending(false);
-    if (result.error) {
-      setError(result.error.message ?? "Sign-in failed");
-      return;
+    try {
+      const result = await withDeadline(authClient.signIn.email({
+        email: String(form.get("email")),
+        password: String(form.get("password")),
+      }), 30_000, "Sign-in took too long. Please try again.");
+      if (result.error) {
+        setError(result.error.message ?? "Sign-in failed");
+        return;
+      }
+      router.replace("/");
+      router.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Sign-in failed. Please try again.");
+    } finally {
+      setPending(false);
     }
-    router.replace("/");
-    router.refresh();
   }
 
   async function resetAccess(event: React.MouseEvent<HTMLButtonElement>) {
@@ -37,10 +43,19 @@ export default function LoginPage() {
     const email = String(new FormData(form ?? undefined).get("email") ?? "");
     if (!email) { setError("Enter your Atlasium email first."); return; }
     setPending(true);
-    const result = await authClient.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` });
-    setPending(false);
-    if (result.error) { setError(result.error.message ?? "Could not send the access link."); return; }
-    setNotice("Check your email for a secure password link.");
+    try {
+      const result = await withDeadline(
+        authClient.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` }),
+        30_000,
+        "The password request took too long. Please try again.",
+      );
+      if (result.error) { setError(result.error.message ?? "Could not send the access link."); return; }
+      setNotice("Check your email for a secure password link.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not send the access link.");
+    } finally {
+      setPending(false);
+    }
   }
 
 
