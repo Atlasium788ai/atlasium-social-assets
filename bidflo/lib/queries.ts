@@ -60,5 +60,14 @@ export async function getDashboardMetrics() {
     group by status
     order by count desc
   `;
-  return { ...counts, stages };
+  const [processor] = await sql`
+    select
+      (select created_at from bidflo_audit_logs where action = 'processor.checked' order by created_at desc limit 1) as last_checked_at,
+      (select coalesce((detail ->> 'eventCount')::int, 0) from bidflo_audit_logs where action = 'processor.checked' order by created_at desc limit 1) as last_event_count,
+      (select processed_at from bidflo_inbound_events where status = 'processed' and processed_at is not null order by processed_at desc limit 1) as last_data_processed_at,
+      count(*) filter (where status = 'pending' and attempts > 0)::int as retrying,
+      count(*) filter (where status = 'failed')::int as failed
+    from bidflo_inbound_events
+  `;
+  return { ...counts, stages, processor };
 }
