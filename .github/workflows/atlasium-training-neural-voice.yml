@@ -54,17 +54,8 @@ jobs:
               for j, message in enumerate(lesson, 1):
                 path = ROOT / f"lesson{i}_{j:02}.mp3"
                 await edge_tts.Communicate(message, voice="en-US-AndrewNeural", rate="-3%", pitch="-2Hz").save(str(path))
-            for i in range(1, 5):
-              files = sorted(ROOT.glob(f"lesson{i}_*.mp3"))
-              playlist = ROOT / f"lesson{i}_concat.txt"
-              playlist.write_text("".join("file '"+f.name+"'\n" for f in files))
-              subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-f","concat","-safe","0","-i",str(playlist),"-c:a","libmp3lame","-b:a","160k",str(ROOT/f"Lesson_{i}.mp3")],check=True)
-            playlist = ROOT/"full_concat.txt"
-            playlist.write_text("".join("file '"+f"Lesson_{i}.mp3"+"'\n" for i in range(1,5)))
-            subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-f","concat","-safe","0","-i",str(playlist),"-c:a","libmp3lame","-b:a","160k",str(ROOT/"Atlasium_Training_Neural_Voice.mp3")],check=True)
-            (ROOT/"narration.txt").write_text("\n\n".join("\n".join(s) for s in SLIDES))
-            subprocess.run(["ffprobe","-v","error","-show_entries","format=duration","-of","default=noprint_wrappers=1",str(ROOT/"Atlasium_Training_Neural_Voice.mp3")],check=True)
-          asyncio.run(generate())
+            print('Audio files produced:', len(list(ROOT.glob('lesson*_*.mp3'))))
+asyncio.run(generate())
           
           PY
           python /tmp/make_audio.py
