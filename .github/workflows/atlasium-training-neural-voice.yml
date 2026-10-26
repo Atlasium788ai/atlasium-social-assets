@@ -55,7 +55,7 @@ jobs:
                 path = ROOT / f"lesson{i}_{j:02}.mp3"
                 await edge_tts.Communicate(message, voice="en-US-AndrewNeural", rate="-3%", pitch="-2Hz").save(str(path))
             print('Audio files produced:', len(list(ROOT.glob('lesson*_*.mp3'))))
-asyncio.run(generate())
+          asyncio.run(generate())
           
           PY
           python /tmp/make_audio.py
