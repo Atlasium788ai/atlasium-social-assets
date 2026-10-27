@@ -1028,7 +1028,7 @@ test("brands can be created before account connections, then attach and move onl
     assert.equal(snapshot.channels[0].status, "connected");
 
     const blocked = await assign(second.id, ["client-one"]);
-    assert.equal(blocked.status, 400);
+    assert.equal(blocked.status, 403);
     assert.match((await blocked.json()).error, /different brand/);
     assert.equal(DB.database.prepare("SELECT brand_id FROM channel_connections WHERE provider_channel_id = 'client-one' AND active = 1").get().brand_id, first.id);
 
@@ -1043,6 +1043,7 @@ test("brands can be created before account connections, then attach and move onl
     ]);
 
     // An unassigned brand must not inherit every provider channel during a publish call.
+    env.OPENAI_API_KEY = "test-openai";
     const publish = await worker.fetch(new Request("http://localhost/api/agent", {
       method: "POST", headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ brandId: first.id, prompt: "Publish a client update", channels: ["client-one"], timing: "now" }),
