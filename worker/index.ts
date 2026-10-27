@@ -817,7 +817,7 @@ async function runAgent(request: Request, env: Env) {
   if (requestedBrandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
   const brand = await requireBrand(env, requestedBrandId);
   // No implicit account access for brands with zero assignments.
-  const assignedIds = new Set(brand.channelIds);
+  const assignedIds = new Set(env.DB ? brand.channelIds : connected.map((channel) => channel.id));
   const available = connected.filter((channel) => assignedIds.has(channel.id));
   const requestedIds = Array.isArray(body.channels) ? body.channels : [];
   const chosen = selectChannels(prompt, available, requestedIds, brand.id);
@@ -1069,7 +1069,7 @@ async function publish(request: Request, env: Env) {
   if (requestedBrandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
   const brand = await requireBrand(env, requestedBrandId);
   // A brand with zero assigned channels cannot publish to other brands' accounts.
-  const assigned = new Set(brand.channelIds);
+  const assigned = new Set(env.DB ? brand.channelIds : connected.map((channel) => channel.id));
   const available = connected.filter((channel) => assigned.has(channel.id));
   const chosen = available.filter((channel) => channelIds.includes(String(channel.id)));
   if (chosen.length !== channelIds.length) return json({ error: "One or more Buffer channels are invalid." }, 400);
@@ -1475,7 +1475,7 @@ const worker = {
         if (brandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
         const brand = await requireBrand(env, brandId);
         // A brand with zero assigned channels cannot publish to other brands' accounts.
-  const assigned = new Set(brand.channelIds);
+  const assigned = new Set(env.DB ? brand.channelIds : connected.map((channel) => channel.id));
         return json({ configured: true, brandId: brand.id, channels: connected.filter((channel) => assigned.has(channel.id)) });
       }
       catch (error) { return json({ configured: true, error: error instanceof Error ? error.message : "Could not load Buffer channels." }, 502); }
