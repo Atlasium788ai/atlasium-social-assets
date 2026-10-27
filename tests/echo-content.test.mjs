@@ -179,3 +179,40 @@ test("future publishing adapters are empty and ECHO content routes contain no se
   assert.doesNotMatch(store, /api\.buffer\.com|BUFFER_API_KEY|createBufferPost|advertising_dry_runs/);
   assert.match(workerSource, /\/api\/echo\/content\/workspace/); assert.match(flow, /FLOW/); assert.match(amplify, /AMPLIFY/);
 });
+
+test("publishing provider outages leave the ECHO content workspace usable and do not show ghost channels", async () => {
+  const worker = await loadWorker();
+  const env = await testEnv();
+  env.BUFFER_API_KEY = "test-provider-token";
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url) === "https://api.buffer.com") {
+      providerCalls++;
+      return Response.json({ errors: [{ message: "Simulated provider outage" }] }, { status: 503 });
+    }
+    return originalFetch(url);
+  };
+  try {
+    const context = { waitUntil() {}, passThroughOnException() {} };
+    const workspace = await worker.fetch(request("/api/workspace"), env, context);
+    assert.equal(workspace.status, 200);
+    const workspaceData = await workspace.json();
+    assert.equal(workspaceData.publishingConnectionStatus, "unavailable");
+    assert.ok(workspaceData.brands.length >= 1);
+    assert.deepEqual(workspaceData.brands[0].channels, []);
+    assert.ok(providerCalls >= 1);
+
+    const content = await worker.fetch(request("/api/echo/content/workspace"), env, context);
+    assert.equal(content.status, 200);
+    const editor = await content.json();
+    assert.ok(Array.isArray(editor.drafts));
+    assert.ok(Array.isArray(editor.library));
+
+    const flow = await worker.fetch(request("/api/flow/workspace"), env, context);
+    assert.equal(flow.status, 200);
+    assert.equal((await flow.json()).publishingConnectionStatus, "unavailable");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
