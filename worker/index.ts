@@ -1052,23 +1052,35 @@ async function publish(request: Request, env: Env) {
   return json({ brandId: brand.id, campaignId: manualCampaignId, message: failed ? `${results.length - failed} publication${results.length - failed === 1 ? "" : "s"} ${action}; ${failed} failed and is shown separately.` : `${results.length} publication${results.length === 1 ? "" : "s"} ${action} successfully.`, imageUrl, storyImageUrl: storyImageUrl || null, results }, failed ? 207 : 201);
 }
 
+// A social provider outage must not lock the owner out of their existing
+// content library, brand settings or other non-publishing operations.
+async function optionalPublishingDestinations(env: Env): Promise<{ connected: BufferDestination[]; publishingConnectionStatus: "connected" | "not_configured" | "unavailable" }> {
+  if (!env.BUFFER_API_KEY) return { connected: [], publishingConnectionStatus: "not_configured" };
+  try {
+    return { connected: await publishingProvider(env).listDestinations(), publishingConnectionStatus: "connected" };
+  } catch {
+    // Do not expose the provider's upstream error or any authentication details.
+    return { connected: [], publishingConnectionStatus: "unavailable" };
+  }
+}
+
 async function workspace(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
-  const connected = env.BUFFER_API_KEY ? await publishingProvider(env).listDestinations() : [];
-  return json(await workspaceSnapshot(env, connected));
+  const { connected, publishingConnectionStatus } = await optionalPublishingDestinations(env);
+  return json({ ...await workspaceSnapshot(env, connected), publishingConnectionStatus });
 }
 
 async function flowWorkspaceRoute(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This FLOW workspace is not authorized." }, 401);
   const brandId = request.headers.get("X-Brand-ID")?.trim() || "";
   if (!brandId) return json({ error: "A valid brand is required for FLOW." }, 400);
-  const connected = env.BUFFER_API_KEY ? await publishingProvider(env).listDestinations() : [];
+  const { connected, publishingConnectionStatus } = await optionalPublishingDestinations(env);
   if (brandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
   let reconciliation = { checked: 0, sent: 0, failed: 0, pending: 0 };
   let refreshError = "";
   try { reconciliation = await reconcileDeliveries(request, env, brandId); }
   catch (error) { refreshError = error instanceof Error ? error.message : "Delivery status refresh is temporarily unavailable."; }
-  return json({ ...await flowWorkspaceSnapshot(env, brandId, connected), reconciliation, refreshError });
+  return json({ ...await flowWorkspaceSnapshot(env, brandId, connected), reconciliation, refreshError, publishingConnectionStatus });
 }
 
 async function brandPayload(request: Request, env: Env, brandId?: string) {

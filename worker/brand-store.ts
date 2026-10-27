@@ -191,8 +191,13 @@ export async function workspaceSnapshot(env: StoreEnv, connected: BufferDestinat
   await syncAtlasiumChannels(env, connected);
   const brandRows = rowList(await env.DB.prepare(`${brandSelect} WHERE b.workspace_id = ? AND b.status != 'archived' ORDER BY CASE WHEN b.id = ? THEN 0 ELSE 1 END, b.created_at`).bind(WORKSPACE_ID, ATLASIUM_BRAND_ID).all<Record<string, unknown>>());
   const channelRows = rowList(await env.DB.prepare("SELECT c.provider_channel_id AS id, c.service, c.account_name AS displayName, c.brand_id, b.name AS brand_name FROM channel_connections c JOIN brands b ON b.id = c.brand_id WHERE c.workspace_id = ? AND c.active = 1").bind(WORKSPACE_ID).all<Record<string, unknown>>());
+  // Keep saved account assignments in D1, but do not present a disconnected
+  // publishing destination as live. The content library remains usable.
+  const connectedIds = new Set(connected.map((channel) => String(channel.id)));
   const brands = brandRows.map((row) => {
-    const channels = channelRows.filter((channel) => value(channel.brand_id) === value(row.id)).map((channel) => ({ id: value(channel.id), service: value(channel.service), displayName: value(channel.displayName) }));
+    const channels = channelRows
+      .filter((channel) => value(channel.brand_id) === value(row.id) && connectedIds.has(value(channel.id)))
+      .map((channel) => ({ id: value(channel.id), service: value(channel.service), displayName: value(channel.displayName) }));
     return brandFromRow(row, channels);
   });
   const connectionMap = new Map(channelRows.map((row) => [value(row.id), row]));
