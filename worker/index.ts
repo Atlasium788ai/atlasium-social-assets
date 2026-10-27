@@ -728,13 +728,87 @@ async function motionPreview(request: Request, env: Env) {
   return json({ campaignId: id, mediaType: "video", duration: 4, aspectRatio: "9:16", imageUrl, videoJobId: job.id, status: job.status, providerName: provider.providerName, modelName: provider.modelName }, 202);
 }
 
+// Content-only mode. Generate and save brand-scoped social copy without requiring
+// a publishing account, creating provider jobs, generating paid media, or sending posts.
+async function createSocialDraftOnly(request: Request, env: Env, body: { brandId?: string; timeZone?: string }, prompt: string) {
+  await ensureBrandSystem(env);
+  const brand = await requireBrand(env, body.brandId || ATLASIUM_BRAND_ID);
+  const plan = await createPlan(env, prompt, [
+    "LinkedIn company", "LinkedIn personal", "Facebook", "Instagram", "TikTok",
+  ], "auto", brand);
+  const id = crypto.randomUUID();
+  const timeZone = validTimeZone(brand.timezone || body.timeZone || "America/Toronto");
+  const variants: Array<{ platform: string; label: string; caption: (post: AgentPlan["posts"][number]) => string }> = [
+    { platform: "linkedin", label: "Company LinkedIn", caption: (post) => post.companyLinkedInCaption || post.caption },
+    { platform: "linkedin", label: "Personal LinkedIn", caption: (post) => post.personalLinkedInCaption || post.caption },
+    { platform: "facebook", label: "Facebook", caption: (post) => post.facebookCaption || post.caption },
+    { platform: "instagram", label: "Instagram", caption: (post) => post.instagramCaption || post.caption },
+    { platform: "tiktok", label: "TikTok", caption: (post) => post.tiktokCaption || post.caption },
+  ];
+  const posts: CampaignRecord["items"] = plan.posts.map((post, index) => ({
+    ...post,
+    id: `${id}-${String(index + 1).padStart(2, "0")}`,
+    itemIndex: index,
+    mediaType: "image",
+    motionStyle: null,
+    motionPrompt: null,
+    duration: null,
+    aspectRatio: "4:5",
+    state: "completed",
+    retryCount: 0,
+  }));
+  const results: CampaignResult[] = posts.flatMap((post) => variants.map((variant, i) => ({
+    id: `${post.id}:draft:${i}`,
+    workspaceId: WORKSPACE_ID,
+    brandId: brand.id,
+    itemId: post.id,
+    channelId: `draft:${i}`,
+    concept: post.concept,
+    caption: variant.caption(post),
+    imageUrl: "",
+    mediaType: "image",
+    channel: "Draft only",
+    service: variant.platform,
+    surface: "post",
+    surfaceId: `draft:${i}`,
+    surfaceLabel: variant.label,
+    status: "DRAFT",
+  })));
+  const message = `${posts.length} social item${posts.length === 1 ? "" : "s"} saved as drafts. No posts were published or scheduled.`;
+  const campaign: CampaignRecord = {
+    id,
+    workspaceId: WORKSPACE_ID,
+    brandId: brand.id,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    prompt,
+    timeZone,
+    message,
+    schedule: {
+      timing: { mode: "auto", label: "Draft only: not scheduled", start: null, end: null, weekdaysOnly: false, postsPerWeek: null, launchDay: null },
+      times: posts.map(() => null),
+    },
+    items: posts,
+    results,
+  };
+  await saveCampaign(env, campaign);
+  await audit(env, brand.id, "social_draft_saved", {
+    campaignId: id, campaignItems: posts.length, variants: results.length, published: false, scheduled: false,
+  }, actorId(request));
+  return json({ campaignId: id, brandId: brand.id, draftOnly: true, message, campaign: plan.campaign, campaignItems: posts.length, destinationSubmissions: 0, postsCreated: 0, channels: 0, results }, 201);
+}
+
 async function runAgent(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This publishing link is not authorized." }, 401);
-  if (!env.BUFFER_API_KEY) return json({ error: "Buffer is not connected yet." }, 503);
-  if (!env.OPENAI_API_KEY) return json({ error: "OpenAI connection required." }, 503);
-  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string; timeZone?: string; selectedDueAt?: string; selectedLocalTime?: string; brandId?: string; surfaceMode?: string; surfaceModeManual?: boolean };
+  const body = await request.json() as { prompt?: string; channels?: string[]; timing?: string; timeZone?: string; selectedDueAt?: string; selectedLocalTime?: string; brandId?: string; surfaceMode?: string; surfaceModeManual?: boolean; draftOnly?: boolean };
   const prompt = String(body.prompt || "").trim();
   if (!prompt || prompt.length > 4000) return json({ error: "Enter a clear prompt under 4,000 characters." }, 400);
+  if (!env.OPENAI_API_KEY) return json({ error: "OpenAI connection required." }, 503);
+  if (body.draftOnly === true) {
+    try { return await createSocialDraftOnly(request, env, body, prompt); }
+    catch (error) { return json({ error: error instanceof Error ? error.message : "Could not create a social draft." }, 502); }
+  }
+  if (!env.BUFFER_API_KEY) return json({ error: "Publishing is not connected. Use Create drafts instead." }, 503);
   const publisher = publishingProvider(env);
   const connected = await publisher.listDestinations();
   await ensureBrandSystem(env);
@@ -831,6 +905,10 @@ async function processCampaign(request: Request, env: Env, id: string) {
   const campaign = await loadCampaign(env, id, brand.id);
   if (!campaign) return json({ error: "Campaign not found." }, 404);
   if (campaign.brandId !== brand.id) return json({ error: "This campaign belongs to a different brand." }, 403);
+  // Reading a draft must never pass into motion or provider submission logic.
+  if (campaign.results.length && campaign.results.every((result) => result.status === "DRAFT")) {
+    return json({ campaignId: campaign.id, brandId: brand.id, message: campaign.message, processing: false, results: campaign.results });
+  }
   const provider = motionProvider(env);
   const publisher = publishingProvider(env);
   const now = env.TEST_NOW && !Number.isNaN(Date.parse(env.TEST_NOW)) ? new Date(env.TEST_NOW) : new Date();

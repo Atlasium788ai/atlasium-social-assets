@@ -216,3 +216,72 @@ test("publishing provider outages leave the ECHO content workspace usable and do
     globalThis.fetch = originalFetch;
   }
 });
+
+test("social drafts work without social accounts and never create a publishing job", async () => {
+  const worker = await loadWorker();
+  const env = await testEnv();
+  const context = { waitUntil() {}, passThroughOnException() {} };
+  const originalFetch = globalThis.fetch;
+  let aiCalls = 0;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(String(url), "https://api.openai.com/v1/responses");
+    const body = JSON.parse(init.body);
+    assert.equal(body.text.format.name, "echoflow_campaign");
+    aiCalls++;
+    const plan = {
+      campaign: "Atlasium follow-up education",
+      timing: "auto",
+      posts: [{
+        concept: "Reduce missed follow-ups",
+        caption: "Start with a clear follow-up owner.",
+        imagePrompt: "A simple, clean campaign visual",
+        personalLinkedInCaption: "My approach starts with a clear follow-up owner.",
+        companyLinkedInCaption: "Atlasium helps businesses clarify follow-up ownership.",
+        instagramCaption: "Better follow-up starts with a clear owner.",
+        facebookCaption: "Know who follows up next.",
+        tiktokCaption: "One practical step: assign follow-up ownership.",
+      }],
+    };
+    return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify(plan) }] }] });
+  };
+  try {
+    const unauthorized = await worker.fetch(new Request("http://localhost/api/agent", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ brandId: BRAND_A, prompt: "Create one post", draftOnly: true }),
+    }), env, context);
+    assert.equal(unauthorized.status, 401);
+    assert.equal(aiCalls, 0);
+
+    const response = await worker.fetch(request("/api/agent", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ brandId: BRAND_A, prompt: "Create one helpful social post", draftOnly: true }),
+    }), env, context);
+    assert.equal(response.status, 201);
+    const data = await response.json();
+    assert.equal(data.draftOnly, true);
+    assert.equal(data.campaignItems, 1);
+    assert.equal(data.destinationSubmissions, 0);
+    assert.equal(data.results.length, 5);
+    assert.ok(data.results.every((result) => result.status === "DRAFT" && result.imageUrl === ""));
+    assert.match(data.message, /No posts were published or scheduled/);
+    assert.equal(aiCalls, 1);
+
+    const campaignRecord = env.UPLOADS.values.get(`.atlasium-campaigns/${data.campaignId}.json`);
+    assert.ok(campaignRecord, "draft campaign is saved in persistent file storage");
+    const saved = JSON.parse(new TextDecoder().decode(campaignRecord.bytes));
+    assert.equal(saved.items.length, 1);
+    assert.equal(saved.results.length, 5);
+
+    const listed = env.DB.database.prepare("SELECT status FROM campaigns WHERE id = ?").get(data.campaignId);
+    assert.equal(listed.status, "draft");
+    assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS count FROM publish_jobs").get().count, 0);
+
+    const read = await worker.fetch(request(`/api/campaign/${data.campaignId}`), env, context);
+    assert.equal(read.status, 200);
+    const view = await read.json();
+    assert.equal(view.processing, false);
+    assert.equal(view.results.length, 5);
+    assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS count FROM publish_jobs").get().count, 0);
+    assert.equal(aiCalls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
