@@ -1,5 +1,5 @@
 import { redirect, notFound } from "next/navigation";
-import { getAdminSession } from "@/lib/auth/server";
+import { getAuthenticatedAdminSession } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { AppShell } from "@/components/app-shell";
 import { OpportunityDetail } from "@/components/opportunity-detail";
@@ -8,7 +8,7 @@ import type { OpportunityRow } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export default async function OpportunityPage({ params }: { params: Promise<{ id: string }> }) {
-  const session = await getAdminSession();
+  const session = await getAuthenticatedAdminSession();
   if (!session?.user?.email) redirect("/login");
   const { id } = await params;
   const sql = db();

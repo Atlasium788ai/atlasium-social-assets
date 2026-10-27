@@ -5,14 +5,15 @@ import { retryPolicy } from "../lib/retry-policy";
 
 const stages: OpportunityStage[] = [
   "new", "rejected", "qualified", "proposal_ready", "approved", "ready_to_submit",
-  "submission_processing", "submitted", "replied", "interviewed", "won", "lost",
+  "submission_processing", "submitted", "replied", "interviewed", "nurture", "won", "opted_out", "lost",
 ];
 
 test("stress: every pipeline-state pair follows the explicit forward-only transition matrix", () => {
   const allowed = new Set([
-    "submitted>replied", "submitted>interviewed", "submitted>won", "submitted>lost",
-    "replied>interviewed", "replied>won", "replied>lost",
-    "interviewed>won", "interviewed>lost",
+    "submitted>replied", "submitted>interviewed", "submitted>won", "submitted>lost", "submitted>nurture",
+    "replied>interviewed", "replied>won", "replied>lost", "replied>nurture",
+    "interviewed>won", "interviewed>lost", "interviewed>nurture",
+    "nurture>replied", "nurture>interviewed", "nurture>won", "nurture>lost",
   ]);
   for (let round = 0; round < 100; round++) {
     for (const current of stages) {

@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     });
     return new Response("OK");
   } catch (error) {
-    console.error("BidFlo inbound webhook rejected", error instanceof Error ? error.message : "Unknown error");
+    console.error("Visez inbound webhook rejected", error instanceof Error ? error.message : "Unknown error");
     return new Response("Invalid webhook", { status: 400 });
   }
 }

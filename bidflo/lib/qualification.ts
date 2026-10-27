@@ -57,10 +57,15 @@ export function qualifyOpportunity(opportunity: OpportunityInput, rules: Qualifi
   const recurringRevenue = Math.min(10, recurringMatches.length * 5);
   const rawScore = serviceFit + budgetScore + profitability + complexity + deliveryFeasibility + recurringRevenue;
   const score = Math.max(0, Math.min(100, rawScore - poorMatches.length * 25 - unsafeSignals.length * 50));
+  const opportunityTier = budget == null ? "Unpriced opportunity"
+    : isHourly ? (budget >= rules.targetHourlyRate * 1.5 ? "Premium hourly opportunity" : "Core hourly opportunity")
+      : budget >= 25_000 ? "Enterprise / premium opportunity"
+        : budget >= 5_000 ? "Core revenue opportunity" : "Quick-win opportunity";
 
   const reasons = [
     fitMatches.length ? `Matched capabilities: ${fitMatches.join(", ")}` : "Limited explicit Atlasium capability match",
     budget == null ? "Budget was not stated" : `${isHourly ? "Hourly ceiling" : "Budget signal"}: ${opportunity.currency ?? "USD"} ${budget}`,
+    opportunityTier,
     lowValue ? `${isHourly ? "Hourly ceiling" : "Fixed budget"} is below Atlasium's configured minimum` : "Budget meets the configured minimum",
     recurringMatches.length ? `Recurring potential: ${recurringMatches.join(", ")}` : "No recurring-revenue signal",
     thinBrief ? "Insufficient project detail to estimate delivery safely" : "Project brief has enough detail for initial qualification",

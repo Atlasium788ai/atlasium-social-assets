@@ -1,5 +1,6 @@
 import { db, audit } from "./db";
 import { parseUpworkEmail } from "./email-parser";
+import { isExplicitClientStopRequest } from "./client-opt-out";
 import { generateProposal, reviewProposal } from "./ai";
 import { prepareManualReviewDraft } from "./manual-draft";
 import { queueSlackAlertSafely } from "./slack-alerts";
@@ -64,7 +65,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   const sql = db();
   const [opportunityRow] = await sql`select * from bidflo_opportunities where id = ${opportunityId}`;
   const [settings] = await sql`select * from bidflo_settings where id = 'default'`;
-  if (!opportunityRow || !settings) throw new Error("Opportunity or BidFlo settings not found");
+  if (!opportunityRow || !settings) throw new Error("Opportunity or Visez settings not found");
   if (!canRescore(String(opportunityRow.status) as OpportunityStage)) {
     throw new Error("Cannot rescore a submitted, approved, or closed opportunity");
   }
@@ -103,7 +104,11 @@ export async function qualifyAndPrepare(opportunityId: string) {
         score: result.score, amount: commercials.bidAmount,
       });
     }
-    return { score: result.score, status: nextStatus };
+    return {
+      score: result.score,
+      status: nextStatus,
+      ai: { attempted: false, reviewed: false, reason: result.rejected ? "rejected" : "below_auto_prepare_threshold" },
+    };
   }
 
   const commercialDraft: ProposalDraft = { body: "", questions: [], ...commercials };
@@ -128,7 +133,9 @@ export async function qualifyAndPrepare(opportunityId: string) {
     revisedProposal: null,
   };
   let aiReviewed = false;
-  if (process.env.AI_API_KEY && process.env.AI_MODEL) {
+  let aiAttempted = false;
+  if ((process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()) && process.env.AI_MODEL) {
+    aiAttempted = true;
     try {
       draft = await generateProposal({
         opportunity,
@@ -147,11 +154,15 @@ export async function qualifyAndPrepare(opportunityId: string) {
         minimumQualityScore,
       });
       aiReviewed = true;
+      await audit("system:ai", "ai.execution_succeeded", "opportunity", opportunityId, {
+        qualityScore: review.score,
+        humanJudgmentRequired: review.humanJudgmentRequired,
+      });
     } catch (error) {
       // If drafting succeeded but review failed, keep the draft but do not claim it was QC'd.
       const cause = error instanceof Error ? error.message.slice(0, 180) : "Unknown model failure";
       review.issues = [`Automated quality review unavailable: ${cause}`];
-      await audit("system:ai", "ai.review_unavailable", "opportunity", opportunityId, { cause });
+      await audit("system:ai", "ai.execution_failed", "opportunity", opportunityId, { cause });
     }
   }
   const finalDraft = (review.score ?? 0) < minimumQualityScore && review.revisedProposal ? review.revisedProposal : draft;
@@ -201,7 +212,79 @@ export async function qualifyAndPrepare(opportunityId: string) {
   } catch (error) {
     await audit("system:notification", "notification.failed", "opportunity", opportunityId, { error: error instanceof Error ? error.message : "Unknown error" });
   }
-  return { score: result.score, status: "proposal_ready", proposalId };
+  return {
+    score: result.score,
+    status: "proposal_ready",
+    proposalId,
+    ai: {
+      attempted: aiAttempted,
+      reviewed: aiReviewed,
+      qualityScore: review.score,
+      humanJudgmentRequired: review.humanJudgmentRequired,
+    },
+  };
+}
+
+/**
+ * Recover genuine review-queue drafts that were created while GPT was unavailable.
+ * At most one draft is retried per cycle, and failures back off for five minutes.
+ * This never changes an approved/submitted opportunity or contacts Upwork.
+ */
+export async function processAiBacklog(limit = 1) {
+  const aiConfigured = Boolean(
+    (process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()) && process.env.AI_MODEL?.trim(),
+  );
+  if (!aiConfigured) return { attempted: 0, reviewed: 0, results: [], reason: "not_configured" };
+  const sql = db();
+  const candidates = await sql`
+    select o.id, o.title
+      from bidflo_opportunities o
+      join lateral (
+        select quality_score from bidflo_proposals
+         where opportunity_id = o.id order by version desc limit 1
+      ) p on true
+     where o.status = 'proposal_ready'
+       and p.quality_score is null
+       and not exists (
+         select 1 from bidflo_audit_logs a
+          where a.entity_id = o.id::text
+            and a.action = 'ai.backfill_completed'
+       )
+       and not exists (
+         select 1 from bidflo_audit_logs a
+          where a.entity_id = o.id::text
+            and a.action = 'ai.backfill_attempted'
+            and a.created_at > now() - interval '5 minutes'
+       )
+     order by o.score desc nulls last, o.created_at asc
+     limit ${Math.max(1, Math.min(limit, 3))}
+  `;
+  const results: Array<Record<string, unknown>> = [];
+  for (const candidate of candidates) {
+    const opportunityId = String(candidate.id);
+    await audit("system:ai", "ai.backfill_attempted", "opportunity", opportunityId, {
+      reason: "unreviewed_existing_draft",
+    });
+    try {
+      const result = await qualifyAndPrepare(opportunityId);
+      const reviewed = Boolean(result.ai?.reviewed);
+      await audit("system:ai", reviewed ? "ai.backfill_completed" : "ai.backfill_failed", "opportunity", opportunityId, {
+        proposalId: result.proposalId ?? null,
+        qualityScore: result.ai?.qualityScore ?? null,
+      });
+      results.push({ opportunityId, title: String(candidate.title), ...result });
+    } catch (error) {
+      const cause = error instanceof Error ? error.message.slice(0, 180) : "Unknown model failure";
+      await audit("system:ai", "ai.backfill_failed", "opportunity", opportunityId, { cause });
+      results.push({ opportunityId, status: "failed", ai: { attempted: true, reviewed: false }, cause });
+    }
+  }
+  return {
+    attempted: results.filter((result) => Boolean((result.ai as { attempted?: boolean } | undefined)?.attempted)).length,
+    reviewed: results.filter((result) => Boolean((result.ai as { reviewed?: boolean } | undefined)?.reviewed)).length,
+    results,
+    reason: candidates.length ? null : "no_unreviewed_backlog",
+  };
 }
 
 async function processEvent(event: Record<string, unknown>) {
@@ -260,10 +343,23 @@ async function processEvent(event: Record<string, unknown>) {
         ${String(event.received_at)}, ${parsed.roomUrl ?? null}, ${String(event.id)}
       ) on conflict (source_event_id) do nothing returning id
     `;
-    if (opportunity?.id) {
-      // A late email must never regress an interview or a closed opportunity.
+    if (opportunity?.id && inboundMessage && isExplicitClientStopRequest(payload.text ?? "")) {
+      // The client, not the operator, explicitly requested no contact.
+      // A won project remains a win; all other leads leave outreach queues.
+      await sql`update bidflo_opportunities
+        set opted_out_at = coalesce(opted_out_at, now()),
+            opt_out_source = 'explicit_upwork_reply',
+            status = case when status = 'won' then 'won' else 'opted_out' end,
+            nurture_due_at = null,
+            updated_at = now()
+        where id = ${opportunity.id}`;
+      await audit("system:upwork_client", "contact.opted_out", "opportunity", opportunity.id, {
+        sourceEventId: String(event.id), clientRequested: true,
+      });
+    } else if (opportunity?.id) {
+      // Client messages may resume active follow-ups; opted-out status cannot be reversed.
       await sql`update bidflo_opportunities set status = 'replied', updated_at = now()
-        where id = ${opportunity.id} and status in ('submitted', 'replied')`;
+        where id = ${opportunity.id} and status in ('submitted', 'replied', 'nurture') and opted_out_at is null`;
     }
     const [messageForAlert] = inboundMessage ? [inboundMessage] : await sql`
       select id from bidflo_messages where source_event_id = ${String(event.id)} limit 1

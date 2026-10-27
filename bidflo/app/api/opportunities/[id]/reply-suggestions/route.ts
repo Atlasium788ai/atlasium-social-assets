@@ -25,20 +25,22 @@ async function writeWithAI(
 ): Promise<Record<string, string>> {
   const endpoint = (process.env.AI_API_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
   const model = process.env.AI_MODEL ?? "gpt-5-mini";
+  const apiKey = process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) throw new Error("AI provider is not configured");
   const names = tones.join(", ");
   const reply = await fetch(`${endpoint}/chat/completions`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${process.env.AI_API_KEY}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      ...(model.startsWith("gpt-5") ? {} : { temperature: 0.45 }),
-      max_completion_tokens: 1200,
+      ...(model.startsWith("gpt-5") ? { reasoning_effort: "minimal" } : { temperature: 0.45 }),
+      max_completion_tokens: 4000,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
           content: [
-            "You are BidFlo's expert Upwork conversation assistant for Atlasium 7/88.",
+            "You are Visez's expert Upwork conversation assistant for Atlasium 7/88.",
             `Return ONLY one JSON object with exactly these keys: ${names}. Each value is a plain string ready to paste into an Upwork message.`,
             "Write three genuinely distinct short responses when given three tones, and one when given one tone.",
             "Tone direct: concise, confident and action-oriented. Tone consultative: curious and specific to what the client said. Tone friendly: warm, natural and brief.",
@@ -103,6 +105,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     join bidflo_opportunities o on o.id = m.opportunity_id
     where m.id = ${input.messageId} and o.id = ${id}
       and m.direction = 'inbound' and m.kind = 'client_reply'
+      and o.opted_out_at is null
     limit 1
   `;
   if (!row) return Response.json({ error: "No matching client reply" }, { status: 404 });
@@ -115,7 +118,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     source: "starter",
   }));
 
-  if (!process.env.AI_API_KEY?.trim()) {
+  if (!(process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim())) {
     return Response.json({ suggestions: fallback, note: "Starter drafts. Connect the OpenAI API for client-specific AI responses." });
   }
   // Cap generation attempts per client message even while the temporary no-login testing mode is active.

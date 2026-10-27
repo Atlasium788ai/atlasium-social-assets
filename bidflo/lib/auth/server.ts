@@ -10,7 +10,7 @@ export function getAuth() {
 
 function allowedEmails() {
   return new Set(
-    (process.env.BIDFLO_ALLOWED_EMAILS ?? "")
+    (process.env.VISEZ_ALLOWED_EMAILS ?? "")
       .split(",")
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean),
@@ -18,21 +18,33 @@ function allowedEmails() {
 }
 
 export function isAuthDisabled() {
-  return process.env.BIDFLO_AUTH_DISABLED === "true";
+  return process.env.VISEZ_AUTH_DISABLED === "true";
 }
 
-export async function getAdminSession() {
-  if (isAuthDisabled()) {
-    return { user: { email: process.env.BIDFLO_OWNER_EMAIL ?? "info@atlasium788.ca", name: "BidFlo Operator" } };
+function internalTestSession() {
+  return { user: { email: process.env.VISEZ_OWNER_EMAIL ?? "info@atlasium788.ca", name: "Visez Operator" } };
+}
+
+/** Verified account and allowlist access, except for the explicit internal no-login test mode. */
+export async function getAuthenticatedAdminSession() {
+  if (isAuthDisabled()) return internalTestSession();
+  try {
+    const { data } = await getAuth().getSession();
+    const email = data?.user?.email?.toLowerCase();
+    if (!email || !allowedEmails().has(email)) return null;
+    return data;
+  } catch {
+    return null;
   }
-  const { data } = await getAuth().getSession();
-  const email = data?.user?.email?.toLowerCase();
-  if (!email || !allowedEmails().has(email)) return null;
-  return data;
+}
+
+/** Temporary no-login operator access remains available only when explicitly configured. */
+export async function getAdminSession() {
+  return getAuthenticatedAdminSession();
 }
 
 export async function requireAdminSession() {
-  const session = await getAdminSession();
+  const session = await getAuthenticatedAdminSession();
   if (!session) throw new Error("UNAUTHORIZED");
   return session;
 }

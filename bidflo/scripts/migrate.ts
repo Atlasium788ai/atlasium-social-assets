@@ -34,6 +34,6 @@ async function migrate() {
 
 // Run without top-level await, so the TSX CommonJS runtime works in Render.
 migrate().catch((error: unknown) => {
-  console.error("BidFlo migration failed", error);
+  console.error("Visez migration failed", error);
   process.exitCode = 1;
 });

@@ -1,4 +1,4 @@
-name: BidFlo Release Image
+name: Visez Release Image
 
 on:
   push:
@@ -14,11 +14,11 @@ permissions:
   packages: write
 
 concurrency:
-  group: bidflo-release-image
+  group: visez-release-image
   cancel-in-progress: false
 
 env:
-  IMAGE_NAME: ghcr.io/atlasium788ai/bidflo
+  IMAGE_NAME: ghcr.io/atlasium788ai/visez
 
 jobs:
   build-and-publish:
@@ -49,7 +49,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=BidFlo
+            org.opencontainers.image.title=Visez
 
       - name: Verify anonymous image pull
         run: |

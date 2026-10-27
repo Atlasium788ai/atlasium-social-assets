@@ -1,4 +1,4 @@
-name: BidFlo Quality Gate
+name: Visez Quality Gate
 
 on:
   push:
@@ -7,18 +7,18 @@ on:
       - codex/bidflo-next
     paths:
       - 'bidflo/**'
-      - '.github/workflows/bidflo-ci.yml'
+      - '.github/workflows/visez-ci.yml'
   pull_request:
     paths:
       - 'bidflo/**'
-      - '.github/workflows/bidflo-ci.yml'
+      - '.github/workflows/visez-ci.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: bidflo-quality-${{ github.ref }}
+  group: visez-quality-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

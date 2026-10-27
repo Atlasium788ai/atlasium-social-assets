@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BidFlo | Atlasium 7/88",
-  description: "Intelligent Opportunity & Proposal Management",
+  title: "Visez | Atlasium",
+  description: "Find better opportunities, build stronger proposals, and win more clients with AI-powered opportunity and proposal automation",
   robots: { index: false, follow: false },
 };
 

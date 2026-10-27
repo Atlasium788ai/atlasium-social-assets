@@ -35,12 +35,12 @@ test("pipeline stage advances, never silently regresses", () => {
 });
 
 test("sensitive writes require a same-origin browser request", () => {
-  const url = "https://atlasium-bidflo.onrender.com/api/opportunities/some-id";
+  const url = "https://atlasium-visez.onrender.com/api/opportunities/some-id";
   assert.equal(isSameOriginMutation(new Request(url, { headers: {
-    origin: "https://atlasium-bidflo.onrender.com",
+    origin: "https://atlasium-visez.onrender.com",
   } })), true);
   assert.equal(isSameOriginMutation(new Request(url, { headers: {
-    referer: "https://atlasium-bidflo.onrender.com/find",
+    referer: "https://atlasium-visez.onrender.com/find",
   } })), true);
   assert.equal(isSameOriginMutation(new Request(url, { headers: {
     "sec-fetch-site": "same-origin",
@@ -49,24 +49,24 @@ test("sensitive writes require a same-origin browser request", () => {
     origin: "https://upwork.com",
   } })), false);
   assert.equal(isSameOriginMutation(new Request(url, { headers: {
-    origin: "http://atlasium-bidflo.onrender.com",
+    origin: "http://atlasium-visez.onrender.com",
   } })), false);
   assert.equal(isSameOriginMutation(new Request(url)), false);
 });
 
 test("Render proxy uses the public configured origin, not its internal target URL", () => {
-  const prior = process.env.BIDFLO_URL;
-  process.env.BIDFLO_URL = "https://atlasium-bidflo.onrender.com";
+  const prior = process.env.VISEZ_URL;
+  process.env.VISEZ_URL = "https://atlasium-visez.onrender.com";
   try {
     const internalUrl = "http://localhost:10000/api/find/import";
     assert.equal(isSameOriginMutation(new Request(internalUrl, { headers: {
-      origin: "https://atlasium-bidflo.onrender.com",
-      host: "atlasium-bidflo.onrender.com",
+      origin: "https://atlasium-visez.onrender.com",
+      host: "atlasium-visez.onrender.com",
       "x-forwarded-proto": "https",
       "sec-fetch-site": "same-origin",
     } })), true);
     assert.equal(isSameOriginMutation(new Request(internalUrl, { headers: {
-      referer: "https://atlasium-bidflo.onrender.com/find",
+      referer: "https://atlasium-visez.onrender.com/find",
       "sec-fetch-site": "same-origin",
     } })), true);
     assert.equal(isSameOriginMutation(new Request(internalUrl, { headers: {
@@ -76,7 +76,7 @@ test("Render proxy uses the public configured origin, not its internal target UR
     } })), false);
     assert.equal(isSameOriginMutation(new Request(internalUrl)), false);
   } finally {
-    if (prior === undefined) delete process.env.BIDFLO_URL;
-    else process.env.BIDFLO_URL = prior;
+    if (prior === undefined) delete process.env.VISEZ_URL;
+    else process.env.VISEZ_URL = prior;
   }
 });

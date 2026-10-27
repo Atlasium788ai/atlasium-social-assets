@@ -25,7 +25,7 @@ export function BidSettingsForm({ profile, rules }: { profile: Profile; rules: R
     <label>Required proposal sections <small>One per line</small><textarea name="requiredSections" rows={3} defaultValue={(rules.requiredSections ?? []).join("\n")} /></label>
     <label>Never use these phrases <small>One per line</small><textarea name="bannedPhrases" rows={3} defaultValue={(rules.bannedPhrases ?? []).join("\n")} /></label>
     <input type="hidden" name="positioning" value={profile.positioning ?? "Intelligent systems, automation, product engineering, and revenue operations"} />
-    <div className="approval-lock"><span>✓</span><div><strong>Human approval is always required</strong><p>BidFlo prepares and checks proposals but never submits without Blair.</p></div></div>
+    <div className="approval-lock"><span>✓</span><div><strong>Human approval is always required</strong><p>Visez prepares and checks proposals but never submits without Blair.</p></div></div>
     <div className="settings-actions"><button className="primary-button">Save bidding rules</button><span>{notice}</span></div>
   </form>;
 }
