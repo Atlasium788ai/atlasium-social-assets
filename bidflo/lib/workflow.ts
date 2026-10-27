@@ -104,7 +104,11 @@ export async function qualifyAndPrepare(opportunityId: string) {
         score: result.score, amount: commercials.bidAmount,
       });
     }
-    return { score: result.score, status: nextStatus };
+    return {
+      score: result.score,
+      status: nextStatus,
+      ai: { attempted: false, reviewed: false, reason: result.rejected ? "rejected" : "below_auto_prepare_threshold" },
+    };
   }
 
   const commercialDraft: ProposalDraft = { body: "", questions: [], ...commercials };
@@ -129,7 +133,9 @@ export async function qualifyAndPrepare(opportunityId: string) {
     revisedProposal: null,
   };
   let aiReviewed = false;
+  let aiAttempted = false;
   if ((process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()) && process.env.AI_MODEL) {
+    aiAttempted = true;
     try {
       draft = await generateProposal({
         opportunity,
@@ -148,11 +154,15 @@ export async function qualifyAndPrepare(opportunityId: string) {
         minimumQualityScore,
       });
       aiReviewed = true;
+      await audit("system:ai", "ai.execution_succeeded", "opportunity", opportunityId, {
+        qualityScore: review.score,
+        humanJudgmentRequired: review.humanJudgmentRequired,
+      });
     } catch (error) {
       // If drafting succeeded but review failed, keep the draft but do not claim it was QC'd.
       const cause = error instanceof Error ? error.message.slice(0, 180) : "Unknown model failure";
       review.issues = [`Automated quality review unavailable: ${cause}`];
-      await audit("system:ai", "ai.review_unavailable", "opportunity", opportunityId, { cause });
+      await audit("system:ai", "ai.execution_failed", "opportunity", opportunityId, { cause });
     }
   }
   const finalDraft = (review.score ?? 0) < minimumQualityScore && review.revisedProposal ? review.revisedProposal : draft;
@@ -202,7 +212,79 @@ export async function qualifyAndPrepare(opportunityId: string) {
   } catch (error) {
     await audit("system:notification", "notification.failed", "opportunity", opportunityId, { error: error instanceof Error ? error.message : "Unknown error" });
   }
-  return { score: result.score, status: "proposal_ready", proposalId };
+  return {
+    score: result.score,
+    status: "proposal_ready",
+    proposalId,
+    ai: {
+      attempted: aiAttempted,
+      reviewed: aiReviewed,
+      qualityScore: review.score,
+      humanJudgmentRequired: review.humanJudgmentRequired,
+    },
+  };
+}
+
+/**
+ * Recover genuine review-queue drafts that were created while GPT was unavailable.
+ * At most one draft is retried per cycle, and failures back off for six hours.
+ * This never changes an approved/submitted opportunity or contacts Upwork.
+ */
+export async function processAiBacklog(limit = 1) {
+  const aiConfigured = Boolean(
+    (process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()) && process.env.AI_MODEL?.trim(),
+  );
+  if (!aiConfigured) return { attempted: 0, reviewed: 0, results: [], reason: "not_configured" };
+  const sql = db();
+  const candidates = await sql`
+    select o.id, o.title
+      from bidflo_opportunities o
+      join lateral (
+        select quality_score from bidflo_proposals
+         where opportunity_id = o.id order by version desc limit 1
+      ) p on true
+     where o.status = 'proposal_ready'
+       and p.quality_score is null
+       and not exists (
+         select 1 from bidflo_audit_logs a
+          where a.entity_id = o.id::text
+            and a.action = 'ai.backfill_completed'
+       )
+       and not exists (
+         select 1 from bidflo_audit_logs a
+          where a.entity_id = o.id::text
+            and a.action = 'ai.backfill_attempted'
+            and a.created_at > now() - interval '6 hours'
+       )
+     order by o.score desc nulls last, o.created_at asc
+     limit ${Math.max(1, Math.min(limit, 3))}
+  `;
+  const results: Array<Record<string, unknown>> = [];
+  for (const candidate of candidates) {
+    const opportunityId = String(candidate.id);
+    await audit("system:ai", "ai.backfill_attempted", "opportunity", opportunityId, {
+      reason: "unreviewed_existing_draft",
+    });
+    try {
+      const result = await qualifyAndPrepare(opportunityId);
+      const reviewed = Boolean(result.ai?.reviewed);
+      await audit("system:ai", reviewed ? "ai.backfill_completed" : "ai.backfill_failed", "opportunity", opportunityId, {
+        proposalId: result.proposalId ?? null,
+        qualityScore: result.ai?.qualityScore ?? null,
+      });
+      results.push({ opportunityId, title: String(candidate.title), ...result });
+    } catch (error) {
+      const cause = error instanceof Error ? error.message.slice(0, 180) : "Unknown model failure";
+      await audit("system:ai", "ai.backfill_failed", "opportunity", opportunityId, { cause });
+      results.push({ opportunityId, status: "failed", ai: { attempted: true, reviewed: false }, cause });
+    }
+  }
+  return {
+    attempted: results.filter((result) => Boolean((result.ai as { attempted?: boolean } | undefined)?.attempted)).length,
+    reviewed: results.filter((result) => Boolean((result.ai as { reviewed?: boolean } | undefined)?.reviewed)).length,
+    results,
+    reason: candidates.length ? null : "no_unreviewed_backlog",
+  };
 }
 
 async function processEvent(event: Record<string, unknown>) {
