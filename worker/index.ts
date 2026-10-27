@@ -5,6 +5,7 @@ import {
   OWNER_ID,
   WORKSPACE_ID,
   archiveBrand,
+  assignBrandChannels,
   audit,
   campaignOwner,
   createBrand,
@@ -1160,7 +1161,17 @@ async function flowWorkspaceRoute(request: Request, env: Env) {
   let refreshError = "";
   try { reconciliation = await reconcileDeliveries(request, env, brandId); }
   catch (error) { refreshError = error instanceof Error ? error.message : "Delivery status refresh is temporarily unavailable."; }
-  return json({ ...await flowWorkspaceSnapshot(env, brandId, connected), reconciliation, refreshError, publishingConnectionStatus });
+  const registry = await workspaceSnapshot(env, connected);
+  return json({ ...await flowWorkspaceSnapshot(env, brandId, connected), availableAccounts: registry.connectedChannels, reconciliation, refreshError, publishingConnectionStatus });
+}
+
+async function flowAssignChannelsRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This FLOW workspace is not authorized." }, 401);
+  const body = await request.json() as { brandId?: string; channelIds?: unknown };
+  if (!body.brandId || !Array.isArray(body.channelIds) || body.channelIds.some((id) => typeof id !== "string")) return json({ error: "A brand and a list of social account IDs are required." }, 400);
+  const { connected, publishingConnectionStatus } = await optionalPublishingDestinations(env);
+  if (publishingConnectionStatus !== "connected") return json({ error: "The publishing connection is unavailable. Your current brand assignments are preserved." }, 503);
+  return json(await assignBrandChannels(env, body.brandId, body.channelIds, connected, actorId(request)));
 }
 
 async function brandPayload(request: Request, env: Env, brandId?: string) {
@@ -1429,6 +1440,12 @@ const worker = {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       try { return await flowWorkspaceRoute(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load FLOW.", code: "flow_workspace_unavailable" }, statusFor(error, 502)); }
+    }
+
+    if (url.pathname === "/api/flow/channels/assign") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await flowAssignChannelsRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not assign social accounts.", }, statusFor(error, 400)); }
     }
 
     if (url.pathname === "/api/brands") {
