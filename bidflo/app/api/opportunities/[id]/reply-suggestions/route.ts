@@ -25,14 +25,16 @@ async function writeWithAI(
 ): Promise<Record<string, string>> {
   const endpoint = (process.env.AI_API_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
   const model = process.env.AI_MODEL ?? "gpt-5-mini";
+  const apiKey = process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) throw new Error("AI provider is not configured");
   const names = tones.join(", ");
   const reply = await fetch(`${endpoint}/chat/completions`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${process.env.AI_API_KEY}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      ...(model.startsWith("gpt-5") ? {} : { temperature: 0.45 }),
-      max_completion_tokens: 1200,
+      ...(model.startsWith("gpt-5") ? { reasoning_effort: "minimal" } : { temperature: 0.45 }),
+      max_completion_tokens: 4000,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -116,7 +118,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     source: "starter",
   }));
 
-  if (!process.env.AI_API_KEY?.trim()) {
+  if (!(process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim())) {
     return Response.json({ suggestions: fallback, note: "Starter drafts. Connect the OpenAI API for client-specific AI responses." });
   }
   // Cap generation attempts per client message even while the temporary no-login testing mode is active.

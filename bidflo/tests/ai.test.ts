@@ -60,6 +60,26 @@ test("proposal writer is instructed to follow real application requirements with
       assert.match(requestBody, /"type":"json_schema"/);
       assert.match(requestBody, /"strict":true/);
       assert.doesNotMatch(requestBody, /"temperature"/);
+      assert.match(requestBody, /"reasoning_effort":"minimal"/);
+      assert.match(requestBody, /"max_completion_tokens":8000/);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test("empty GPT-5 output reports the safe finish reason and reasoning token count", async () => {
+  await withAiEnvironment(async () => {
+    const originalFetch = global.fetch;
+    global.fetch = async () => Response.json({
+      choices: [{ finish_reason: "length", message: { content: "" } }],
+      usage: { completion_tokens_details: { reasoning_tokens: 3200 } },
+    });
+    try {
+      await assert.rejects(
+        () => generateProposal(input),
+        /no usable output \(reason=length, reasoning_tokens=3200\)/,
+      );
     } finally {
       global.fetch = originalFetch;
     }
