@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
 import { ReplyNotification } from "@/components/reply-notification";
-import { BellIcon, DocumentIcon, LogoMark, SearchIcon } from "@/components/visez-icons";
+import { BellIcon, BriefcaseIcon, DocumentIcon, LogoMark, SearchIcon, SlidersIcon } from "@/components/visez-icons";
 
 const items = [
-  ["/find", "Find", SearchIcon],
-  ["/bid", "Bid", DocumentIcon],
-  ["/follow-up", "Follow Up", BellIcon],
+  ["/find", "Opportunities", SearchIcon],
+  ["/bid", "Proposals", DocumentIcon],
+  ["/approvals", "Approvals", BriefcaseIcon],
+  ["/follow-up", "Follow-ups", BellIcon],
+  ["/settings", "Settings", SlidersIcon],
 ] as const;
 
 export function AppShell({ children, email, publicAccess = false }: { children: React.ReactNode; email: string; publicAccess?: boolean }) {

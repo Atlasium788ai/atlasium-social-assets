@@ -15,6 +15,13 @@ test("Slack alerts point to the correct private Visez opportunity", () => {
   assert.match(alert, /No proposals or replies were sent automatically/);
 });
 
+test("Slack alerts accept the verified legacy Render origin without changing Visez branding", () => {
+  const alert = formatSlackAlert({ kind: "proposal_ready", title: "Genesys routing", opportunityId: uuid },
+    "https://atlasium-bidflo.onrender.com");
+  assert.match(alert, new RegExp(`https://atlasium-bidflo\\.onrender\\.com/opportunities/${uuid}`));
+  assert.match(alert, /Visez/);
+});
+
 test("client reply links stay inside Upwork", () => {
   const alert = formatSlackAlert({
     kind: "client_reply", title: "Automation", opportunityId: uuid,
