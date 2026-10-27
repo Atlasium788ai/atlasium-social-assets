@@ -33,6 +33,13 @@ test("scores a profitable recurring fit above the preparation threshold", () => 
   assert.ok(result.score >= 70);
   assert.equal(result.rejected, false);
   assert.equal(result.recurringPotential, true);
+  assert.ok(result.breakdown.reasons.includes("Core revenue opportunity"));
+});
+
+test("high-value work is identified as enterprise guidance without an upper-value exclusion", () => {
+  const result = qualifyOpportunity({ ...opportunity, budgetMin: 100_000, budgetMax: 125_000 }, rules);
+  assert.equal(result.rejected, false);
+  assert.ok(result.breakdown.reasons.includes("Enterprise / premium opportunity"));
 });
 
 test("auto-rejects explicit poor-fit work", () => {

@@ -10,10 +10,10 @@ const stages: OpportunityStage[] = [
 
 test("stress: every pipeline-state pair follows the explicit forward-only transition matrix", () => {
   const allowed = new Set([
-    "submitted>replied", "submitted>interviewed", "submitted>won", "submitted>nurture",
-    "replied>interviewed", "replied>won", "replied>nurture",
-    "interviewed>won", "interviewed>nurture",
-    "nurture>replied", "nurture>interviewed", "nurture>won",
+    "submitted>replied", "submitted>interviewed", "submitted>won", "submitted>lost", "submitted>nurture",
+    "replied>interviewed", "replied>won", "replied>lost", "replied>nurture",
+    "interviewed>won", "interviewed>lost", "interviewed>nurture",
+    "nurture>replied", "nurture>interviewed", "nurture>won", "nurture>lost",
   ]);
   for (let round = 0; round < 100; round++) {
     for (const current of stages) {

@@ -1,6 +1,6 @@
 import type { OpportunityRow, OpportunityStatus } from "./types";
 
-type OpportunityMode = "find" | "bid" | "follow" | "nurture" | "won";
+type OpportunityMode = "find" | "bid" | "approval" | "follow" | "nurture" | "won";
 
 const statusPriority: Record<OpportunityMode, Partial<Record<OpportunityStatus, number>>> = {
   find: {
@@ -25,6 +25,12 @@ const statusPriority: Record<OpportunityMode, Partial<Record<OpportunityStatus, 
     submission_processing: 3,
     qualified: 4,
   },
+  approval: {
+    proposal_ready: 0,
+    approved: 1,
+    ready_to_submit: 2,
+    submission_processing: 3,
+  },
   follow: {
     replied: 0,
     interviewed: 1,
@@ -32,6 +38,7 @@ const statusPriority: Record<OpportunityMode, Partial<Record<OpportunityStatus, 
     submitted: 3,
     nurture: 4,
     won: 5,
+    lost: 6,
   },
   nurture: { nurture: 0 },
   won: { won: 0 },

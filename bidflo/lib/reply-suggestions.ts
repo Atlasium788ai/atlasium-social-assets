@@ -3,8 +3,8 @@ export type ReplyTone = (typeof REPLY_TONES)[number];
 
 export const REPLY_LABELS: Record<ReplyTone, string> = {
   direct: "Direct",
-  consultative: "Consultative",
-  friendly: "Friendly",
+  consultative: "Professional",
+  friendly: "Warm",
 };
 
 function cleanLabel(text: string) {

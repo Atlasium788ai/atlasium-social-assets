@@ -3,8 +3,10 @@ import test from "node:test";
 import { canSetStage } from "../lib/pipeline-guards";
 import { isExplicitClientStopRequest } from "../lib/client-opt-out";
 
-test("no operator-controlled Lost or opt-out transitions", () => {
-  assert.equal(canSetStage("submitted", "lost"), false);
+test("known outcomes can be marked Lost while opt-out remains client-controlled", () => {
+  assert.equal(canSetStage("submitted", "lost"), true);
+  assert.equal(canSetStage("replied", "lost"), true);
+  assert.equal(canSetStage("interviewed", "lost"), true);
   assert.equal(canSetStage("replied", "opted_out"), false);
   assert.equal(canSetStage("interviewed", "nurture"), true);
   assert.equal(canSetStage("submitted", "won"), true);

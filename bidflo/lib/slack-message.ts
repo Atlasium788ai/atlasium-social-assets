@@ -33,7 +33,7 @@ export function formatSlackAlert(input: SlackAlertInput, baseUrl: string) {
     lines.push(`Suggested bid: US$${Math.round(input.amount).toLocaleString("en-US")} (review required)`);
   }
   const origin = baseUrl.replace(/\/$/, "");
-  const safeOrigin = origin.startsWith("https://atlasium-visez.onrender.com") ||
+  const safeOrigin = ["https://atlasium-visez.onrender.com", "https://atlasium-bidflo.onrender.com"].includes(origin) ||
     /^https:\/\/([a-z0-9-]+\.)?atlasium788\.ca$/i.test(origin) ? origin : "";
   const link = input.opportunityId && /^[0-9a-f-]{36}$/i.test(input.opportunityId)
     ? `${safeOrigin}/opportunities/${input.opportunityId}`
