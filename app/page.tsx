@@ -205,6 +205,28 @@ export default function Home() {
     finally { setBusy(false); }
   }
 
+  async function createDraftOnly() {
+    if (busy || !activeBrand) return;
+    if (access !== "granted") { setBrandStatus(activeBrand.id, { kind: "error", text: "Sign in to save drafts." }); return; }
+    if (!prompt.trim()) { setBrandStatus(activeBrand.id, { kind: "error", text: "Enter a campaign prompt first." }); return; }
+    setBusy(true); setBrandStatus(activeBrand.id, null);
+    try {
+      const response = await fetch("/api/agent", {
+        method: "POST",
+        headers: { ...authHeaders(activeBrand.id), "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId: activeBrand.id, prompt: prompt.trim(), draftOnly: true, timeZone: activeBrand.timezone }),
+      });
+      const data = await response.json() as { campaignId?: string; message?: string; error?: string; results?: Result[] };
+      if (!response.ok) throw new Error(data.error || "Could not prepare social drafts.");
+      setResultsByBrand((current) => ({ ...current, [activeBrand.id]: data.results || [] }));
+      setBrandStatus(activeBrand.id, { kind: "ok", text: data.message || "Saved as drafts. Nothing was published." });
+      await persistDraft(activeBrand.id, { prompt: "", timing: "auto", selectedChannels: [] }, false);
+      setPrompt(""); setTiming("auto"); setSelected([]);
+    } catch (error) {
+      setBrandStatus(activeBrand.id, { kind: "error", text: error instanceof Error ? error.message : "Could not prepare social drafts." });
+    } finally { setBusy(false); }
+  }
+
   function toggleChannel(id: string) { setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
   function openRepurposedSocial(nextPrompt: string) { setPrompt(nextPrompt); setContentMode("social"); setBrandStatus(activeBrandId, { kind: "ok", text: "A new social draft was created from the source. Review it before using ECHO's platform adaptation workflow." }); }
   function setBrandField(field: keyof BrandForm, value: string | string[]) { setBrandForm((current) => ({ ...current, [field]: value })); }
@@ -295,10 +317,12 @@ export default function Home() {
         </details>
 
         {status && <p className={`message ${status.kind}`} role="status">{status.kind === "ok" ? "✓ " : "! "}{status.text}</p>}
-        <button className="primary agent-button" disabled={busy || Boolean(campaignId)} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : campaignId ? <><span className="spinner" /> Processing campaign…</> : <>Create &amp; Publish <span>→</span></>}</button>
+        <button className="primary agent-button" disabled={busy || Boolean(campaignId) || !channels.length} onClick={createAndPublish}>{busy ? <><span className="spinner" /> Creating campaign…</> : campaignId ? <><span className="spinner" /> Processing campaign…</> : !channels.length ? "Connect publishing channels to publish" : <>Create &amp; Publish <span>→</span></>}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={createDraftOnly}>Create drafts only (no publishing)</button>
+        <p className="surface-help">Drafts generate platform-specific captions and remain private. No social connection or posting authorization is needed.</p>
       </section>
 
-      {results.length > 0 && <section className="results"><div className="results-head"><p className="eyebrow">{activeBrand.name.toUpperCase()} · DELIVERY</p><h2>Confirmed campaign status</h2></div>{results.map((result) => <article className={`result ${result.status === "FAILED" ? "failed" : ""}`} key={result.id}>{result.mediaType === "video" && result.hostedMediaUrl ? <video src={result.hostedMediaUrl} poster={result.imageUrl} controls playsInline muted /> : <img src={result.imageUrl} alt="Generated social media creative" />}<div><span className="result-status">{result.status} · {result.mediaType === "video" ? "MOTION VIDEO" : "STATIC IMAGE"}</span><h3>{result.surfaceLabel || `${result.service} post`}</h3><p>{result.caption}</p><small>{result.surfaceLabel || result.service} · {result.channel}{confirmedTime(result) ? ` · ${confirmedTime(result)}` : ""}{result.bufferStatus ? ` · Buffer: ${result.bufferStatus}` : ""}</small>{result.externalLink && <a className="post-link" href={result.externalLink} target="_blank" rel="noreferrer">View published post</a>}{result.motionError && <p className="result-error">Motion fallback: {result.motionError}</p>}{result.error && <p className="result-error">{result.error}{result.requestedDueAt ? ` Requested: ${formatTime(result.requestedDueAt, result.timeZone)}.` : ""}</p>}</div></article>)}</section>}
+      {results.length > 0 && <section className="results"><div className="results-head"><p className="eyebrow">{activeBrand.name.toUpperCase()} · {results.every((result) => result.status === "DRAFT") ? "DRAFTS · NOT PUBLISHED" : "DELIVERY"}</p><h2>{results.every((result) => result.status === "DRAFT") ? "Review social drafts" : "Confirmed campaign status"}</h2></div>{results.map((result) => <article className={`result ${result.status === "FAILED" ? "failed" : ""}`} key={result.id}>{result.imageUrl ? result.mediaType === "video" && result.hostedMediaUrl ? <video src={result.hostedMediaUrl} poster={result.imageUrl} controls playsInline muted /> : <img src={result.imageUrl} alt="Generated social media creative" /> : null}<div><span className="result-status">{result.status} · {result.status === "DRAFT" ? "TEXT ONLY" : result.mediaType === "video" ? "MOTION VIDEO" : "STATIC IMAGE"}</span><h3>{result.surfaceLabel || `${result.service} post`}</h3><p>{result.caption}</p>{result.status === "DRAFT" && <button type="button" className="secondary" onClick={() => { void navigator.clipboard.writeText(result.caption); }}>Copy caption</button>}<small>{result.surfaceLabel || result.service} · {result.channel}{confirmedTime(result) ? ` · ${confirmedTime(result)}` : ""}{result.bufferStatus ? ` · Buffer: ${result.bufferStatus}` : ""}</small>{result.externalLink && <a className="post-link" href={result.externalLink} target="_blank" rel="noreferrer">View published post</a>}{result.motionError && <p className="result-error">Motion fallback: {result.motionError}</p>}{result.error && <p className="result-error">{result.error}{result.requestedDueAt ? ` Requested: ${formatTime(result.requestedDueAt, result.timeZone)}.` : ""}</p>}</div></article>)}</section>}
 
       <details className="history-panel"><summary>Recent {activeBrand.name} campaigns <span>{campaignHistory.length}</span></summary>{campaignHistory.length ? <div className="history-list">{campaignHistory.slice(0, 8).map((campaign) => <div key={campaign.id}><b>{campaign.prompt || "Preserved Atlasium campaign"}</b><small>{campaign.status} · {campaign.scheduleSummary || campaign.timeZone} · {formatTime(campaign.updatedAt, campaign.timeZone)}</small></div>)}</div> : <p className="empty">No campaigns yet. Your first campaign will appear here.</p>}</details>
       <details className="provider-panel"><summary>Publishing connections</summary><div>{workspace?.publishingProviders.map((provider) => <p key={provider.id}><span className={provider.status === "ACTIVE" ? "dot active" : "dot"} />{provider.name}<b>{provider.status}</b></p>)}</div></details>
