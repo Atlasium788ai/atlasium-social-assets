@@ -1,68 +1,46 @@
-# Visez: internal launch handoff (October 25, 2026)
+# Visez production handoff — October 27, 2026
 
-## Verified state, October 25, 2026
+## Scope and safety
 
-- `codex/bidflo-next` combines qualification, proposal quality, duplicate-application protection, fast review, uncertain-submission recovery, job-alert parsing, the Visez visual release, Won/Nurture stages, client opt-out safeguards, preview protections, and AI-provider diagnostics. Local tests, lint, production compilation, the quality gate, and container build passed before the integration.
-- Neon migration `0006_duplicate_application_guards.sql` was validated on the isolated `codex-visez-migration-0006` branch and then applied successfully to the production `bidflo` database. Production has all three indexes and the migration record; prechecks found zero duplicate job keys, submissions, or manual handoffs.
-- The previous image release was verified on both existing Render services. Replace it with the fully tested immutable `ghcr.io/atlasium788ai/visez:<release-sha>` image while preserving the Neon database, environment variables, free web plan, and five-minute cron schedule.
-- The web service uses the image's default `pnpm start`, health check path `/api/health`, and reports `database: ready`. The cron image overrides the command with `node scripts/run-cron.mjs`. Confirm a successful scheduled run after each future image update.
-- Render native build minutes remain exhausted, so releases use the repository's image workflow on GitHub's free standard runner. It builds `linux/amd64`, runs the complete build gate inside the image, publishes to public GHCR, and verifies an anonymous pull before Render is updated. Do not switch back to a Render Git build while the limit remains exhausted.
-- Slack is not configured in the processor environment. AI remains unconfigured because the previous key was revoked. These require new secrets from Blair; do not invent, recover, print, or commit credentials.
-- Temporary Neon test branch `codex-visez-migration-0006` remains available for inspection. Deleting it is destructive and requires explicit operator confirmation.
+- Work only on Visez in `bidflo/` from development branch `codex/bidflo-next`.
+- Visez is Atlasium's internal client-acquisition system. Do not build subscriptions, tenant onboarding, or unrelated products.
+- Never submit an Upwork proposal, spend Connects, or send a client reply without Blair's explicit approval for that specific action.
+- Use authorized Upwork sources only. Do not scrape Upwork or bypass platform controls.
+- Preserve real production data and never present sample records as real opportunities.
+- User-facing branding is Visez. Legacy `bidflo_` table identifiers and the existing Render URL are technical compatibility names only.
 
-- **Development branch:** `codex/bidflo-next`. Make all further Visez changes here.
-- **Current live source:** Render web and cron are image-backed. Keep both pinned to the same immutable Visez image.
-- **Free verification:** GitHub Actions quality gate on this development branch runs tests, lint, and production compilation on standard hosted runners. Do not create preview environments or new paid services.
-- **Release method:** Batch changes; obtain green CI; publish a dedicated release image; require the image workflow and anonymous pull to pass; then pin both existing Render services to that exact immutable tag. Do not attempt paid build-minute purchases, upgrades, or new subscriptions.
-- **Business controls:** Never submit Upwork bids, spend Connects, send client messages, or contact team members without explicit authorization. Do not change the approved three-section interface without a request.
-- **Continuity:** Preserve real opportunities, database records, current Render configuration, and the live site's availability. Inspect and back up production data before future migrations.
+## Verified production state
 
----
+- Live URL: `https://atlasium-bidflo.onrender.com`.
+- Render web service: `srv-dbdqlld9fdbs738bbjb0`; five-minute cron: `crn-dbdqloqvcj2c738ia2o0`.
+- Both services are image-backed and pinned to the same immutable `ghcr.io/atlasium788ai/visez:<release-sha>` image. Releases use GitHub Actions because Render native build minutes are unavailable.
+- Neon production project `red-haze-71922576`, branch `br-bitter-sea-b5x6t3ei`, database `bidflo`.
+- Authentication is enforced and restricted to `info@atlasium788.ca`. The login client has a 30-second deadline with cleanup, so failed or unavailable authentication cannot leave the button stuck on “Signing in…”.
+- Private Slack destination `#visez-opportunities` is connected. The durable queue, retry handling, and genuine opportunity alerts are verified.
+- The signed inbound-email path, AI proposal generation, independent quality review, Neon persistence, duplicate guards, approval queue, manual submission handoff, and server-side five-minute processor are implemented.
+- The processor records a truthful check even when no new data exists. A successful invocation with `processed: 0` is not a successful opportunity discovery.
+- Production migration `0010_high_value_capabilities.sql` adds Genesys Cloud CX, advertising, SEO/SEM, CRM-platform, funnel, and tracking signals while preserving custom settings. It requires specialist availability and delivery economics to be confirmed.
 
-# Visez release constraints and integration tasks
+## Interface and workflow
 
-## Hardening handoff, October 24
+- Preserve the approved three-tile homepage.
+- Authenticated navigation has five operational sections: Opportunities, Proposals, Approvals, Follow-ups, Settings.
+- Pipeline: New → Qualified → Draft Ready → Approved → Ready to Submit/Submission Processing → Submitted → Client Response → Interview → Won/Lost, with Nurture and explicit client opt-out handled separately.
+- Proposal approval uses deterministic checks plus independent AI review. Unsupported proof, unclear scope, specialist availability, severe budget mismatch, and material delivery risks require human judgment.
+- Follow-up drafts appear as Warm, Professional, and Direct. They are editable/copyable and never auto-send.
+- Connects, account selection, and source-of-truth submission status must be confirmed in authenticated Upwork until a supported backend authorization exists.
 
-- This branch added `lib/pipeline-guards.ts`, `lib/security.ts`, `tests/hardening.test.ts`, `db/migrations/0005_inbound_recovery.sql`, hardened `lib/workflow.ts`, submission and opportunity routes, UI error handling, safer security headers, and a DB-backed health endpoint.
-- **Do not claim production-ready security while `VISEZ_AUTH_DISABLED=true`.** This development bypass allows anonymous operators and is the largest unresolved risk. User requested no login interruption during initial UI tests; do not silently change the login mode. Bring it to the operator's attention before handling real client data.
-- Upwork automated bridge remains disabled during login bypass and unless `UPWORK_SUBMISSION_BRIDGE_ENABLED=true` is explicitly set. Do not spend Connects or send messages without clear separate approval.
-- Incoming events are atomically claimed, retried after transient errors, recovered after interrupted workers; messages deduped by source_event_id. Check `bidflo_inbound_events` for stale `processing` or `failed` rows.
-- Proposal updates use transaction-locked state transitions, and editing revokes prior approval. An uncertain bridge submission requires reconciliation in Upwork before any retry.
-- CI workflow `.github/workflows/visez-ci.yml` should be green before treating latest changes as stable; tests + lint + production build. Next priorities: actual authenticated end-to-end browser test, rate-limits on costly AI calls, and Slack bot credential/configuration.
-- Keep only the approved three-tab dark UX, no multi-tenant launch and no changes to unrelated Atlasium products.
+## Current external boundary
 
-## Slack alerts, October 24
+- Real Upwork notification emails can enter through the signed webhook and are processed every five minutes. This is the verified autonomous intake path.
+- A Codex Upwork connection does not automatically authorize the Render-hosted Visez server. Backend Upwork discovery, submission IDs, Connects reconciliation, and reply reconciliation remain unavailable until Atlasium grants a supported server-side integration.
+- Do not claim that Visez searches Upwork directly while only notification-email intake is connected.
+- Manual submission opens the correct Upwork job in the owner's authenticated browser and requires the owner to confirm the completed submission in Visez.
 
-- The internal pilot requires Visez Slack notifications for qualified opportunities, prepared proposals, inbound client replies, confirmed submissions, interview stages, and wins.
-- Default private destination: Blair's own Slack DM, not the shared #revenue-intake-alerts or the sales team. No weekend team messaging.
-- Source: `lib/slack-alerts.ts` queues/delivers deduplicated events, `lib/slack-message.ts` sanitizes private alert content, migration `0004_slack_notifications.sql`, existing five-minute cron dispatches/retries. Uses either `SLACK_BOT_TOKEN` + `SLACK_DESTINATION_ID` or a private-channel `SLACK_WEBHOOK_URL`; add secrets privately in Render, never to Git. ChatGPT's @Slack connected app does not authorize standalone server sends.
-- After credentials installed, verify an actual private Slack alert from a genuine new opportunity or reply (not merely a one-off message sent by ChatGPT). Never call delivery verified before that.
+## Release procedure
 
-## Current rollout decision (October 24, 2026)
-
-**Phase 1: internal Atlasium use only.** The founder will use Visez for real opportunities this week. Do NOT launch paid subscriptions, invite external tenants, start building sign-up flows, or redesign the approved Find | Bid | Follow Up UI during this test period. Keep temporary no-login development bypass as requested; do not switch authentication back on unprompted. Preserve existing data, real opportunities, and UI.
-
-**Phase 2: future client product.** Plan architecture to support multiple client organizations later: organization-aware data isolation, per-client Upwork OAuth and sender connections, secure authentication, usage limits and billing. Put foundation behind abstractions when it is naturally relevant, but DO NOT turn these future features on or delay internal validation to build them.
-
-**Immediate work: test the actual revenue flow.** Prioritize authorized Upwork feed, working funded OpenAI API proposal drafting/QC, reliable inbound replies, and human-approved application submissions. Absolutely no unapproved bids, Connects spending or external outreach.
-
-## Codex handoff from ChatGPT code edits
-
-- Repo: `Atlasium788ai/atlasium-social-assets`, development branch `codex/bidflo-next`, app in `bidflo/`. Production Render services are image-backed; do not assume the old `codex/bidflo` branch is live.
-- Live service: `https://atlasium-visez.onrender.com`; web and 5-minute processor hosted on Render from the pinned GHCR image above, database `bidflo` in Neon.
-- New Follow Up feature committed: `components/reply-assistant.tsx` renders editable Direct/Consultative/Friendly messages with **Copy**, per-tone **Refresh**, and **Previous/Next** versions persisted to browser localStorage for that message; draft-generation API `app/api/opportunities/[id]/reply-suggestions/route.ts`. All replies encourage the client to meet *inside Upwork*. There is no auto-send.
-- `components/reply-notification.tsx` mounted in `components/app-shell.tsx`; while the app is open, it polls `app/api/follow-up/replies/route.ts` every 45 seconds for linked inbound client messages and shows a dismissible popup. It only shows a reply on the associated opportunity; if no exact match, messages remain unlinked rather than guess. Client conversation deep links saved to `bidflo_messages.upwork_room_url` when notifications contain one; otherwise open Upwork Messages inbox and show original job link.
-- Parser and workflow: `lib/email-parser.ts`, `lib/workflow.ts`. DB migration: `db/migrations/0002_upwork_reply_room.sql`. Migrator fixed to run in TSX CommonJS `scripts/migrate.ts`; `package.json` build runs `pnpm test && next build`, start runs DB migrations then Next.
-- Tests: 70 passed in the release image build on October 25, with lint and Next production compilation also passing. The production image and database-backed health check passed; no actual linked inbound client replies yet, so the popup/reply copy flow must be exercised end-to-end on a genuine incoming response before claiming that behavior proven. A previously received real job (Run That Rehab CRM automation) scored 90 and received a manual-review draft. **Do not fabricate Upwork data, fake wins, or pretend fake events are real prospects.**
-- AI status: `AI_API_KEY` unset in Render because an earlier key was leaked and revoked; Neon AI Gateway on Free plan returned 403. Reply cards currently use clearly labeled editable **starter variants**, not personalized GPT replies. After a new account-owner-created OpenAI API key is privately installed in Render, verify live personalized reply generation, distinct tones, regeneration, review, safeguards, and model costs. Never commit or print keys.
-- Upwork status: `.codex/config.toml` registers official Upwork OAuth MCP for Codex; this does **not** mean the Render-hosted application has automatically connected to the user's Upwork account. OAuth authorization and consented backend polling remain outstanding. Email ingestion works for permitted forwarded notifications; do not misrepresent it as live autonomous scanning.
-- UX/design: app is dark-mode only and Apple-clean. Preserve other sections when asked for one edit. Keep wording free of unsubstantiated scanning/win claims and keep branding `Powered by Atlasium 7/88`. Any sign-in design is conceptual while auth bypass remains on.
-
-
-- Product UI: dark mode only, minimalist futuristic design, exactly three sections: Find | Bid | Follow Up. Headline "Your Upwork advantage." Tagline "Every opportunity. Every time." Footer "Powered by Atlasium 7/88". Do not add unrelated pages, fake job data, or a permanent login flow while temporary development bypass is requested.
-- Data: production Neon Postgres via DATABASE_URL, backend Render and a five-minute Render cron. Inbound Resend email webhook is signed; only permit allowlisted senders and safely handle replay/deduplication.
-- AI: use direct OpenAI Platform API via AI_API_BASE_URL=https://api.openai.com/v1, AI_API_KEY, AI_MODEL and AI_REVIEW_MODEL. The prior OpenAI backend-connect key was leaked and revoked; the Neon AI Gateway returned HTTP 403 on Neon's Free plan, so it was disconnected and its temporary dedicated credential revoked. Production AI_API_KEY is currently EMPTY pending the account holder creating a fresh scoped OpenAI Platform API key privately and installing it in Render. Never publish that key or commit credentials to Git. GPT-5 chat completions do not support custom temperature. A real model generation AND independent QC must succeed before calling an opportunity AI-reviewed; otherwise make a clearly labeled fallback draft and require human approval. Never copy keys into source or output.
-- Upwork: the official Upwork MCP endpoint is https://mcp.upwork.com/mcp (OAuth 2.1). Codex project config registers the MCP. OAuth consent to a real Upwork account has not yet been confirmed. Do not claim that Codex MCP automatically connects the server-hosted Visez application. To enable automatic discovery, build a secure, consented backend OAuth/MCP source with token encryption, refresh and least-privilege use; only then poll through existing five-minute processor. No HTML scraping or deprecated RSS.
-- No bids, messages or Upwork Connects spending without explicit human review and approval. Preserve that safeguard even during development.
-- Until the upstream account OAuth is authorized, real user-forwarded Upwork notification emails remain a functioning intake path; do not imply they arrive automatically unless verified.
-- Acceptance: run tests/build; verify production deploy, incoming real opportunity, qualification, AI provider response, human-review queue, and Upwork integration status separately. Do not invent pipeline counts or statuses.
+1. Run tests, lint, and the Next production build locally.
+2. Push `codex/bidflo-next`, cherry-pick the verified commit to the existing release branch, and require the GitHub quality and image workflows to pass.
+3. Pin both Render services to the exact immutable image SHA; do not use a mutable tag.
+4. Verify `/api/health`, anonymous redirects to `/login`, the login response/reset flow, migration records, a completed cron invocation, and Neon persistence.
+5. Report only verified results and owner/platform blockers. Never expose credentials in source, logs, or reports.
