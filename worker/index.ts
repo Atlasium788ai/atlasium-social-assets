@@ -1288,6 +1288,27 @@ function requiredEchoContentBrand(request: Request, bodyBrandId?: unknown) {
   return headerBrandId;
 }
 
+// Media uploads are brand-scoped and do not create publishing or scheduling jobs.
+async function echoSocialMediaUploadRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This ECHO workspace is not authorized." }, 401);
+  const brandId = requiredEchoContentBrand(request);
+  await requireBrand(env, brandId);
+  const form = await request.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) return json({ error: "Choose a JPG, PNG or WebP image." }, 400);
+  const mediaTypes: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+  const extension = mediaTypes[file.type.toLowerCase()];
+  if (!extension || file.size > 10 * 1024 * 1024 || !file.size) return json({ error: "Choose a JPG, PNG or WebP image smaller than 10 MB." }, 415);
+  if (!env.UPLOADS) return json({ error: "Image storage is not configured." }, 503);
+  const key = `brands/${brandId}/post-drafts/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${extension}`;
+  await env.UPLOADS.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" },
+    customMetadata: { brandId, purpose: "echo_social_draft", originalName: file.name.slice(0, 160) },
+  });
+  await audit(env, brandId, "social_draft_media_uploaded", { mediaKey: key, bytes: file.size, published: false }, actorId(request));
+  return json({ imageUrl: `${new URL(request.url).origin}/i/${key}`, brandId, published: false }, 201);
+}
+
 async function echoContentWorkspaceRoute(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This ECHO workspace is not authorized." }, 401);
   const brandId = requiredEchoContentBrand(request);
@@ -1371,6 +1392,12 @@ const worker = {
     if (url.pathname === "/api/upload") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       return upload(request, env);
+    }
+
+    if (url.pathname === "/api/echo/content/media") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await echoSocialMediaUploadRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not upload the post image." }, statusFor(error, 400)); }
     }
 
     if (url.pathname === "/api/echo/content/workspace") {
