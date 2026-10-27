@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ProductNavigation } from "./components/product-navigation";
 import { AccessSessionAction } from "./components/access-session-action";
 import { EchoContentStudio } from "./echo/components/echo-content-studio";
+import { EchoSocialComposer } from "./echo/components/echo-social-composer";
 
 type Channel = { id: string; name?: string; displayName?: string; service: string; assignedBrandId?: string | null; assignedBrandName?: string | null };
 type Draft = { prompt: string; timing: string; selectedChannels: string[]; updatedAt?: string };
@@ -298,7 +299,11 @@ export default function Home() {
         ] as Array<[EchoContentMode, string, string]>).map(([mode, label, description]) => <button type="button" key={mode} className={contentMode === mode ? `echo-content-choice ${mode} active` : `echo-content-choice ${mode}`} aria-pressed={contentMode === mode} onClick={() => setContentMode(mode)}><span>{mode === "social" ? "01" : mode === "blog" ? "02" : "03"}</span><b>{label}</b><small>{description}</small></button>)}
       </section>
 
-      {contentMode === "social" && <><section className="card agent-card">
+      {contentMode === "social" && <>
+        <EchoSocialComposer key={activeBrand.id} brandId={activeBrand.id} brandName={activeBrand.name} authKey={key} />
+        <details className="echo-social-advanced">
+          <summary>Publishing &amp; scheduling (set up later)</summary>
+          <section className="card agent-card">
         <p className="eyebrow">ONE PROMPT → DELIVERED</p>
         <h1>What should<br />we create?</h1>
         <p className="lede">EchoFlow uses {activeBrand.name}&apos;s voice, visuals, channels and timezone. Running jobs stay locked to this brand even if you switch tabs.</p>
@@ -325,6 +330,7 @@ export default function Home() {
 
       <details className="history-panel"><summary>Recent {activeBrand.name} campaigns <span>{campaignHistory.length}</span></summary>{campaignHistory.length ? <div className="history-list">{campaignHistory.slice(0, 8).map((campaign) => <div key={campaign.id}><b>{campaign.prompt || "Preserved Atlasium campaign"}</b><small>{campaign.status} · {campaign.scheduleSummary || campaign.timeZone} · {formatTime(campaign.updatedAt, campaign.timeZone)}</small></div>)}</div> : <p className="empty">No campaigns yet. Your first campaign will appear here.</p>}</details>
       <details className="provider-panel"><summary>Publishing connections</summary><div>{workspace?.publishingProviders.map((provider) => <p key={provider.id}><span className={provider.status === "ACTIVE" ? "dot active" : "dot"} />{provider.name}<b>{provider.status}</b></p>)}</div></details>
+        </details>
       </>}
 
       {contentMode !== "social" && <EchoContentStudio key={`${activeBrand.id}:${contentMode}`} contentType={contentMode} brandId={activeBrand.id} brandName={activeBrand.name} authKey={key} onRepurposeSocial={openRepurposedSocial} />}
