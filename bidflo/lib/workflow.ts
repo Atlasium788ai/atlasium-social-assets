@@ -227,7 +227,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
 
 /**
  * Recover genuine review-queue drafts that were created while GPT was unavailable.
- * At most one draft is retried per cycle, and failures back off for six hours.
+ * At most one draft is retried per cycle, and failures back off for five minutes.
  * This never changes an approved/submitted opportunity or contacts Upwork.
  */
 export async function processAiBacklog(limit = 1) {
@@ -254,7 +254,7 @@ export async function processAiBacklog(limit = 1) {
          select 1 from bidflo_audit_logs a
           where a.entity_id = o.id::text
             and a.action = 'ai.backfill_attempted'
-            and a.created_at > now() - interval '6 hours'
+            and a.created_at > now() - interval '5 minutes'
        )
      order by o.score desc nulls last, o.created_at asc
      limit ${Math.max(1, Math.min(limit, 3))}

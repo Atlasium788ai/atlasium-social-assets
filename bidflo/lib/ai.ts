@@ -72,8 +72,11 @@ async function chat(system: string, data: Record<string, unknown>, model: string
     body: JSON.stringify({
       model,
       // GPT-5 models do not accept a custom sampling temperature.
-      ...(model.startsWith("gpt-5") ? {} : { temperature: 0.25 }),
-      max_completion_tokens: 3200,
+      ...(model.startsWith("gpt-5") ? { reasoning_effort: "minimal" } : { temperature: 0.25 }),
+      // Leave enough room for both hidden reasoning tokens and the structured
+      // proposal. The former 3,200-token cap could be exhausted before GPT-5
+      // emitted any visible JSON.
+      max_completion_tokens: 8000,
       response_format: { type: "json_schema", json_schema: { name: format.name, strict: true, schema: format.schema } },
       messages: [
         { role: "system", content: system },
@@ -90,9 +93,19 @@ async function chat(system: string, data: Record<string, unknown>, model: string
             : `request failed with HTTP ${response.status}`;
     throw new Error(`AI provider ${reason}`);
   }
-  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) throw new Error("AI provider returned an empty response");
+  const payload = await response.json() as {
+    choices?: Array<{ finish_reason?: string | null; message?: { content?: string | null; refusal?: string | null } }>;
+    usage?: { completion_tokens_details?: { reasoning_tokens?: number } };
+  };
+  const choice = payload.choices?.[0];
+  const content = choice?.message?.content;
+  if (!content) {
+    const finishReason = choice?.finish_reason ?? "unknown";
+    const reasoningTokens = payload.usage?.completion_tokens_details?.reasoning_tokens;
+    const reason = choice?.message?.refusal ? "refusal" : finishReason;
+    const tokenDetail = Number.isFinite(reasoningTokens) ? `, reasoning_tokens=${reasoningTokens}` : "";
+    throw new Error(`AI provider returned no usable output (reason=${reason}${tokenDetail})`);
+  }
   return extractJson(content);
 }
 
