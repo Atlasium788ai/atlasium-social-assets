@@ -754,7 +754,7 @@ test("surface-aware idempotency survives refresh and explicit Story-only remains
   globalThis.fetch = async (url, init = {}) => {
     const request = JSON.parse(init.body);
     if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org" }] } } });
-    if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", displayName: "Atlasium Instagram", service: "instagram" }] } });
+    if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", displayName: "atlasium788ai", service: "instagram" }] } });
     if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Idempotent surfaces", timing: "schedule", posts: [{ concept: "One", caption: "One", imagePrompt: "Image" }] }) }] }] });
     if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
     if (!String(url).includes("api.buffer.com")) throw new Error(`Unexpected external request: ${url}`);
@@ -960,4 +960,125 @@ test("migrates Atlasium history, creates an isolated brand, restores its draft, 
     const jobs = db.database.prepare("SELECT brand_id, destination_id, status FROM publish_jobs").all().map((row) => ({ ...row }));
     assert.deepEqual(jobs, [{ brand_id: created.id, destination_id: "client-ig#instagram:feed", status: "confirmed" }, { brand_id: created.id, destination_id: "client-ig#instagram:story", status: "confirmed" }]);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("brands can be created before account connections, then attach and move only their own channels", async () => {
+  const worker = await loadWorker();
+  const DB = await memoryD1();
+  const UPLOADS = memoryR2();
+  const env = { DB, UPLOADS, UPLOAD_KEY: "test-key" };
+  const ctx = { waitUntil() {}, passThroughOnException() {} };
+  const headers = { "X-Upload-Key": "test-key" };
+  const profile = { name: "First Brand", timezone: "America/Toronto", channelIds: [], whatItDoes: "Client business" };
+  async function addBrand(name) {
+    const form = new FormData();
+    form.set("profile", JSON.stringify({ ...profile, name }));
+    const response = await worker.fetch(new Request("http://localhost/api/brands", { method: "POST", headers, body: form }), env, ctx);
+    assert.equal(response.status, 201);
+    return (await response.json()).brand;
+  }
+  const first = await addBrand("First Brand");
+  const second = await addBrand("Second Brand");
+  assert.notEqual(first.id, second.id);
+  assert.deepEqual(first.channelIds, []);
+  assert.deepEqual(second.channelIds, []);
+  assert.equal(DB.database.prepare("SELECT COUNT(*) AS count FROM publish_jobs").get().count, 0);
+  assert.equal(DB.database.prepare("SELECT COUNT(*) AS count FROM brands WHERE status = 'active'").get().count, 3);
+
+  const noPublisher = await worker.fetch(new Request("http://localhost/api/flow/channels/assign", {
+    method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ brandId: first.id, channelIds: [] }),
+  }), env, ctx);
+  assert.equal(noPublisher.status, 503);
+
+  const destinations = [{ id: "client-one", displayName: "First Brand Facebook", service: "facebook" }, { id: "client-two", displayName: "Second Brand TikTok", service: "tiktok" }];
+  const originalFetch = globalThis.fetch;
+  let providerDown = false;
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url) === "https://api.buffer.com") {
+      if (providerDown) return Response.json({ errors: [{ message: "Outage" }] }, { status: 502 });
+      const query = JSON.parse(init.body).query;
+      if (query.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org-one", name: "Brand provider" }] } } });
+      if (query.includes("query Channels")) return Response.json({ data: { channels: destinations } });
+    }
+    throw new Error("Unexpected provider request");
+  };
+  env.BUFFER_API_KEY = "test-buffer";
+  async function assign(brandId, channelIds, authenticated = true) {
+    return worker.fetch(new Request("http://localhost/api/flow/channels/assign", {
+      method: "POST", headers: { ...(authenticated ? headers : {}), "Content-Type": "application/json" },
+      body: JSON.stringify({ brandId, channelIds }),
+    }), env, ctx);
+  }
+  try {
+    const denied = await assign(first.id, ["client-one"], false);
+    assert.equal(denied.status, 401);
+    assert.equal(DB.database.prepare("SELECT COUNT(*) AS count FROM channel_connections").get().count, 0);
+
+    const attached = await assign(first.id, ["client-one"]);
+    assert.equal(attached.status, 200);
+    assert.deepEqual((await attached.json()).assignedChannels, ["client-one"]);
+    const firstFlow = await worker.fetch(new Request("http://localhost/api/flow/workspace", {
+      headers: { ...headers, "X-Brand-ID": first.id },
+    }), env, ctx);
+    assert.equal(firstFlow.status, 200);
+    const snapshot = await firstFlow.json();
+    assert.equal(snapshot.availableAccounts.length, 2);
+    assert.equal(snapshot.channels.length, 1);
+    assert.equal(snapshot.channels[0].status, "connected");
+
+    const blocked = await assign(second.id, ["client-one"]);
+    assert.equal(blocked.status, 403);
+    assert.match((await blocked.json()).error, /different brand/);
+    assert.equal(DB.database.prepare("SELECT brand_id FROM channel_connections WHERE provider_channel_id = 'client-one' AND active = 1").get().brand_id, first.id);
+
+    const unassign = await assign(first.id, []);
+    assert.equal(unassign.status, 200);
+    const moved = await assign(second.id, ["client-one", "client-two"]);
+    assert.equal(moved.status, 200);
+    const records = DB.database.prepare("SELECT brand_id, provider_channel_id FROM channel_connections WHERE active = 1 ORDER BY provider_channel_id").all().map((row) => ({ ...row }));
+    assert.deepEqual(records, [
+      { brand_id: second.id, provider_channel_id: "client-one" },
+      { brand_id: second.id, provider_channel_id: "client-two" },
+    ]);
+
+    // An unassigned brand must not inherit every provider channel during a publish call.
+    env.OPENAI_API_KEY = "test-openai";
+    const publish = await worker.fetch(new Request("http://localhost/api/agent", {
+      method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ brandId: first.id, prompt: "Publish a client update", channels: ["client-one"], timing: "now" }),
+    }), env, ctx);
+    assert.equal(publish.status, 400);
+    assert.equal(DB.database.prepare("SELECT COUNT(*) AS count FROM publish_jobs").get().count, 0);
+
+    // Losing provider connectivity cannot delete or move the brand's saved account assignments.
+    providerDown = true;
+    const editForm = new FormData();
+    editForm.set("profile", JSON.stringify({ ...profile, name: "Second Brand Renamed", channelIds: [] }));
+    const edited = await worker.fetch(new Request(`http://localhost/api/brands/${second.id}`, {
+      method: "PATCH", headers, body: editForm,
+    }), env, ctx);
+    assert.equal(edited.status, 200);
+    const renamed = (await edited.json()).brand;
+    assert.equal(renamed.name, "Second Brand Renamed");
+    assert.deepEqual(new Set(renamed.channelIds), new Set(["client-one", "client-two"]));
+    const offlineAttempt = await assign(second.id, []);
+    assert.equal(offlineAttempt.status, 503);
+    assert.equal(DB.database.prepare("SELECT COUNT(*) AS count FROM channel_connections WHERE brand_id = ? AND active = 1").get(second.id).count, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("FLOW allows explicit per-brand social account assignment and ECHO allows brands without channels", async () => {
+  const [flowChannels, flowWorkspace, brandStore, echoPage] = await Promise.all([
+    readFile(new URL("../app/flow/components/flow-channels.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/flow/components/flow-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../worker/brand-store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(flowChannels, /Save brand account assignments/);
+  assert.match(flowChannels, /No cross-brand publishing/);
+  assert.match(flowChannels, /saving|setSaving/);
+  assert.match(flowWorkspace, /new-brand=1/);
+  assert.match(brandStore, /async function|assignBrandChannels/);
+  assert.doesNotMatch(echoPage, /wizardStep === 3 && !brandForm\.channelIds\.length/);
 });

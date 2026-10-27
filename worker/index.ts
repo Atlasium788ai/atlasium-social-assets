@@ -5,6 +5,7 @@ import {
   OWNER_ID,
   WORKSPACE_ID,
   archiveBrand,
+  assignBrandChannels,
   audit,
   campaignOwner,
   createBrand,
@@ -815,7 +816,8 @@ async function runAgent(request: Request, env: Env) {
   const requestedBrandId = String(body.brandId || ATLASIUM_BRAND_ID);
   if (requestedBrandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
   const brand = await requireBrand(env, requestedBrandId);
-  const assignedIds = new Set(brand.channelIds.length ? brand.channelIds : connected.map((channel) => channel.id));
+  // No implicit account access for brands with zero assignments.
+  const assignedIds = new Set(env.DB ? brand.channelIds : connected.map((channel) => channel.id));
   const available = connected.filter((channel) => assignedIds.has(channel.id));
   const requestedIds = Array.isArray(body.channels) ? body.channels : [];
   const chosen = selectChannels(prompt, available, requestedIds, brand.id);
@@ -1066,7 +1068,8 @@ async function publish(request: Request, env: Env) {
   const connected = await publisher.listDestinations();
   if (requestedBrandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
   const brand = await requireBrand(env, requestedBrandId);
-  const assigned = new Set(brand.channelIds.length ? brand.channelIds : connected.map((channel) => channel.id));
+  // A brand with zero assigned channels cannot publish to other brands' accounts.
+  const assigned = new Set(env.DB ? brand.channelIds : connected.map((channel) => channel.id));
   const available = connected.filter((channel) => assigned.has(channel.id));
   const chosen = available.filter((channel) => channelIds.includes(String(channel.id)));
   if (chosen.length !== channelIds.length) return json({ error: "One or more Buffer channels are invalid." }, 400);
@@ -1158,7 +1161,17 @@ async function flowWorkspaceRoute(request: Request, env: Env) {
   let refreshError = "";
   try { reconciliation = await reconcileDeliveries(request, env, brandId); }
   catch (error) { refreshError = error instanceof Error ? error.message : "Delivery status refresh is temporarily unavailable."; }
-  return json({ ...await flowWorkspaceSnapshot(env, brandId, connected), reconciliation, refreshError, publishingConnectionStatus });
+  const registry = await workspaceSnapshot(env, connected);
+  return json({ ...await flowWorkspaceSnapshot(env, brandId, connected), availableAccounts: registry.connectedChannels, reconciliation, refreshError, publishingConnectionStatus });
+}
+
+async function flowAssignChannelsRoute(request: Request, env: Env) {
+  if (!authorized(request, env)) return json({ error: "This FLOW workspace is not authorized." }, 401);
+  const body = await request.json() as { brandId?: string; channelIds?: unknown };
+  if (!body.brandId || !Array.isArray(body.channelIds) || body.channelIds.some((id) => typeof id !== "string")) return json({ error: "A brand and a list of social account IDs are required." }, 400);
+  const { connected, publishingConnectionStatus } = await optionalPublishingDestinations(env);
+  if (publishingConnectionStatus !== "connected") return json({ error: "The publishing connection is unavailable. Your current brand assignments are preserved." }, 503);
+  return json(await assignBrandChannels(env, body.brandId, body.channelIds, connected, actorId(request)));
 }
 
 async function brandPayload(request: Request, env: Env, brandId?: string) {
@@ -1178,8 +1191,8 @@ async function brandPayload(request: Request, env: Env, brandId?: string) {
     await env.UPLOADS.put(key, logo.stream(), { httpMetadata: { contentType: logo.type, cacheControl: "public, max-age=31536000, immutable" }, customMetadata: { originalName: logo.name.slice(0, 200), brandId: brandId || "pending" } });
     hostedLogo = { r2Key: key, url: `${new URL(request.url).origin}/i/${key}` };
   }
-  const connected = await publishingProvider(env).listDestinations();
-  return { profile, hostedLogo, connected };
+  const { connected, publishingConnectionStatus } = await optionalPublishingDestinations(env);
+  return { profile, hostedLogo, connected, publishingConnectionStatus };
 }
 
 async function createBrandRoute(request: Request, env: Env) {
@@ -1192,8 +1205,8 @@ async function createBrandRoute(request: Request, env: Env) {
 async function updateBrandRoute(request: Request, env: Env, brandId: string) {
   if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
   await requireBrand(env, brandId);
-  const { profile, hostedLogo, connected } = await brandPayload(request, env, brandId);
-  return json({ brand: await updateBrand(env, brandId, profile, connected, hostedLogo, actorId(request)) });
+  const { profile, hostedLogo, connected, publishingConnectionStatus } = await brandPayload(request, env, brandId);
+  return json({ brand: await updateBrand(env, brandId, profile, connected, hostedLogo, actorId(request), publishingConnectionStatus !== "connected") });
 }
 
 async function draftRoute(request: Request, env: Env, brandId: string) {
@@ -1429,6 +1442,12 @@ const worker = {
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load FLOW.", code: "flow_workspace_unavailable" }, statusFor(error, 502)); }
     }
 
+    if (url.pathname === "/api/flow/channels/assign") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return await flowAssignChannelsRoute(request, env); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not assign social accounts.", }, statusFor(error, 400)); }
+    }
+
     if (url.pathname === "/api/brands") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       try { return await createBrandRoute(request, env); }
@@ -1455,7 +1474,8 @@ const worker = {
         const brandId = request.headers.get("X-Brand-ID") || url.searchParams.get("brandId") || ATLASIUM_BRAND_ID;
         if (brandId === ATLASIUM_BRAND_ID) await syncAtlasiumChannels(env, connected);
         const brand = await requireBrand(env, brandId);
-        const assigned = new Set(brand.channelIds.length ? brand.channelIds : connected.map((channel) => channel.id));
+        // A brand with zero assigned channels cannot publish to other brands' accounts.
+  const assigned = new Set(env.DB ? brand.channelIds : connected.map((channel) => channel.id));
         return json({ configured: true, brandId: brand.id, channels: connected.filter((channel) => assigned.has(channel.id)) });
       }
       catch (error) { return json({ configured: true, error: error instanceof Error ? error.message : "Could not load Buffer channels." }, 502); }

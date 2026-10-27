@@ -109,7 +109,7 @@ test("ECHO, FLOW, Buffer and existing organic publishing code remain outside AMP
     readFile(new URL("../app/amplify/services/amplify-ad-service.ts", import.meta.url), "utf8"),
   ]);
   assert.match(echo, /Create &amp; Publish/);
-  assert.match(flow, /Buffer connections are live/);
+  assert.match(flow, /Save brand account assignments/);
   assert.match(worker, /api\.buffer\.com/);
   assert.doesNotMatch(amplifyStore, /BUFFER_API_KEY|api\.buffer\.com|createBufferPost|publishJobs/);
   assert.doesNotMatch(amplifyClient, /\/api\/agent|\/api\/publish|\/api\/channels|Buffer/);

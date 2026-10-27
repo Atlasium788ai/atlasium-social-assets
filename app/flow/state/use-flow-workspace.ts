@@ -91,5 +91,5 @@ export function useFlowWorkspace() {
     void refresh(brandId);
   }
 
-  return { access, brands, activeBrand: brands.find((brand) => brand.id === activeBrandId) || null, activeBrandId, selectBrand, data, flowError, previewMode, refreshing, refresh: () => refresh() };
+  return { access, accessKey, brands, activeBrand: brands.find((brand) => brand.id === activeBrandId) || null, activeBrandId, selectBrand, data, flowError, previewMode, refreshing, refresh: () => refresh() };
 }

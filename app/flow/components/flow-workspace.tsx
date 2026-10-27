@@ -34,12 +34,13 @@ export function FlowWorkspace({ activeSection }: { activeSection: FlowSection })
         <span className="flow-brand-mark">{flow.activeBrand?.name.charAt(0).toUpperCase() || "E"}</span>
         <label><span>ACTIVE BRAND</span><select value={flow.activeBrandId} onChange={(event) => flow.selectBrand(event.target.value)} aria-label="Active brand">{flow.brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label>
         <small>{flow.activeBrand?.timezone || "Brand-scoped connections"}</small>
+        <a className="text-button" href="/echo?new-brand=1">+ Add brand</a>
       </section>
       {flow.flowError && <p className="message error" role="status">! {flow.flowError}</p>}
       {flow.data?.refreshError && <p className="message error" role="status">! Buffer history loaded, but delivery refresh needs attention: {flow.data.refreshError}</p>}
       {flow.data && flow.data.reconciliation.checked > 0 && <p className="flow-reconciliation" role="status">Checked {flow.data.reconciliation.checked} Buffer delivery record{flow.data.reconciliation.checked === 1 ? "" : "s"}: {flow.data.reconciliation.sent} sent, {flow.data.reconciliation.pending} pending, {flow.data.reconciliation.failed} failed.</p>}
       {flow.activeBrand && !flow.data && <section className="flow-access-card" aria-live="polite"><p>Loading Buffer operations…</p></section>}
-      {flow.activeBrand && flow.data && activeSection === "channels" && <FlowChannels brand={flow.activeBrand} previewMode={flow.previewMode} channels={flow.data.channels} />}
+      {flow.activeBrand && flow.data && activeSection === "channels" && <FlowChannels key={flow.activeBrandId} brand={flow.activeBrand} previewMode={flow.previewMode} channels={flow.data.channels} availableAccounts={flow.data.availableAccounts} publishingConnectionStatus={flow.data.publishingConnectionStatus} accessKey={flow.accessKey} onSaved={flow.refresh} />}
       {flow.activeBrand && flow.data && activeSection !== "channels" && <FlowOperations section={activeSection} brand={flow.activeBrand} jobs={flow.data.jobs} refreshing={flow.refreshing} onRefresh={flow.refresh} />}
     </>}
 
