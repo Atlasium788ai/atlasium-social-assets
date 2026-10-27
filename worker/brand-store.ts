@@ -243,8 +243,9 @@ export async function updateBrand(env: StoreEnv, brandId: string, input: BrandPr
   const name = value(input.name).slice(0, 100);
   const channelIds = [...new Set(input.channelIds.map(value).filter(Boolean))];
   if (!name) throw new Error("Enter the brand name.");
-  const selected = connected.filter((channel) => channelIds.includes(channel.id));
-  if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
+  // An unreachable provider must not erase or invalidate a brand's existing assignments.
+  const selected = preserveChannelAssignments ? [] : connected.filter((channel) => channelIds.includes(channel.id));
+  if (!preserveChannelAssignments && selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
     const assigned = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE provider = 'buffer' AND provider_channel_id = ? AND active = 1 LIMIT 1").bind(channel.id).first<Record<string, unknown>>();
     if (assigned && value(assigned.brand_id) !== brandId) throw new Error(`${channel.displayName || channel.name || channel.id} is already assigned to another brand.`);
