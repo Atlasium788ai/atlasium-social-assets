@@ -11,6 +11,7 @@ type ContentEnv = {
 };
 
 export type EchoContentType = "social" | "blog" | "newsletter";
+const socialNetworks = ["facebook", "instagram", "linkedin", "tiktok", "threads", "x", "youtube", "pinterest", "bluesky"] as const;
 
 type ContentDraft = {
   id: string;
@@ -180,6 +181,39 @@ async function generatePayload(env: ContentEnv, brand: BrandContext, contentType
   return normalizePayload(contentType, JSON.parse(outputText(data)) as JsonRecord, true);
 }
 
+function socialPayload(raw: JsonRecord): JsonRecord {
+  const networks = Array.isArray(raw.platforms) ? raw.platforms : [];
+  return {
+    title: value(raw.title).slice(0, 180),
+    caption: value(raw.caption).slice(0, 8000),
+    imageConcept: value(raw.imageConcept).slice(0, 1200),
+    platforms: [...new Set(networks.map(value).filter((name) => socialNetworks.includes(name as typeof socialNetworks[number])))],
+  };
+}
+
+async function generateSocialCopy(env: ContentEnv, brand: BrandContext, prompt: string): Promise<JsonRecord> {
+  if (!env.OPENAI_API_KEY) throw new Error("AI writing is unavailable, but you can type a post manually and save it.");
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: env.OPENAI_TEXT_MODEL || "gpt-5.6-luna",
+      input: [
+        { role: "system", content: `Write exactly one social post for the user's selected brand. ${brandInstruction(brand)} The content must be ready for the owner to review and edit. Do not publish, schedule, invent claims, or imply that anything was posted. Return only the schema.` },
+        { role: "user", content: prompt },
+      ],
+      text: { format: { type: "json_schema", name: "echo_one_social_post", strict: true, schema: {
+        type: "object", additionalProperties: false,
+        required: ["title", "caption", "imageConcept"],
+        properties: { title: { type: "string" }, caption: { type: "string" }, imageConcept: { type: "string" } },
+      } } },
+    }),
+  });
+  const data = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string; refusal?: string }> }>; error?: { message?: string } };
+  if (!response.ok) throw new Error(data.error?.message || "Could not generate the social post.");
+  return JSON.parse(outputText(data)) as JsonRecord;
+}
+
 function contentTitle(type: EchoContentType, payload: JsonRecord, prompt: string) {
   return value(type === "newsletter" ? payload.headline : payload.title) || value(prompt).slice(0, 100) || `Untitled ${type}`;
 }
@@ -207,6 +241,7 @@ export async function loadEchoContentWorkspace(env: ContentEnv, brandId: string)
   const socialDrafts = drafts.filter((draft) => draft.contentType === "social").map((draft) => ({ ...draft, source: "draft" }));
   return {
     drafts: drafts.filter((draft) => draft.contentType !== "social"),
+    socialDrafts,
     library: [...drafts.filter((draft) => draft.contentType !== "social"), ...socialDrafts, ...campaigns].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     assets: rowList(mediaRows).map((row) => ({ id: value(row.id), brandId, url: value(row.url), mediaType: value(row.mediaType), createdAt: value(row.createdAt) })),
     publishingConnections: { blog: "not_configured", newsletter: "not_configured" },
@@ -218,11 +253,24 @@ export async function createEchoContentDraft(env: ContentEnv, brandId: string, r
   const brand = await requireBrand(env, brandId);
   await ensureContentSystem(env);
   const contentType = value(raw.contentType) as EchoContentType;
-  if (!contentType || !["blog", "newsletter"].includes(contentType)) throw new Error("Choose Blog or Newsletter.");
+  if (!contentType || !["social", "blog", "newsletter"].includes(contentType)) throw new Error("Choose Social, Blog or Newsletter.");
   const prompt = value(raw.prompt).slice(0, 8000);
-  if (!prompt) throw new Error(contentType === "blog" ? "Tell us what the blog should be about." : "Tell us what the newsletter should communicate.");
+  if (contentType !== "social" && !prompt) throw new Error(contentType === "blog" ? "Tell us what the blog should be about." : "Tell us what the newsletter should communicate.");
   const settings = (raw.settings || {}) as JsonRecord;
-  const payload = await generatePayload(env, brand, contentType as "blog" | "newsletter", prompt, settings);
+  let payload: JsonRecord;
+  if (contentType === "social") {
+    const rawPayload = raw.payload && typeof raw.payload === "object" && !Array.isArray(raw.payload) ? raw.payload as JsonRecord : {};
+    if (value(raw.mode) === "generate") {
+      if (!prompt) throw new Error("Enter what your post should be about.");
+      const generated = await generateSocialCopy(env, brand, prompt);
+      payload = socialPayload({ ...generated, platforms: rawPayload.platforms });
+    } else {
+      payload = socialPayload(rawPayload);
+    }
+    if (!value(payload.caption)) throw new Error("Enter post text before saving.");
+  } else {
+    payload = await generatePayload(env, brand, contentType as "blog" | "newsletter", prompt, settings);
+  }
   const id = `echo_${contentType}_${crypto.randomUUID()}`;
   const createdAt = nowIso();
   const title = contentTitle(contentType, payload, prompt).slice(0, 180);
@@ -235,7 +283,8 @@ export async function updateEchoContentDraft(env: ContentEnv, brandId: string, d
   if (!env.DB) throw new Error("ECHO content storage is unavailable.");
   const current = await ownedDraft(env, brandId, draftId);
   const supplied = raw.payload && typeof raw.payload === "object" ? raw.payload as JsonRecord : current.payload;
-  const payload = normalizeEditedPayload(current.contentType, current.payload, supplied);
+  const payload = current.contentType === "social" ? socialPayload(supplied) : normalizeEditedPayload(current.contentType, current.payload, supplied);
+  if (current.contentType === "social" && !value(payload.caption)) throw new Error("Enter post text before saving.");
   const status = value(raw.status) === "completed" ? "completed" : "draft";
   const featuredImageUrl = raw.featuredImageUrl === null ? null : value(raw.featuredImageUrl) || current.featuredImageUrl;
   const updatedAt = nowIso();
