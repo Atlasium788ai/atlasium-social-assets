@@ -270,6 +270,44 @@ export async function updateBrand(env: StoreEnv, brandId: string, input: BrandPr
   return requireBrand(env, brandId);
 }
 
+/**
+ * Assign already-authorized destinations from the workspace publishing provider.
+ * Accounts are not OAuth-connected here: credentials remain with the provider.
+ * Each destination may belong to only one EchoFlow brand at a time.
+ */
+export async function assignBrandChannels(env: StoreEnv, brandId: string, requestedIds: string[], connected: BufferDestination[], actorId = OWNER_ID) {
+  if (!env.DB) throw new Error("Brand connection storage is unavailable.");
+  await requireBrand(env, brandId);
+  const ids = [...new Set(requestedIds.map(value).filter(Boolean))];
+  if (ids.length > 100) throw new Error("Choose fewer than 100 social accounts.");
+  const byId = new Map(connected.map((channel) => [value(channel.id), channel]));
+  const selected = ids.map((id) => byId.get(id));
+  if (selected.some((channel) => !channel)) throw new Error("One or more accounts are no longer connected. Refresh FLOW and try again.");
+
+  for (const id of ids) {
+    const existing = await env.DB.prepare("SELECT brand_id FROM channel_connections WHERE workspace_id = ? AND provider = 'buffer' AND provider_channel_id = ? AND active = 1 LIMIT 1")
+      .bind(WORKSPACE_ID, id).first<{ brand_id: string }>();
+    if (existing && existing.brand_id !== brandId) throw new Error("This account belongs to a different brand. Unassign it from that brand before connecting it here.");
+  }
+
+  const stamp = nowIso();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE workspace_id = ? AND brand_id = ? AND provider = 'buffer'")
+      .bind(WORKSPACE_ID, brandId),
+    ...selected.map((channel) => env.DB!.prepare(`INSERT INTO channel_connections
+      (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at)
+      VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?)
+      ON CONFLICT(provider, provider_channel_id) DO UPDATE SET
+        brand_id = excluded.brand_id, active = 1, service = excluded.service,
+        account_name = excluded.account_name, assigned_at = excluded.assigned_at
+      WHERE channel_connections.active = 0 OR channel_connections.brand_id = excluded.brand_id`)
+      .bind(`channel_buffer_${channel!.id}`, WORKSPACE_ID, brandId, channel!.id,
+        channel!.service.toLowerCase(), channel!.displayName || channel!.name || channel!.id, stamp)),
+  ]);
+  await audit(env, brandId, "brand_channels_assigned", { selectedIds: ids, publishingTriggered: false }, actorId);
+  return { brandId, assignedChannels: ids, published: false };
+}
+
 export async function saveDraft(env: StoreEnv, brandId: string, draft: { prompt: string; timing: string; selectedChannels: string[] }) {
   if (!env.DB) return;
   await requireBrand(env, brandId);
