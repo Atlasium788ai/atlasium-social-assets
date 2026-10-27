@@ -115,7 +115,9 @@ test("client allows automatic channel routing and never silently ignores a publi
   assert.match(source, /channels:\s*selected/);
   assert.match(source, /if \(!prompt\.trim\(\)\) \{ setBrandStatus/);
   assert.match(source, /if \(!channels\.length\) \{ setBrandStatus/);
-  assert.match(source, /disabled=\{busy \|\| Boolean\(campaignId\)\}/);
+  assert.match(source, /disabled=\{busy \|\| Boolean\(campaignId\) \|\| !channels\.length\}/);
+  assert.match(source, /Create drafts only \(no publishing\)/);
+  assert.match(source, /draftOnly: true/);
 });
 
 test("client exposes brand tabs, four short setup steps, scoped draft saves, and mobile states", async () => {
