@@ -276,7 +276,7 @@ export async function saveDraft(env: StoreEnv, brandId: string, draft: { prompt:
 
 export async function indexCampaign(env: StoreEnv, campaign: CampaignIndexRecord, r2Key: string) {
   if (!env.DB) return;
-  const status = campaign.results?.some((result) => result.status === "FAILED") ? "failed" : campaign.results?.some((result) => ["PROCESSING MOTION", "SCHEDULING"].includes(result.status)) ? "processing" : campaign.message || "scheduled";
+  const status = campaign.results?.length && campaign.results.every((result) => result.status === "DRAFT") ? "draft" : campaign.results?.some((result) => result.status === "FAILED") ? "failed" : campaign.results?.some((result) => ["PROCESSING MOTION", "SCHEDULING"].includes(result.status)) ? "processing" : campaign.message || "scheduled";
   const statements = [
     env.DB.prepare("INSERT INTO campaigns (id, workspace_id, brand_id, r2_key, prompt, status, timezone, schedule_summary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at")
       .bind(campaign.id, campaign.workspaceId, campaign.brandId, r2Key, campaign.prompt, status, campaign.timeZone, campaign.schedule?.timing?.label || "", campaign.createdAt, campaign.updatedAt),
