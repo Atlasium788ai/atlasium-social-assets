@@ -215,7 +215,6 @@ export async function createBrand(env: StoreEnv, input: BrandProfileInput, conne
   const name = value(input.name).slice(0, 100);
   if (!name) throw new Error("Enter the brand name.");
   const channelIds = [...new Set(input.channelIds.map(value).filter(Boolean))];
-  if (!channelIds.length) throw new Error("Assign at least one social destination before creating the brand.");
   const selected = connected.filter((channel) => channelIds.includes(channel.id));
   if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
@@ -238,13 +237,12 @@ export async function createBrand(env: StoreEnv, input: BrandProfileInput, conne
   return requireBrand(env, id);
 }
 
-export async function updateBrand(env: StoreEnv, brandId: string, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null, actorId = OWNER_ID) {
+export async function updateBrand(env: StoreEnv, brandId: string, input: BrandProfileInput, connected: BufferDestination[], logo?: { url: string; r2Key: string } | null, actorId = OWNER_ID, preserveChannelAssignments = false) {
   if (!env.DB) throw new Error("Brand storage is not available yet.");
   await requireBrand(env, brandId);
   const name = value(input.name).slice(0, 100);
   const channelIds = [...new Set(input.channelIds.map(value).filter(Boolean))];
   if (!name) throw new Error("Enter the brand name.");
-  if (!channelIds.length) throw new Error("Keep at least one social destination assigned to this brand.");
   const selected = connected.filter((channel) => channelIds.includes(channel.id));
   if (selected.length !== channelIds.length) throw new Error("One or more selected social destinations are unavailable.");
   for (const channel of selected) {
@@ -257,13 +255,17 @@ export async function updateBrand(env: StoreEnv, brandId: string, input: BrandPr
       .bind(name, logo?.url || value(input.logoUrl) || null, value(input.website), value(input.industry), value(input.location), value(input.timezone) || "America/Toronto", updatedAt, brandId, WORKSPACE_ID),
     env.DB.prepare("UPDATE brand_profiles SET what_it_does = ?, target_audience = ?, main_offers = ?, primary_cta = ?, tone = ?, words_use = ?, words_avoid = ?, visual_style = ?, instructions = ?, routing_rules = ?, updated_at = ? WHERE brand_id = ?")
       .bind(value(input.whatItDoes), value(input.targetAudience), value(input.mainOffers), value(input.primaryCta), value(input.tone), value(input.wordsUse), value(input.wordsAvoid), value(input.visualStyle), value(input.instructions), value(input.routingRules) || "{}", updatedAt, brandId),
-    env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ? AND provider = 'buffer'").bind(brandId),
-    ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
-      .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, brandId, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, updatedAt)),
+    // Keep historical assignments intact when the publishing provider cannot be reached.
+    // A deliberate empty selection while the provider IS available removes assignments.
+    ...(!preserveChannelAssignments ? [
+      env.DB.prepare("UPDATE channel_connections SET active = 0 WHERE brand_id = ? AND provider = 'buffer'").bind(brandId),
+      ...selected.map((channel) => env.DB!.prepare("INSERT INTO channel_connections (id, workspace_id, brand_id, provider, provider_channel_id, service, account_name, active, assigned_at) VALUES (?, ?, ?, 'buffer', ?, ?, ?, 1, ?) ON CONFLICT(provider, provider_channel_id) DO UPDATE SET active = 1, account_name = excluded.account_name, service = excluded.service")
+        .bind(`channel_buffer_${channel.id}`, WORKSPACE_ID, brandId, channel.id, channel.service.toLowerCase(), channel.displayName || channel.name || channel.id, updatedAt)),
+    ] : []),
     ...(logo ? [env.DB.prepare("INSERT INTO brand_assets (id, workspace_id, brand_id, kind, url, r2_key, created_at) VALUES (?, ?, ?, 'logo', ?, ?, ?)").bind(`asset_${crypto.randomUUID()}`, WORKSPACE_ID, brandId, logo.url, logo.r2Key, updatedAt)] : []),
   ];
   await env.DB.batch(statements);
-  await audit(env, brandId, "brand_updated", { name, channelIds, logoUploaded: Boolean(logo) }, actorId);
+  await audit(env, brandId, "brand_updated", { name, channelIds: preserveChannelAssignments ? "preserved_provider_unavailable" : channelIds, logoUploaded: Boolean(logo) }, actorId);
   return requireBrand(env, brandId);
 }
 
