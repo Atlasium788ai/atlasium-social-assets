@@ -285,3 +285,133 @@ test("social drafts work without social accounts and never create a publishing j
     assert.equal(aiCalls, 1);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("one-post editor saves, reopens and edits social drafts without AI, Buffer or connected accounts", async () => {
+  const worker = await loadWorker();
+  const env = await testEnv();
+  delete env.OPENAI_API_KEY;
+  await initialize(worker, env);
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("Draft creation must not call external providers."); };
+  const ctx = { waitUntil() {}, passThroughOnException() {} };
+  try {
+    const body = { brandId: BRAND_A, contentType: "social", payload: {
+      title: "Test Atlasium post", caption: "One useful Atlasium update.", imageConcept: "Clean visual",
+      platforms: ["facebook", "instagram", "linkedin", "invalid-platform", "facebook"],
+    } };
+    const created = await worker.fetch(request("/api/echo/content/drafts", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }), env, ctx);
+    assert.equal(created.status, 201);
+    const draft = (await created.json()).draft;
+    assert.equal(draft.contentType, "social");
+    assert.equal(draft.status, "draft");
+    assert.equal(draft.payload.caption, body.payload.caption);
+    assert.deepEqual(draft.payload.platforms, ["facebook", "instagram", "linkedin"]);
+    assert.equal(draft.featuredImageUrl, null);
+
+    const overview = await worker.fetch(request("/api/echo/content/workspace"), env, ctx);
+    assert.equal(overview.status, 200);
+    const library = await overview.json();
+    assert.ok(library.socialDrafts.some((candidate) => candidate.id === draft.id));
+    assert.ok(library.library.some((candidate) => candidate.id === draft.id));
+    assert.equal(library.drafts.length, 0);
+    assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS count FROM publish_jobs").get().count, 0);
+
+    const changed = await worker.fetch(request(`/api/echo/content/drafts/${draft.id}`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ brandId: BRAND_A, payload: { title: "Revised title", caption: "New caption", platforms: ["tiktok"] }, status: "draft" }),
+    }), env, ctx);
+    assert.equal(changed.status, 200);
+    const revision = (await changed.json()).draft;
+    assert.equal(revision.payload.caption, "New caption");
+    assert.equal(revision.title, "Revised title");
+    assert.deepEqual(revision.payload.platforms, ["tiktok"]);
+
+    const denied = await worker.fetch(request(`/api/echo/content/drafts/${draft.id}`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ payload: { title: "Attack", caption: "Wrong brand" } }),
+    }, BRAND_B), env, ctx);
+    assert.notEqual(denied.status, 200);
+
+    const secondBrand = await worker.fetch(request("/api/echo/content/workspace", {}, BRAND_B), env, ctx);
+    assert.equal(secondBrand.status, 200);
+    assert.equal((await secondBrand.json()).socialDrafts.length, 0);
+
+    const deleted = await worker.fetch(request(`/api/echo/content/drafts/${draft.id}`, { method: "DELETE" }), env, ctx);
+    assert.equal(deleted.status, 200);
+    assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS count FROM echo_content_drafts WHERE content_type = 'social'").get().count, 0);
+    assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS count FROM publish_jobs").get().count, 0);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test("brand-scoped post image uploads attach to drafts without publishing", async () => {
+  const worker = await loadWorker();
+  const env = await testEnv();
+  delete env.OPENAI_API_KEY;
+  await initialize(worker, env);
+  const ctx = { waitUntil() {}, passThroughOnException() {} };
+  const imageForm = new FormData();
+  imageForm.set("file", new File([Uint8Array.of(0x89, 0x50, 0x4e, 0x47)], "post.png", { type: "image/png" }));
+  const result = await worker.fetch(request("/api/echo/content/media", { method: "POST", body: imageForm }), env, ctx);
+  assert.equal(result.status, 201);
+  const media = await result.json();
+  assert.equal(media.published, false);
+  assert.ok(media.imageUrl.includes(`/i/brands/${BRAND_A}/post-drafts/`));
+
+  const newPost = await worker.fetch(request("/api/echo/content/drafts", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ brandId: BRAND_A, contentType: "social", payload: { title: "Draft with image", caption: "Caption with an image" }, featuredImageUrl: media.imageUrl }),
+  }), env, ctx);
+  assert.equal(newPost.status, 201);
+  assert.equal((await newPost.json()).draft.featuredImageUrl, media.imageUrl);
+
+  const otherMedia = await worker.fetch(request("/api/echo/content/media", { method: "POST", body: imageForm }, BRAND_B), env, ctx);
+  assert.equal(otherMedia.status, 201);
+  const before = env.DB.database.prepare("SELECT COUNT(*) AS count FROM publish_jobs").get().count;
+  assert.equal(before, 0);
+  assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'social_draft_media_uploaded'").get().count, 2);
+});
+
+test("social AI idea generation is optional and saves an editable single post", async () => {
+  const worker = await loadWorker();
+  const env = await testEnv();
+  await initialize(worker, env);
+  const oldFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url, options) => {
+    assert.match(String(url), /api\.openai\.com\/v1\/responses/);
+    const requestBody = JSON.parse(options.body);
+    assert.equal(requestBody.text.format.name, "echo_one_social_post");
+    assert.match(requestBody.input[0].content, /Brand: Atlasium/);
+    calls++;
+    return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({
+      title: "One post", caption: "One useful draft.", imageConcept: "Navy background",
+    }) }] }] });
+  };
+  try {
+    const response = await worker.fetch(request("/api/echo/content/drafts", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ brandId: BRAND_A, contentType: "social", mode: "generate", prompt: "Write one useful post", payload: { platforms: ["linkedin"] } }),
+    }), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 201);
+    const draft = (await response.json()).draft;
+    assert.equal(draft.payload.caption, "One useful draft.");
+    assert.deepEqual(draft.payload.platforms, ["linkedin"]);
+    assert.equal(calls, 1);
+    assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS count FROM publish_jobs").get().count, 0);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test("SOCIAL opens a real post composer before publishing controls and remains brand scoped", async () => {
+  const [page, component] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/echo/components/echo-social-composer.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /<EchoSocialComposer key=\{activeBrand\.id\}/);
+  assert.match(page, /<details className="echo-social-advanced">/);
+  assert.match(component, /Save post as draft/);
+  assert.match(component, /savedPosts/);
+  assert.match(component, /\/api\/echo\/content\/media/);
+  assert.match(component, /No scheduling or publishing/);
+});
