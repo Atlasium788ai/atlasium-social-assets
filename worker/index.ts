@@ -905,6 +905,10 @@ async function processCampaign(request: Request, env: Env, id: string) {
   const campaign = await loadCampaign(env, id, brand.id);
   if (!campaign) return json({ error: "Campaign not found." }, 404);
   if (campaign.brandId !== brand.id) return json({ error: "This campaign belongs to a different brand." }, 403);
+  // Reading a draft must never pass into motion or provider submission logic.
+  if (campaign.results.length && campaign.results.every((result) => result.status === "DRAFT")) {
+    return json({ campaignId: campaign.id, brandId: brand.id, message: campaign.message, processing: false, results: campaign.results });
+  }
   const provider = motionProvider(env);
   const publisher = publishingProvider(env);
   const now = env.TEST_NOW && !Number.isNaN(Date.parse(env.TEST_NOW)) ? new Date(env.TEST_NOW) : new Date();
