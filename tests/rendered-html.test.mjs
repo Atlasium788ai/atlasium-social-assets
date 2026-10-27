@@ -754,7 +754,7 @@ test("surface-aware idempotency survives refresh and explicit Story-only remains
   globalThis.fetch = async (url, init = {}) => {
     const request = JSON.parse(init.body);
     if (request.query?.includes("query Account")) return Response.json({ data: { account: { organizations: [{ id: "org" }] } } });
-    if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", displayName: "Atlasium Instagram", service: "instagram" }] } });
+    if (request.query?.includes("query Channels")) return Response.json({ data: { channels: [{ id: "ig", displayName: "atlasium788ai", service: "instagram" }] } });
     if (String(url).includes("/v1/responses")) return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ campaign: "Idempotent surfaces", timing: "schedule", posts: [{ concept: "One", caption: "One", imagePrompt: "Image" }] }) }] }] });
     if (String(url).includes("/v1/images")) return Response.json({ data: [{ b64_json: "iVBORw0KGgo=" }] });
     if (!String(url).includes("api.buffer.com")) throw new Error(`Unexpected external request: ${url}`);
@@ -1036,7 +1036,7 @@ test("brands can be created before account connections, then attach and move onl
     assert.equal(unassign.status, 200);
     const moved = await assign(second.id, ["client-one", "client-two"]);
     assert.equal(moved.status, 200);
-    const records = DB.database.prepare("SELECT brand_id, provider_channel_id FROM channel_connections WHERE active = 1 ORDER BY provider_channel_id").all();
+    const records = DB.database.prepare("SELECT brand_id, provider_channel_id FROM channel_connections WHERE active = 1 ORDER BY provider_channel_id").all().map((row) => ({ ...row }));
     assert.deepEqual(records, [
       { brand_id: second.id, provider_channel_id: "client-one" },
       { brand_id: second.id, provider_channel_id: "client-two" },
