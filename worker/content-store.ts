@@ -274,8 +274,10 @@ export async function createEchoContentDraft(env: ContentEnv, brandId: string, r
   const id = `echo_${contentType}_${crypto.randomUUID()}`;
   const createdAt = nowIso();
   const title = contentTitle(contentType, payload, prompt).slice(0, 180);
-  await env.DB.prepare("INSERT INTO echo_content_drafts (id, workspace_id, brand_id, content_type, title, status, prompt, settings, payload, featured_image_url, source_draft_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, NULL, NULL, ?, ?)")
-    .bind(id, WORKSPACE_ID, brandId, contentType, title, prompt, JSON.stringify(settings), JSON.stringify(payload), createdAt, createdAt).run();
+  const mediaUrl = contentType === "social" ? value(raw.featuredImageUrl) : "";
+  const approvedMediaUrl = mediaUrl.includes(`/i/brands/${brandId}/post-drafts/`) ? mediaUrl : null;
+  await env.DB.prepare("INSERT INTO echo_content_drafts (id, workspace_id, brand_id, content_type, title, status, prompt, settings, payload, featured_image_url, source_draft_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, NULL, ?, ?)")
+    .bind(id, WORKSPACE_ID, brandId, contentType, title, prompt, JSON.stringify(settings), JSON.stringify(payload), approvedMediaUrl, createdAt, createdAt).run();
   return ownedDraft(env, brandId, id);
 }
 
