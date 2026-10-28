@@ -1,0 +1,25 @@
+name: Publish EJP Proposal
+on:
+  push:
+    branches:
+      - ejp-client-page-20261028
+    paths:
+      - 'ejp/90-day-roadmap/index.html'
+      - '.github/workflows/ejp-static-publish.yml'
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish HTML with correct content type
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail-with-body --silent --show-error --retry 2 -X POST https://ship.page/deploy -H "Content-Type: text/html" --data-binary @ejp/90-day-roadmap/index.html)"
+          printf '%s\n' "$RESPONSE"
+          SITE_URL="$(printf '%s' "$RESPONSE" | jq -r '.url // .live_url // .site_url // empty')"
+          test -n "$SITE_URL"
+          printf 'Published site: %s\n' "$SITE_URL"
+          printf 'EJP proposal: %s\n' "$SITE_URL" >> "$GITHUB_STEP_SUMMARY"
