@@ -112,6 +112,39 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const tones = input.tone ? [input.tone] : [...REPLY_TONES];
   const previous = input.previous ?? [];
+  if (input.generation === 0) {
+    const cached = await sql`
+      select distinct on (tone) tone, body as text, source
+        from bidflo_reply_drafts
+       where message_id = ${input.messageId} and tone in ${sql(tones)}
+       order by tone, version desc
+    `;
+    if (cached.length === tones.length) {
+      return Response.json({
+        suggestions: tones.map((tone) => {
+          const item = cached.find((candidate) => candidate.tone === tone)!;
+          return { tone, text: String(item.text), source: item.source === "ai" ? "ai" as const : "starter" as const };
+        }),
+      });
+    }
+  }
+
+  async function persistSuggestions(suggestions: ReplyResult[]) {
+    await sql.begin(async (tx) => {
+      await tx`select id from bidflo_messages where id = ${input.messageId} for update`;
+      for (const suggestion of suggestions) {
+        const [next] = await tx`
+          select coalesce(max(version), 0)::int + 1 as version
+            from bidflo_reply_drafts
+           where message_id = ${input.messageId} and tone = ${suggestion.tone}
+        `;
+        await tx`
+          insert into bidflo_reply_drafts (message_id, tone, version, body, source)
+          values (${input.messageId}, ${suggestion.tone}, ${Number(next.version)}, ${suggestion.text}, ${suggestion.source})
+        `;
+      }
+    });
+  }
   const fallback: ReplyResult[] = tones.map((tone) => ({
     tone,
     text: starterReply(String(row.title), String(row.client_message), tone, input.generation),
@@ -119,6 +152,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }));
 
   if (!(process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim())) {
+    await persistSuggestions(fallback);
     return Response.json({ suggestions: fallback, note: "Starter drafts. Connect the OpenAI API for client-specific AI responses." });
   }
   // Cap generation attempts per client message even while the temporary no-login testing mode is active.
@@ -145,12 +179,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       input.generation,
       previous,
     );
-    return Response.json({ suggestions: tones.map((tone) => ({ tone, text: generated[tone], source: "ai" as const })) });
+    const suggestions = tones.map((tone) => ({ tone, text: generated[tone], source: "ai" as const }));
+    await persistSuggestions(suggestions);
+    return Response.json({ suggestions });
   } catch (error) {
     // A missing quota/key or unreliable model must not prevent the user from replying manually.
     await audit("system:replies", "reply_suggestions.ai_unavailable", "message", input.messageId, {
       reason: error instanceof Error ? error.message.slice(0, 140) : "Unknown error",
     });
+    await persistSuggestions(fallback);
     return Response.json({ suggestions: fallback, note: "AI is unavailable. These starter replies can be edited and copied." });
   }
 }

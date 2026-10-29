@@ -239,6 +239,16 @@ input, textarea { color: var(--text); background: #0c0c12; border: 1px solid var
 .reply-history button { color: #97b0c8; font-size: 10px; border: 0; padding: 6px 0; background: none; cursor: pointer; }
 .reply-notice { color: #b7cedf; margin: 14px 0 0; font-size: 11px; }
 .reply-assistant-footnote { color: #6e8398; margin: 14px 0 0; font-size: 10px; line-height: 1.6; }
+.bid-package { margin: 18px 0; padding: 17px; border: 1px solid rgba(34,162,255,.2); border-radius: 12px; background: rgba(5,18,33,.78); }
+.bid-package h3 { margin: 4px 0 13px; font: 720 18px var(--font-display); color: #f3f8ff; }
+.bid-package-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin-bottom: 13px; }
+.bid-package-grid span { display: flex; flex-direction: column; gap: 3px; padding: 10px; border-radius: 8px; background: rgba(18,41,64,.66); }
+.bid-package-grid strong { color: #f6fbff; font-size: 13px; }
+.bid-package-grid small { color: #88a0b7; font-size: 9px; }
+.bid-attachments { margin: 12px 0; }
+.bid-attachments article { display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 12px; border: 1px solid rgba(76,151,218,.18); border-radius: 9px; }
+.bid-attachments article strong { color: #e8f4ff; font-size: 12px; }
+.bid-attachments article p,.bid-attachments > p { margin: 4px 0 0; color: #8fa5bb; font-size: 10px; line-height: 1.5; }
 @media(max-width:1050px) {
   .reply-choice-grid { grid-template-columns: 1fr; }
   .reply-choice textarea,.reply-loading { min-height: 130px; }
@@ -247,6 +257,8 @@ input, textarea { color: var(--text); background: #0c0c12; border: 1px solid var
   .reply-assistant-top { align-items: flex-start; flex-direction: column; }
   .reply-upwork-links { width: 100%; }
   .reply-upwork-links a { flex: 1; }
+  .bid-package-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .bid-attachments article { align-items: stretch; flex-direction: column; }
 }
 
 /* New-reply prompt: opens only for received, linked client messages. */

@@ -1,4 +1,4 @@
-import { processAiBacklog, processPendingEvents } from "@/lib/workflow";
+import { processAiBacklog, processOpportunityBacklog, processPendingEvents } from "@/lib/workflow";
 import { processSlackAlerts } from "@/lib/slack-alerts";
 import { diagnoseAiProvider } from "@/lib/ai-diagnostics";
 import { audit, db } from "@/lib/db";
@@ -15,6 +15,7 @@ function authorized(request: Request) {
 export async function POST(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const events = await processPendingEvents(5);
+  const opportunityBacklog = await processOpportunityBacklog(1);
   const aiBacklog = await processAiBacklog(1);
   const slack = await processSlackAlerts(10);
   // One model-catalog request per six hours, never a billable completion.
@@ -51,6 +52,8 @@ export async function POST(request: Request) {
     aiAttempted: aiBacklog.attempted + events.results.filter((result) => Boolean((result.ai as { attempted?: boolean } | undefined)?.attempted)).length,
     aiReviewed: aiBacklog.reviewed + events.results.filter((result) => Boolean((result.ai as { reviewed?: boolean } | undefined)?.reviewed)).length,
     aiBacklogReason: aiBacklog.reason,
+    opportunityBacklogProcessed: opportunityBacklog.processed,
+    opportunityBacklogReason: opportunityBacklog.reason,
   });
-  return Response.json({ ...events, slack, ai: { ...ai, execution: aiBacklog } });
+  return Response.json({ ...events, opportunityBacklog, slack, ai: { ...ai, execution: aiBacklog } });
 }

@@ -10,6 +10,7 @@ import type { OpportunityInput, ProposalDraft, QualificationRules } from "./type
 import { canRescore, type OpportunityStage } from "./pipeline-guards";
 import { proposalPreflight } from "./proposal-preflight";
 import { retryPolicy } from "./retry-policy";
+import { recommendAttachments } from "./bid-package";
 
 type EventPayload = {
   text?: string | null;
@@ -72,10 +73,15 @@ export async function qualifyAndPrepare(opportunityId: string) {
 
   const opportunity = rowToOpportunity(opportunityRow);
   const rules = settings.qualification_rules as QualificationRules;
+  const proposalRules = settings.proposal_rules as Record<string, unknown>;
   const result = qualifyOpportunity(opportunity, rules);
   const commercials = recommendCommercials(opportunity, rules.targetHourlyRate);
   const nextStatus = result.rejected ? "rejected" : "qualified";
-  const willPrepareDraft = !result.rejected && result.score >= rules.autoPrepareScore;
+  // Visez prepares every legitimate qualified opportunity for approval by default.
+  // The older high-score-only behavior can still be restored explicitly in stored
+  // rules, but preparation never submits a bid or spends Connects.
+  const prepareAllQualified = proposalRules.prepareAllQualified !== false;
+  const willPrepareDraft = !result.rejected && (prepareAllQualified || result.score >= rules.autoPrepareScore);
   // Guard the update in SQL too: state can change between the initial read
   // and scoring, especially when a reviewer has the opportunity open.
   const [claim] = await sql`
@@ -97,7 +103,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   `;
   if (!claim) throw new Error("Opportunity changed status before scoring could finish");
   await audit("system:qualification", "opportunity.scored", "opportunity", opportunityId, { score: result.score, status: nextStatus });
-  if (result.rejected || result.score < rules.autoPrepareScore) {
+  if (!willPrepareDraft) {
     if (!result.rejected) {
       await queueSlackAlertSafely(`qualified:${opportunityId}`, {
         kind: "qualified", opportunityId, title: opportunity.title,
@@ -113,8 +119,8 @@ export async function qualifyAndPrepare(opportunityId: string) {
 
   const commercialDraft: ProposalDraft = { body: "", questions: [], ...commercials };
   const capabilityProfile = settings.capability_profile as Record<string, unknown>;
-  const proposalRules = settings.proposal_rules as Record<string, unknown>;
   const approvedExamples = (proposalRules.approvedExamples as string[] | undefined) ?? [];
+  const attachments = recommendAttachments(opportunity, proposalRules);
   // Never block opportunity intake when the model endpoint is down or a key has expired.
   // Unreviewed fallback drafts require a human to check every claim and commercial term.
   let draft: ProposalDraft = prepareManualReviewDraft(opportunity, commercialDraft);
@@ -188,11 +194,11 @@ export async function qualifyAndPrepare(opportunityId: string) {
     const [proposal] = await tx`
       insert into bidflo_proposals (
         opportunity_id, version, body, questions, bid_amount, timeline, milestones,
-        quality_score, quality_review, human_judgment_required, status
+        quality_score, quality_review, human_judgment_required, status, attachment_recommendations
       ) values (
         ${opportunityId}, ${Number(versionRow.version)}, ${finalDraft.body}, ${tx.json(finalDraft.questions)},
         ${finalDraft.bidAmount}, ${finalDraft.timeline}, ${tx.json(finalDraft.milestones)},
-        ${review.score}, ${tx.json(review)}, ${review.humanJudgmentRequired}, ${proposalStatus}
+        ${review.score}, ${tx.json(review)}, ${review.humanJudgmentRequired}, ${proposalStatus}, ${tx.json(attachments)}
       ) returning id
     `;
     await tx`
@@ -202,7 +208,10 @@ export async function qualifyAndPrepare(opportunityId: string) {
     return String(proposal.id);
   });
   if (!proposalId) throw new Error("Opportunity became approved or submitted while drafting");
-  await audit("system:review", "proposal.prepared", "proposal", proposalId, { opportunityId, qualityScore: review.score, proposalStatus });
+  await audit("system:review", "proposal.prepared", "proposal", proposalId, {
+    opportunityId, qualityScore: review.score, proposalStatus,
+    attachmentCount: attachments.length,
+  });
   await queueSlackAlertSafely(`proposal:${opportunityId}`, {
     kind: "proposal_ready", opportunityId, title: opportunity.title,
     score: result.score, amount: commercials.bidAmount,
@@ -223,6 +232,48 @@ export async function qualifyAndPrepare(opportunityId: string) {
       humanJudgmentRequired: review.humanJudgmentRequired,
     },
   };
+}
+
+/**
+ * Process connected-source opportunities that were persisted but not yet scored
+ * or drafted. This covers safe recovery after an integration or model timeout.
+ * It never touches approved/submitted records and never contacts Upwork.
+ */
+export async function processOpportunityBacklog(limit = 1) {
+  const sql = db();
+  const candidates = await sql`
+    select o.id, o.title
+      from bidflo_opportunities o
+     where o.status in ('new', 'qualified')
+       and o.platform = 'upwork'
+       and o.job_url ~ '^https://(www\\.)?upwork\\.com/'
+       and not exists (select 1 from bidflo_proposals p where p.opportunity_id = o.id)
+       and not exists (
+         select 1 from bidflo_submission_events e
+          where e.opportunity_id = o.id and e.status in ('submitted', 'confirmed', 'processing')
+       )
+       and not exists (
+         select 1 from bidflo_audit_logs a
+          where a.entity_id = o.id::text
+            and a.action = 'opportunity.backlog_attempted'
+            and a.created_at > now() - interval '5 minutes'
+       )
+     order by o.score desc nulls last, o.source_received_at asc
+     limit ${Math.max(1, Math.min(limit, 2))}
+  `;
+  const results: Array<Record<string, unknown>> = [];
+  for (const candidate of candidates) {
+    const opportunityId = String(candidate.id);
+    await audit("system:processor", "opportunity.backlog_attempted", "opportunity", opportunityId);
+    try {
+      results.push({ opportunityId, title: String(candidate.title), ...(await qualifyAndPrepare(opportunityId)) });
+    } catch (error) {
+      const cause = error instanceof Error ? error.message.slice(0, 180) : "Unknown processing failure";
+      await audit("system:processor", "opportunity.backlog_failed", "opportunity", opportunityId, { cause });
+      results.push({ opportunityId, title: String(candidate.title), status: "failed", cause });
+    }
+  }
+  return { processed: results.length, results, reason: candidates.length ? null : "no_unprepared_opportunities" };
 }
 
 /**

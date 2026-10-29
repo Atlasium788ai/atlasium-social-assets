@@ -15,7 +15,8 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
   const rows = await sql<OpportunityRow[]>`
     select o.*, p.id as proposal_id, p.body as proposal_body, p.questions as proposal_questions,
       p.bid_amount as proposal_bid_amount, p.timeline as proposal_timeline, p.milestones as proposal_milestones,
-      p.quality_score, p.quality_review, p.human_judgment_required, p.status as proposal_status
+      p.quality_score, p.quality_review, p.human_judgment_required, p.status as proposal_status,
+      p.attachment_recommendations
     from bidflo_opportunities o
     left join lateral (select * from bidflo_proposals where opportunity_id = o.id order by version desc limit 1) p on true
     where o.id = ${id}

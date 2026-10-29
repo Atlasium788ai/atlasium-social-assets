@@ -91,6 +91,14 @@ export type OpportunityRow = {
   proposal_bid_amount: string | null;
   proposal_timeline: string | null;
   proposal_milestones: ProposalDraft["milestones"] | null;
+  attachment_recommendations: Array<{
+    id: string;
+    name: string;
+    href: string;
+    description: string;
+    reason: string;
+    verified: boolean;
+  }> | null;
   quality_score: number | null;
   quality_review: Record<string, unknown> | null;
   human_judgment_required: boolean | null;

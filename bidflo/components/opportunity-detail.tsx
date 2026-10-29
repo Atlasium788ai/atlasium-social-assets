@@ -109,6 +109,32 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
     }
   }
 
+  async function copyFulfilmentBrief() {
+    const milestones = (opportunity.proposal_milestones ?? [])
+      .map((milestone, index) => `${index + 1}. ${milestone.name}: ${milestone.deliverable} (${money(milestone.amount)})`)
+      .join("\n");
+    const clientQuestions = (opportunity.proposal_questions ?? []).map((question) => `- ${question}`).join("\n");
+    const brief = [
+      "ATLASIUM FULFILMENT BRIEF",
+      `Opportunity: ${opportunity.title}`,
+      `Client: ${opportunity.client_name ?? "Upwork client"}`,
+      `Source: ${opportunity.job_url}`,
+      `Approved bid package: ${money(opportunity.proposal_bid_amount ?? opportunity.suggested_bid)}`,
+      `Delivery window: ${opportunity.proposal_timeline ?? opportunity.suggested_timeline ?? "Confirm during scoping"}`,
+      "", "CLIENT REQUIREMENTS", opportunity.description,
+      "", "PROPOSED DELIVERY MILESTONES", milestones || "Confirm milestones during scoping.",
+      "", "OPEN QUESTIONS", clientQuestions || "No open questions recorded.",
+      "", "FULFILMENT RULES",
+      "Confirm specialist availability, delivery cost, access requirements and scope before any client commitment. Do not invent experience, results, certifications or availability.",
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(brief);
+      setNotice("Fulfilment brief copied. Paste it into the approved Atlasium fulfilment chat or workflow.");
+    } catch {
+      setNotice("Copy was blocked by the browser. Please retry from a secure browser tab.");
+    }
+  }
+
   function resolveUncertainSubmission(outcome: "submitted" | "not_submitted") {
     const message = outcome === "submitted"
       ? "Confirm only if Upwork shows this proposal as submitted."
@@ -161,6 +187,23 @@ export function OpportunityDetail({ opportunity, messages }: { opportunity: Oppo
             ) : (
               <div className="proposal-copy"><p>{opportunity.proposal_body}</p>{(opportunity.proposal_questions ?? []).length > 0 && <><h3>Questions for the client</h3><ol>{opportunity.proposal_questions!.map((question) => <li key={question}>{question}</li>)}</ol></>}</div>
             )}
+            {opportunity.proposal_id && <section className="bid-package" aria-label="Complete approval package">
+              <div><p className="eyebrow">COMPLETE BID PACKAGE</p><h3>Ready for one review.</h3></div>
+              <div className="bid-package-grid">
+                <span><strong>Proposal</strong><small>Client-specific draft</small></span>
+                <span><strong>{(opportunity.proposal_questions ?? []).length}</strong><small>Screening questions</small></span>
+                <span><strong>{(opportunity.proposal_milestones ?? []).length}</strong><small>Priced milestones</small></span>
+                <span><strong>{(opportunity.attachment_recommendations ?? []).length}</strong><small>Relevant attachments</small></span>
+              </div>
+              {(opportunity.attachment_recommendations ?? []).length > 0 && <div className="bid-attachments">
+                {(opportunity.attachment_recommendations ?? []).map((attachment) => <article key={attachment.id}>
+                  <div><strong>{attachment.name}</strong><p>{attachment.reason}. {attachment.description}</p></div>
+                  <a className="secondary-button" href={attachment.href}>Download PDF</a>
+                </article>)}
+                <p>Use only when relevant to this job. Review the file, then attach it during the approved Upwork submission.</p>
+              </div>}
+              <button className="secondary-button" type="button" onClick={() => void copyFulfilmentBrief()}>Copy fulfilment brief</button>
+            </section>}
             {opportunity.proposal_id && <div className="proposal-actions">
               {proposalLocked ? <p>Proposal locked after submission begins. No further edits or approvals permitted.</p> :
                 editing ? <><button className="primary-button" disabled={Boolean(pending)} onClick={() => action({ action: "edit", body, bidAmount, timeline, questions: questions.split("\n").map((q) => q.trim()).filter(Boolean) })}>Save edits</button><button className="ghost-button" disabled={Boolean(pending)} onClick={() => setEditing(false)}>Cancel</button></> : <>
