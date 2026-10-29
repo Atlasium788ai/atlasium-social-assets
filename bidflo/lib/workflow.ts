@@ -141,6 +141,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
   };
   let aiReviewed = false;
   let aiAttempted = false;
+  let aiFailure: string | null = null;
   if ((process.env.AI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()) && process.env.AI_MODEL) {
     aiAttempted = true;
     try {
@@ -168,6 +169,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
     } catch (error) {
       // If drafting succeeded but review failed, keep the draft but do not claim it was QC'd.
       const cause = error instanceof Error ? error.message.slice(0, 180) : "Unknown model failure";
+      aiFailure = cause;
       review.issues = [`Automated quality review unavailable: ${cause}`];
       await audit("system:ai", "ai.execution_failed", "opportunity", opportunityId, { cause });
     }
@@ -231,6 +233,7 @@ export async function qualifyAndPrepare(opportunityId: string) {
       reviewed: aiReviewed,
       qualityScore: review.score,
       humanJudgmentRequired: review.humanJudgmentRequired,
+      failure: aiFailure,
     },
   };
 }
@@ -292,11 +295,15 @@ export async function processAiBacklog(limit = 1) {
     select o.id, o.title
       from bidflo_opportunities o
       join lateral (
-        select quality_score from bidflo_proposals
+        select quality_score, created_at from bidflo_proposals
          where opportunity_id = o.id order by version desc limit 1
       ) p on true
      where o.status = 'proposal_ready'
        and p.quality_score is null
+       -- A draft created earlier in this processor cycle already attempted GPT.
+       -- Give it one full retry interval before backfilling so one check cannot
+       -- create two proposal versions or two approval alerts for the same job.
+       and p.created_at <= now() - interval '5 minutes'
        and not exists (
          select 1 from bidflo_audit_logs a
           where a.entity_id = o.id::text
