@@ -22,3 +22,47 @@ export function extractManualRequirements(description: string): string[] {
   ];
   return signals.filter(([regex]) => regex.test(description)).map(([, requirement]) => requirement).slice(0, 9);
 }
+
+/**
+ * Normalize historical JSON shapes before proposal/qualification code sees them.
+ * Early Visez records can contain a JSON string or an object instead of the
+ * current string-array representation. Keep recovery conservative: preserve
+ * only textual values and never manufacture requirements.
+ */
+export function normalizeStoredRequirements(value: unknown): string[] {
+  const collected: string[] = [];
+
+  function collect(input: unknown, depth = 0) {
+    if (depth > 3 || input == null) return;
+    if (Array.isArray(input)) {
+      for (const item of input) collect(item, depth + 1);
+      return;
+    }
+    if (typeof input === "string") {
+      const trimmed = input.trim();
+      if (!trimmed) return;
+      if ((trimmed.startsWith("[") && trimmed.endsWith("]"))
+        || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+        try {
+          collect(JSON.parse(trimmed), depth + 1);
+          return;
+        } catch {
+          // Preserve a non-JSON string exactly as stored.
+        }
+      }
+      collected.push(trimmed.replace(/\s+/g, " ").slice(0, 300));
+      return;
+    }
+    if (typeof input === "object") {
+      const record = input as Record<string, unknown>;
+      if ("requirements" in record) {
+        collect(record.requirements, depth + 1);
+        return;
+      }
+      for (const item of Object.values(record)) collect(item, depth + 1);
+    }
+  }
+
+  collect(value);
+  return [...new Set(collected.filter((item) => item.length > 1))].slice(0, 12);
+}
