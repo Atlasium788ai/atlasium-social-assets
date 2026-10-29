@@ -14,6 +14,10 @@ Visez is Atlasium 7/88's private opportunity and proposal operations system. It 
 
 No scraping is used. Email body content is treated as untrusted data and cannot invoke tools or bypass approval.
 
+## Proof document library
+
+Authenticated operators can add approved PDFs in **Settings → Proof Document Library**. Visez validates the PDF, stores it privately in Neon, derives matching terms from its filename and description, and recommends it only when those terms appear in the opportunity. Matched documents are included in the proposal approval package and optional submission-bridge payload. The final Upwork upload remains part of the approved proposal workflow; uploading a proof document never submits a bid or spends Connects.
+
 ## Slack alerts
 
 Visez writes deduplicated notifications to `bidflo_notifications` for qualified opportunities, proposals ready for review, received Upwork client replies, confirmed submitted proposals, interviews and wins. The existing five-minute processor sends the alerts and retries temporary failures. Alerts do not contain private client-message bodies and link back to the opportunity in Visez.
