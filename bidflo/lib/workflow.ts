@@ -11,6 +11,7 @@ import { canRescore, type OpportunityStage } from "./pipeline-guards";
 import { proposalPreflight } from "./proposal-preflight";
 import { retryPolicy } from "./retry-policy";
 import { recommendAttachments } from "./bid-package";
+import { normalizeStoredRequirements } from "./job-requirements";
 
 type EventPayload = {
   text?: string | null;
@@ -31,7 +32,7 @@ function rowToOpportunity(row: Record<string, unknown>): OpportunityInput {
     budgetType: (row.budget_type as OpportunityInput["budgetType"]) ?? "unknown",
     currency: String(row.currency ?? "USD"),
     jobUrl: String(row.job_url),
-    requirements: (row.requirements as string[]) ?? [],
+    requirements: normalizeStoredRequirements(row.requirements),
     sourceSubject: String(row.source_subject),
     sourceReceivedAt: new Date(String(row.source_received_at)).toISOString(),
   };
