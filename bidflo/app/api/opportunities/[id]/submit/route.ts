@@ -18,7 +18,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!z.string().uuid().safeParse(id).success) return Response.json({ error: "Invalid opportunity id" }, { status: 400 });
   const sql = db();
   const [row] = await sql`
-    select o.*, p.id as proposal_id, p.body, p.questions, p.bid_amount, p.timeline, p.milestones, p.status as proposal_status
+    select o.*, p.id as proposal_id, p.body, p.questions, p.bid_amount, p.timeline, p.milestones,
+      p.attachment_recommendations, p.status as proposal_status
     from bidflo_opportunities o
     join lateral (select * from visez_proposals where opportunity_id = o.id order by version desc limit 1) p on true
     where o.id = ${id}
@@ -79,6 +80,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         proposal: {
           body: row.body, questions: row.questions, bidAmount: Number(row.bid_amount),
           timeline: row.timeline, milestones: row.milestones,
+          attachments: row.attachment_recommendations,
         },
         approvedBy: actor,
       }),

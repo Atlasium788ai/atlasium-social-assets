@@ -45,3 +45,14 @@ test("recommends only verified, relevant, private Visez attachments", () => {
     approvedAttachments: [{ ...rules.approvedAttachments[0], href: "https://untrusted.example/file.pdf" }],
   }), []);
 });
+
+test("recommends an uploaded private proof document when its terms match", () => {
+  const [match] = recommendAttachments(base, {
+    approvedAttachments: [{
+      ...rules.approvedAttachments[0],
+      id: "f76e58e8-1b90-4f71-8dbf-74ef9c44d39e",
+      href: "/api/proof-documents/f76e58e8-1b90-4f71-8dbf-74ef9c44d39e",
+    }],
+  });
+  assert.equal(match?.name, "Paid Media Overview.pdf");
+});

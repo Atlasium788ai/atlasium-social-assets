@@ -22,7 +22,7 @@ function approvedAttachments(proposalRules: Record<string, unknown>): ApprovedAt
       : [];
     if (typeof row.id !== "string" || typeof row.name !== "string" || typeof row.href !== "string"
       || typeof row.description !== "string" || row.verified !== true || !keywords.length) return [];
-    if (!row.href.startsWith("/api/attachments/")) return [];
+    if (!row.href.startsWith("/api/attachments/") && !row.href.startsWith("/api/proof-documents/")) return [];
     return [{
       id: row.id,
       name: row.name,

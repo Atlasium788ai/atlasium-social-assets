@@ -121,7 +121,25 @@ export async function qualifyAndPrepare(opportunityId: string) {
   const commercialDraft: ProposalDraft = { body: "", questions: [], ...commercials };
   const capabilityProfile = settings.capability_profile as Record<string, unknown>;
   const approvedExamples = (proposalRules.approvedExamples as string[] | undefined) ?? [];
-  const attachments = recommendAttachments(opportunity, proposalRules);
+  const uploadedProof = await sql`
+    select id, name, description, keywords
+    from visez_proof_documents
+    where active = true and verified = true
+    order by created_at desc
+  `;
+  const attachmentRules = {
+    ...proposalRules,
+    approvedAttachments: [
+      ...(Array.isArray(proposalRules.approvedAttachments) ? proposalRules.approvedAttachments : []),
+      ...uploadedProof.map((document) => ({
+        id: String(document.id), name: String(document.name),
+        href: `/api/proof-documents/${String(document.id)}`,
+        description: String(document.description), keywords: document.keywords,
+        verified: true,
+      })),
+    ],
+  };
+  const attachments = recommendAttachments(opportunity, attachmentRules);
   // Never block opportunity intake when the model endpoint is down or a key has expired.
   // Unreviewed fallback drafts require a human to check every claim and commercial term.
   let draft: ProposalDraft = prepareManualReviewDraft(opportunity, commercialDraft);
