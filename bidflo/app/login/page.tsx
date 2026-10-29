@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
 import { LogoMark } from "@/components/visez-icons";
+import { PasswordField } from "@/components/password-field";
 import { withDeadline } from "@/lib/with-deadline";
 
 export default function LoginPage() {
@@ -70,7 +71,7 @@ export default function LoginPage() {
         <p className="visez-login-subtitle">EVERY OPPORTUNITY. EVERY TIME.</p>
         <form onSubmit={submit} className="login-form">
           <label className="visez-login-field"><span>Email address</span><input type="email" name="email" autoComplete="email" placeholder="Email address" required /></label>
-          <label className="visez-login-field"><span>Password</span><input type="password" name="password" autoComplete="current-password" placeholder="Password" required /></label>
+          <PasswordField label="Password" name="password" autoComplete="current-password" placeholder="Password" required />
           {error && <p className="form-error" role="alert">{error}</p>}
           {notice && <p className="form-success" role="status">{notice}</p>}
           <button className="primary-button" disabled={pending}>{pending ? "Signing in…" : "Sign In"}</button>
