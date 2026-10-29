@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: atlasium-bidflo
+    name: atlasium-visez
     runtime: node
     region: ohio
     plan: 0.5c-512mb
@@ -19,7 +19,7 @@ services:
         sync: false
       - key: NEON_AUTH_COOKIE_SECRET
         generateValue: true
-      - key: BIDFLO_ALLOWED_EMAILS
+      - key: VISEZ_ALLOWED_EMAILS
         sync: false
       - key: AI_API_BASE_URL
         value: https://api.openai.com/v1
@@ -33,17 +33,17 @@ services:
         sync: false
       - key: UPWORK_ALLOWED_SENDERS
         sync: false
-      - key: BIDFLO_OWNER_EMAIL
+      - key: VISEZ_OWNER_EMAIL
         sync: false
-      - key: BIDFLO_EMAIL_FROM
+      - key: VISEZ_EMAIL_FROM
         sync: false
-      - key: BIDFLO_URL
+      - key: VISEZ_URL
         sync: false
       - key: CRON_SECRET
         sync: false
 
   - type: cron
-    name: atlasium-bidflo-processor
+    name: atlasium-visez-processor
     runtime: node
     region: ohio
     plan: 0.5c-512mb
@@ -55,7 +55,7 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22.13.0
-      - key: BIDFLO_URL
+      - key: VISEZ_URL
         sync: false
       - key: CRON_SECRET
         sync: false
