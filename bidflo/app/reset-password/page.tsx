@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
+import { PasswordField } from "@/components/password-field";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -17,5 +18,5 @@ export default function ResetPasswordPage() {
     if (result.error) { setError(result.error.message ?? "This link is invalid or expired."); return; }
     router.replace("/login?reset=complete");
   }
-  return <main className="login-shell"><section className="login-panel"><div className="brand-mark">V</div><p className="eyebrow">SECURE ACCESS</p><h1>Set your password</h1><p className="login-subtitle">Create a private password for the Visez workspace.</p><form onSubmit={submit} className="login-form"><label>New password<input type="password" name="password" minLength={10} autoComplete="new-password" required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={pending}>{pending ? "Securing account…" : "Set password"}</button></form></section></main>;
+  return <main className="login-shell"><section className="login-panel"><div className="brand-mark">V</div><p className="eyebrow">SECURE ACCESS</p><h1>Set your password</h1><p className="login-subtitle">Create a private password for the Visez workspace.</p><form onSubmit={submit} className="login-form"><PasswordField label="New password" name="password" minLength={10} autoComplete="new-password" placeholder="New password" required />{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={pending}>{pending ? "Securing account…" : "Set password"}</button></form></section></main>;
 }

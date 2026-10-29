@@ -371,6 +371,17 @@ input, textarea { color: var(--text); background: #0c0c12; border: 1px solid var
   border: 1px solid rgba(116,164,218,.48); border-radius: 11px; color: #eef7ff;
   font-size: 15px; outline: none; box-sizing: border-box;
 }
+.login-panel .password-input-wrap { position: relative; display: block; }
+.login-panel .password-input-wrap input { padding-right: 66px; }
+.login-panel .password-visibility-toggle {
+  position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  border: 0; border-radius: 9px; background: transparent; color: #9eb4cf;
+  cursor: pointer;
+}
+.login-panel .password-visibility-toggle:hover { color: #e9f5ff; background: rgba(55,145,230,.1); }
+.login-panel .password-visibility-toggle:focus-visible { outline: 2px solid #49bbff; outline-offset: 1px; }
+.login-panel .password-visibility-toggle svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .login-panel .visez-login-field input:focus { border-color: #49bbff; box-shadow: 0 0 0 3px rgba(30,145,255,.17); }
 .login-panel .visez-login-field input::placeholder { color: #a2acc0; opacity: 1; }
 .login-panel .login-form .primary-button {
