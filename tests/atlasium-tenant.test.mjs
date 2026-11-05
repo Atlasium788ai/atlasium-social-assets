@@ -79,6 +79,15 @@ test("customer workspace data is isolated from Atlasium and other customers", as
   const application = await worker();
   const db = await memoryD1();
 
+  // Seed the original Atlasium workspace first, then prove customer sessions
+  // cannot see the brand or reuse its connected publishing routes.
+  const original = await application.fetch(new Request(origin + "/api/workspace", {
+    headers: { "X-Upload-Key": "original-private-key" },
+  }), { ...env, DB: db }, ctx);
+  assert.equal(original.status, 200);
+  const originalData = await original.json();
+  assert.ok(originalData.brands.some((brand) => brand.id === "brand_atlasium_788_ai"));
+
   const a = await tenantCookie(application, db, customerA);
   const b = await tenantCookie(application, db, customerB);
   const settings = { ...env, DB: db };
