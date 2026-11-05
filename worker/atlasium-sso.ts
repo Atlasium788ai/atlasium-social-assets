@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export type AtlasiumSsoEnv = {
   ATLASIUM_ECHOFLOW_SSO_ENABLED?: string;
+  ATLASIUM_ECHOFLOW_TENANTS_ENABLED?: string;
   ATLASIUM_ECHOFLOW_OWNER_SUBJECT?: string;
   ATLASIUM_ECHOFLOW_SHARED_SECRET?: string;
   ATLASIUM_ECHOFLOW_SESSION_SECRET?: string;
@@ -17,6 +18,7 @@ const SESSION_AGE_SEC = 12 * 60 * 60;
 const NONCE_AGE_SEC = 3 * 60;
 const NONCE_COOKIE = "__Host-atlasium-echo-nonce";
 const SESSION_COOKIE = "__Host-atlasium-echo-session";
+const TENANT_COOKIE = "__Host-atlasium-echo-tenant";
 
 function configured(env: AtlasiumSsoEnv, request: Request): Setup | null {
   if (env.ATLASIUM_ECHOFLOW_SSO_ENABLED !== "true") return null;
@@ -76,6 +78,28 @@ function verifiedSession(request: Request, cfg: Setup, now = Date.now()) {
   } catch { return false; }
 }
 
+function signTenantSession(cfg: Setup, sub: string, workspaceId: string, now = Date.now()) {
+  const payload = Buffer.from(JSON.stringify({ v: 2, sub, workspaceId, exp: now + SESSION_AGE_SEC * 1000 }), "utf8").toString("base64url");
+  return `${payload}.${mac(cfg.sessionSecret, payload)}`;
+}
+
+export type AtlasiumTenantIdentity = { subject: string; workspaceOwnerId: string };
+
+export function atlasiumTenantSession(request: Request, env: AtlasiumSsoEnv, now = Date.now()): AtlasiumTenantIdentity | null {
+  if (env.ATLASIUM_ECHOFLOW_TENANTS_ENABLED !== "true") return null;
+  const cfg = configured(env, request);
+  if (!cfg) return null;
+  const parts = readCookie(request, TENANT_COOKIE).split(".");
+  if (parts.length !== 2 || parts[0].length > 1024 || parts[1].length > 200 || !equal(mac(cfg.sessionSecret, parts[0]), parts[1])) return null;
+  try {
+    const data = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")) as { v?: number; sub?: string; workspaceId?: string; exp?: number };
+    // Only workspace owners are admitted in the first release, never team members.
+    if (data.v !== 2 || !data.sub || !OWNER_UUID.test(data.sub) || data.workspaceId !== data.sub ||
+        data.sub === cfg.subject || typeof data.exp !== "number" || data.exp <= now || data.exp > now + SESSION_AGE_SEC * 1000) return null;
+    return { subject: data.sub, workspaceOwnerId: data.workspaceId };
+  } catch { return null; }
+}
+
 const privateHeaders = { "Cache-Control": "no-store, max-age=0", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow" };
 
 /** No secrets or customer identifiers are returned to the public landing screen. */
@@ -93,7 +117,7 @@ export function atlasiumOwnerActor(request: Request, env: AtlasiumSsoEnv): strin
   return cfg && verifiedSession(request, cfg) ? `atlasium:${cfg.subject}` : null;
 }
 
-async function exchange(cfg: Setup, ticket: string): Promise<Verified | null> {
+async function exchange(cfg: Setup, ticket: string, tenantsEnabled: boolean): Promise<Verified | null> {
   const url = new URL("/v1/atlasium-echoflow/exchange", cfg.backend);
   const response = await fetch(url, {
     method: "POST", headers: { "Content-Type": "application/json", "X-Atlasium-EchoFlow-Secret": cfg.sharedSecret },
@@ -103,8 +127,11 @@ async function exchange(cfg: Setup, ticket: string): Promise<Verified | null> {
   if (!response.ok) return null;
   const envelope = await response.json() as { data?: Partial<Verified> };
   const data = envelope.data;
-  if (data?.subject !== cfg.subject || data?.workspaceId !== cfg.subject ||
-      data?.emailVerified !== true || typeof data.nonce !== "string" || !B64.test(data.nonce)) return null;
+  if (!data?.subject || !OWNER_UUID.test(data.subject) || !data.workspaceId || !OWNER_UUID.test(data.workspaceId) ||
+      data.emailVerified !== true || typeof data.nonce !== "string" || !B64.test(data.nonce)) return null;
+  const owner = data.subject === cfg.subject && data.workspaceId === cfg.subject;
+  const customerOwner = tenantsEnabled && data.subject !== cfg.subject && data.workspaceId === data.subject;
+  if (!owner && !customerOwner) return null;
   return data as Verified;
 }
 
@@ -137,12 +164,18 @@ export async function handleAtlasiumSso(request: Request, env: AtlasiumSsoEnv): 
       return new Response("The sign-in link is invalid or expired. Return to Atlasium Core.", { status: 400, headers });
     }
     try {
-      const identity = await exchange(cfg, code);
+      const identity = await exchange(cfg, code, env.ATLASIUM_ECHOFLOW_TENANTS_ENABLED === "true");
       if (!identity || !equal(identity.nonce, state)) {
         return new Response("Atlasium account verification failed.", { status: 403, headers });
       }
-      headers.set("Location", new URL("/echo", cfg.publicOrigin).toString());
-      headers.append("Set-Cookie", hostCookie(SESSION_COOKIE, signSession(cfg), SESSION_AGE_SEC));
+      if (identity.subject === cfg.subject) {
+        headers.set("Location", new URL("/echo", cfg.publicOrigin).toString());
+        headers.append("Set-Cookie", hostCookie(SESSION_COOKIE, signSession(cfg), SESSION_AGE_SEC));
+      } else {
+        // Customer gets a scoped session, never the existing Atlasium publishing cookie.
+        headers.set("Location", new URL("/atlasium/workspace", cfg.publicOrigin).toString());
+        headers.append("Set-Cookie", hostCookie(TENANT_COOKIE, signTenantSession(cfg, identity.subject, identity.workspaceId), SESSION_AGE_SEC));
+      }
       return new Response(null, { status: 303, headers });
     } catch {
       return new Response("Sign-in could not be verified. Return to Atlasium Core.", { status: 401, headers });
@@ -153,6 +186,7 @@ export async function handleAtlasiumSso(request: Request, env: AtlasiumSsoEnv): 
     const headers = new Headers(privateHeaders);
     if (request.method === "GET") headers.set("Location", new URL("/echo", cfg.publicOrigin).toString());
     headers.append("Set-Cookie", clearHostCookie(SESSION_COOKIE));
+    headers.append("Set-Cookie", clearHostCookie(TENANT_COOKIE));
     headers.append("Set-Cookie", clearHostCookie(NONCE_COOKIE));
     return new Response(null, { status: request.method === "POST" ? 204 : 303, headers });
   }
