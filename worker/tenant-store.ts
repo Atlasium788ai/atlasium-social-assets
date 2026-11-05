@@ -95,8 +95,8 @@ export async function createCustomerBrand(
       "INSERT INTO brands (id, workspace_id, slug, name, timezone, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
     ).bind(id, workspaceId, slug, name, "America/Toronto", stamp, stamp),
     db.prepare(
-      "INSERT INTO brand_profiles (brand_id) VALUES (?)",
-    ).bind(id),
+      "INSERT INTO brand_profiles (brand_id, updated_at) VALUES (?, ?)",
+    ).bind(id, stamp),
     db.prepare(
       "INSERT INTO audit_logs (id, workspace_id, brand_id, actor_id, action, details, created_at) VALUES (?, ?, ?, ?, 'tenant_draft_brand_created', ?, ?)",
     ).bind("audit_" + crypto.randomUUID(), workspaceId, id, memberId, JSON.stringify({ published: false, channelCount: 0 }), stamp),
