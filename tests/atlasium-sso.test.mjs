@@ -32,6 +32,16 @@ function nonceFromCookie(response) {
   return decodeURIComponent(match[1]);
 }
 
+test("public sign-in link stays hidden when optional bridge is disabled", async () => {
+  const worker = await loadWorker();
+  const blocked = await worker.fetch(new Request(origin + "/api/atlasium/availability"), {
+    ...envBase, ATLASIUM_ECHOFLOW_SSO_ENABLED: "false",
+  }, context);
+  assert.deepEqual(await blocked.json(), { ownerSignInAvailable: false });
+  const on = await worker.fetch(new Request(origin + "/api/atlasium/availability"), envBase, context);
+  assert.deepEqual(await on.json(), { ownerSignInAvailable: true });
+});
+
 test("EchoFlow single-sign-on defaults to disabled and never replaces legacy private access", async () => {
   const worker = await loadWorker();
   const disabled = await worker.fetch(new Request(origin + "/auth/atlasium/start"), {
