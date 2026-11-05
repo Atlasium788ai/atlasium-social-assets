@@ -22,7 +22,13 @@ export default function AtlasiumCustomerWorkspace() {
     if (!response.ok) throw new Error(response.status === 401 ? "Please sign in from Atlasium Core." : "Could not load your workspace.");
     setData(await response.json() as CustomerWorkspace);
   }
-  useEffect(() => { void load().catch((err: Error) => setMessage(err.message)); }, []);
+  useEffect(() => {
+    // A customer session must never reuse a previously saved, globally privileged
+    // owner publishing key from this browser, including on a shared device.
+    localStorage.removeItem("echoflow-access-key");
+    localStorage.removeItem("atlasium-upload-key");
+    void load().catch((err: Error) => setMessage(err.message));
+  }, []);
 
   async function addBrand(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
