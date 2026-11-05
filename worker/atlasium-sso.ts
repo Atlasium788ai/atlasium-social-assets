@@ -170,10 +170,12 @@ export async function handleAtlasiumSso(request: Request, env: AtlasiumSsoEnv): 
       }
       if (identity.subject === cfg.subject) {
         headers.set("Location", new URL("/echo", cfg.publicOrigin).toString());
+        headers.append("Set-Cookie", clearHostCookie(TENANT_COOKIE));
         headers.append("Set-Cookie", hostCookie(SESSION_COOKIE, signSession(cfg), SESSION_AGE_SEC));
       } else {
         // Customer gets a scoped session, never the existing Atlasium publishing cookie.
         headers.set("Location", new URL("/atlasium/workspace", cfg.publicOrigin).toString());
+        headers.append("Set-Cookie", clearHostCookie(SESSION_COOKIE));
         headers.append("Set-Cookie", hostCookie(TENANT_COOKIE, signTenantSession(cfg, identity.subject, identity.workspaceId), SESSION_AGE_SEC));
       }
       return new Response(null, { status: 303, headers });
