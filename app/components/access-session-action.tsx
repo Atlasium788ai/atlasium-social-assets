@@ -10,12 +10,12 @@ export function AccessSessionAction() {
   if (!available) return null;
   return <div className="access-session-links">
     <a className="access-session-action" href="/EchoFlow-Assistant-Quick-Guide.pdf" target="_blank" rel="noreferrer">Quick guide</a>
-    <button type="button" className="access-session-action" onClick={() => {
+    <button type="button" className="access-session-action" onClick={async () => {
       localStorage.removeItem("echoflow-access-key");
       localStorage.removeItem("atlasium-upload-key");
       localStorage.removeItem("echoflow-active-brand");
       for (const key of Object.keys(localStorage)) if (key.startsWith("echoflow-active-campaign:")) localStorage.removeItem(key);
-      window.location.assign("/signout-with-chatgpt?return_to=%2Fecho");
+      // Clear the host-only Atlasium session before leaving the existing platform session.\n      try { await fetch("/auth/atlasium/logout", { method: "POST", cache: "no-store" }); } catch { /* The existing signout still works if the optional bridge is disabled. */ }\n      window.location.assign("/signout-with-chatgpt?return_to=%2Fecho");
     }}>Sign out</button>
   </div>;
 }
