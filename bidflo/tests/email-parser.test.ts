@@ -131,6 +131,23 @@ test("normalizes case variants of an Upwork job key for duplicate prevention", (
   }
 });
 
+test("ignores Upwork marketing emails even when they embed a valid job link", () => {
+  for (const subject of [
+    "Hop to the front of the line with Boosted Proposals",
+    "How Shamim won 2 Upwork jobs in a week with AI",
+    "Stand out and win work with ads",
+    "We've missed you! Discover work today",
+    "Your proposal has been viewed, what's next?",
+  ]) {
+    const result = parseUpworkEmail({
+      subject,
+      receivedAt: "2026-11-01T12:00:00.000Z",
+      text: "Browse more work https://www.upwork.com/jobs/~022114562244040094108",
+    });
+    assert.equal(result.kind, "ignored", subject);
+  }
+});
+
 test("new job titles about interview scheduling and offers remain opportunities, not client replies", () => {
   for (const subject of [
     "New job: Interview Scheduling Automation",
