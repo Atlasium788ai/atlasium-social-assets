@@ -78,6 +78,11 @@ function verifiedSession(request: Request, cfg: Setup, now = Date.now()) {
 
 const privateHeaders = { "Cache-Control": "no-store, max-age=0", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow" };
 
+/** No secrets or customer identifiers are returned to the public landing screen. */
+export function atlasiumOwnerBridgeAvailable(request: Request, env: AtlasiumSsoEnv) {
+  return configured(env, request) !== null;
+}
+
 export function hasAtlasiumOwnerSession(request: Request, env: AtlasiumSsoEnv): boolean {
   const cfg = configured(env, request);
   return !!cfg && verifiedSession(request, cfg);
