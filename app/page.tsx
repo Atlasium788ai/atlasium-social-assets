@@ -49,6 +49,7 @@ function EchoFlowIdentity({ full = false }: { full?: boolean }) {
 export default function Home() {
   const [key, setKey] = useState("");
   const [access, setAccess] = useState<AccessState>("checking");
+  const [ownerSignInAvailable, setOwnerSignInAvailable] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [activeBrandId, setActiveBrandId] = useState("");
   const [brandSearch, setBrandSearch] = useState("");
@@ -99,6 +100,17 @@ export default function Home() {
     for (const brand of data.brands) { const id = localStorage.getItem(`echoflow-active-campaign:${brand.id}`); if (id) restored[brand.id] = id; }
     setCampaigns(restored);
   }
+
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/atlasium/availability", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { ownerSignInAvailable?: boolean } | null) => {
+        if (mounted && data?.ownerSignInAvailable) setOwnerSignInAvailable(true);
+      })
+      .catch(() => { /* Keep the current ChatGPT sign-in if this bridge is disabled. */ });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     const hashKey = new URLSearchParams(location.hash.slice(1)).get("key");
@@ -267,8 +279,9 @@ export default function Home() {
       <EchoFlowIdentity full />
       <ProductNavigation active="echo" />
       <p>One prompt. Every brand. One controlled publishing flow.</p>
-      <div className="access-warning">Sign in with the company email to continue.</div>
-      <a className="access-login-link" href="/signin-with-chatgpt?return_to=%2Fecho" target="_top">Sign in</a>
+      <div className="access-warning">{ownerSignInAvailable ? "Open your existing Atlasium workspace, or use the current ChatGPT access." : "Use your existing ChatGPT access to continue."}</div>
+      {ownerSignInAvailable && <a className="access-login-link" href="/auth/atlasium/start" target="_top">Enter with Atlasium account</a>}
+      <a className="access-login-link" href="/signin-with-chatgpt?return_to=%2Fecho" target="_top">{ownerSignInAvailable ? "Existing ChatGPT access" : "Sign in"}</a>
     </section>
   </main>;
 

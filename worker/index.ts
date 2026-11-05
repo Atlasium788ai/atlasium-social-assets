@@ -1,4 +1,5 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
+import { handleAtlasiumSso, hasAtlasiumOwnerSession, atlasiumOwnerActor, atlasiumOwnerBridgeAvailable, type AtlasiumSsoEnv } from "./atlasium-sso";
 import handler from "vinext/server/app-router-entry";
 import {
   ATLASIUM_BRAND_ID,
@@ -44,7 +45,7 @@ import {
   updateEchoContentDraft,
 } from "./content-store";
 
-interface Env {
+interface Env extends AtlasiumSsoEnv {
   ASSETS: Fetcher;
   DB?: D1Database;
   UPLOADS: R2Bucket;
@@ -155,11 +156,11 @@ function authorized(request: Request, env: Env) {
   const signedInEmail = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
   const allowedEmails = new Set((env.AUTHORIZED_USER_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
   const signedInUser = Boolean(signedInUserId && signedInEmail && allowedEmails.has(signedInEmail));
-  return sharedKeyMatches || signedInUser;
+  return sharedKeyMatches || signedInUser || hasAtlasiumOwnerSession(request, env);
 }
 
-function actorId(request: Request) {
-  return request.headers.get("oai-authenticated-user-id")?.trim() || OWNER_ID;
+function actorId(request: Request, env?: Env) {
+  return request.headers.get("oai-authenticated-user-id")?.trim() || (env ? atlasiumOwnerActor(request, env) : null) || OWNER_ID;
 }
 
 async function bufferRequest(env: Env, query: string, variables: Record<string, unknown> = {}) {
@@ -227,7 +228,7 @@ async function reconcileDeliveries(request: Request, env: Env, brandId: string) 
     await recordDelivery(env, { publishJobId: job.id, brandId, providerStatus: current.status || null, publicUrl: current.externalLink || null, error: deliveryError });
   }));
   const summary = { checked: statuses.length, sent, failed, pending: Math.max(0, statuses.length - sent - failed) };
-  await audit(env, brandId, "delivery_reconciliation_completed", summary, actorId(request));
+  await audit(env, brandId, "delivery_reconciliation_completed", summary, actorId(request, env));
   return summary;
 }
 
@@ -795,7 +796,7 @@ async function createSocialDraftOnly(request: Request, env: Env, body: { brandId
   await saveCampaign(env, campaign);
   await audit(env, brand.id, "social_draft_saved", {
     campaignId: id, campaignItems: posts.length, variants: results.length, published: false, scheduled: false,
-  }, actorId(request));
+  }, actorId(request, env));
   return json({ campaignId: id, brandId: brand.id, draftOnly: true, message, campaign: plan.campaign, campaignItems: posts.length, destinationSubmissions: 0, postsCreated: 0, channels: 0, results }, 201);
 }
 
@@ -896,7 +897,7 @@ async function runAgent(request: Request, env: Env) {
   const message = pending ? `PROCESSING MOTION — ${pending} destination${pending === 1 ? "" : "s"} will be sent to Buffer only after the MP4 is hosted.` : failed ? `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"}; ${results.length - failed} destination submission${results.length - failed === 1 ? "" : "s"} confirmed and ${failed} failed.` : `${plan.posts.length} campaign item${plan.posts.length === 1 ? "" : "s"} created with ${results.length} confirmed destination submission${results.length === 1 ? "" : "s"} across ${usedChannels.size} channels.`;
   const campaign: CampaignRecord = { id: runId, workspaceId: WORKSPACE_ID, brandId: brand.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), prompt, timeZone, message, schedule, items: posts.map((post) => ({ ...post, state: ((post as PlannedPost & { state?: MotionState }).state || (post.mediaType === "video" ? "rendering" : "scheduled")) as MotionState, retryCount: (post as PlannedPost & { retryCount?: number }).retryCount || 0 })), results: results as CampaignResult[] };
   await saveCampaign(env, campaign);
-  await audit(env, brand.id, "social_campaign_submitted", { campaignId: runId, campaignItems: plan.posts.length, destinationSubmissions: results.length, failed, pending, timing: schedule.timing.mode }, actorId(request));
+  await audit(env, brand.id, "social_campaign_submitted", { campaignId: runId, campaignItems: plan.posts.length, destinationSubmissions: results.length, failed, pending, timing: schedule.timing.mode }, actorId(request, env));
   return json({ campaignId: runId, brandId: brand.id, message, campaign: plan.campaign, campaignItems: plan.posts.length, destinationSubmissions: results.length, postsCreated: results.length - failed - pending, channels: usedChannels.size, schedule: schedule.timing, results }, pending ? 202 : failed ? 207 : 201);
 }
 
@@ -1129,7 +1130,7 @@ async function publish(request: Request, env: Env) {
   }
   const action = mode === "shareNow" ? "published" : mode === "customScheduled" ? "scheduled" : "added to the queue";
   const failed = results.filter((result) => result.status === "FAILED").length;
-  await audit(env, brand.id, "manual_publication_submitted", { campaignId: manualCampaignId, destinations: results.length, failed, mode, surfaceMode }, actorId(request));
+  await audit(env, brand.id, "manual_publication_submitted", { campaignId: manualCampaignId, destinations: results.length, failed, mode, surfaceMode }, actorId(request, env));
   return json({ brandId: brand.id, campaignId: manualCampaignId, message: failed ? `${results.length - failed} publication${results.length - failed === 1 ? "" : "s"} ${action}; ${failed} failed and is shown separately.` : `${results.length} publication${results.length === 1 ? "" : "s"} ${action} successfully.`, imageUrl, storyImageUrl: storyImageUrl || null, results }, failed ? 207 : 201);
 }
 
@@ -1171,7 +1172,7 @@ async function flowAssignChannelsRoute(request: Request, env: Env) {
   if (!body.brandId || !Array.isArray(body.channelIds) || body.channelIds.some((id) => typeof id !== "string")) return json({ error: "A brand and a list of social account IDs are required." }, 400);
   const { connected, publishingConnectionStatus } = await optionalPublishingDestinations(env);
   if (publishingConnectionStatus !== "connected") return json({ error: "The publishing connection is unavailable. Your current brand assignments are preserved." }, 503);
-  return json(await assignBrandChannels(env, body.brandId, body.channelIds, connected, actorId(request)));
+  return json(await assignBrandChannels(env, body.brandId, body.channelIds, connected, actorId(request, env)));
 }
 
 async function brandPayload(request: Request, env: Env, brandId?: string) {
@@ -1199,14 +1200,14 @@ async function createBrandRoute(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
   const brandId = `brand_${crypto.randomUUID()}`;
   const { profile, hostedLogo, connected } = await brandPayload(request, env, brandId);
-  return json({ brand: await createBrand(env, profile, connected, hostedLogo, brandId, actorId(request)) }, 201);
+  return json({ brand: await createBrand(env, profile, connected, hostedLogo, brandId, actorId(request, env)) }, 201);
 }
 
 async function updateBrandRoute(request: Request, env: Env, brandId: string) {
   if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
   await requireBrand(env, brandId);
   const { profile, hostedLogo, connected, publishingConnectionStatus } = await brandPayload(request, env, brandId);
-  return json({ brand: await updateBrand(env, brandId, profile, connected, hostedLogo, actorId(request), publishingConnectionStatus !== "connected") });
+  return json({ brand: await updateBrand(env, brandId, profile, connected, hostedLogo, actorId(request, env), publishingConnectionStatus !== "connected") });
 }
 
 async function draftRoute(request: Request, env: Env, brandId: string) {
@@ -1218,7 +1219,7 @@ async function draftRoute(request: Request, env: Env, brandId: string) {
 
 async function archiveBrandRoute(request: Request, env: Env, brandId: string) {
   if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
-  await archiveBrand(env, brandId, actorId(request));
+  await archiveBrand(env, brandId, actorId(request, env));
   return json({ archived: true, brandId });
 }
 
@@ -1241,7 +1242,7 @@ async function amplifyDraftRoute(request: Request, env: Env) {
   const body = await request.json() as Record<string, unknown>;
   const brandId = requiredAmplifyBrand(request, body.brandId);
   const draft = await createAmplifyDraft(env, brandId, body);
-  await audit(env, brandId, "advertising_draft_created", { draftId: draft.id, providers: Array.isArray(draft.payload.providerIds) ? draft.payload.providerIds.length : 0, status: draft.status }, actorId(request));
+  await audit(env, brandId, "advertising_draft_created", { draftId: draft.id, providers: Array.isArray(draft.payload.providerIds) ? draft.payload.providerIds.length : 0, status: draft.status }, actorId(request, env));
   return json({ draft }, 201);
 }
 
@@ -1250,7 +1251,7 @@ async function amplifyDraftUpdateRoute(request: Request, env: Env, draftId: stri
   const body = await request.json() as Record<string, unknown>;
   const brandId = requiredAmplifyBrand(request, body.brandId);
   const draft = await updateAmplifyDraft(env, brandId, draftId, body.payload as Record<string, unknown> || {});
-  await audit(env, brandId, "advertising_draft_updated", { draftId, revision: draft.revision }, actorId(request));
+  await audit(env, brandId, "advertising_draft_updated", { draftId, revision: draft.revision }, actorId(request, env));
   return json({ draft });
 }
 
@@ -1258,7 +1259,7 @@ async function amplifyAssetRoute(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This AMPLIFY workspace is not authorized." }, 401);
   const brandId = requiredAmplifyBrand(request);
   const asset = await uploadAmplifyAsset(request, env, brandId);
-  await audit(env, brandId, "advertising_asset_uploaded", { assetId: asset.id, sourceType: asset.sourceType, mediaType: asset.mediaType }, actorId(request));
+  await audit(env, brandId, "advertising_asset_uploaded", { assetId: asset.id, sourceType: asset.sourceType, mediaType: asset.mediaType }, actorId(request, env));
   return json({ asset }, 201);
 }
 
@@ -1268,7 +1269,7 @@ async function amplifyDryTestRoute(request: Request, env: Env) {
   const brandId = requiredAmplifyBrand(request, body.brandId);
   const result = await runAmplifyDryTest(env, brandId, String(body.draftId || ""), String(body.idempotencyKey || ""), body.confirmed === true);
   const resultRecord = result as Record<string, unknown>;
-  await audit(env, brandId, "advertising_dry_test_completed", { draftId: String(resultRecord.draftId || body.draftId || ""), status: String(resultRecord.status || "duplicate"), duplicate: resultRecord.duplicate === true }, actorId(request));
+  await audit(env, brandId, "advertising_dry_test_completed", { draftId: String(resultRecord.draftId || body.draftId || ""), status: String(resultRecord.status || "duplicate"), duplicate: resultRecord.duplicate === true }, actorId(request, env));
   return json({ result });
 }
 
@@ -1276,7 +1277,7 @@ async function amplifyLiveSubmissionRoute(request: Request, env: Env) {
   if (!authorized(request, env)) return json({ error: "This AMPLIFY workspace is not authorized." }, 401);
   const body = await request.json() as Record<string, unknown>;
   const brandId = requiredAmplifyBrand(request, body.brandId);
-  await audit(env, brandId, "advertising_live_submission_blocked", { reason: "live_submission_disabled" }, actorId(request));
+  await audit(env, brandId, "advertising_live_submission_blocked", { reason: "live_submission_disabled" }, actorId(request, env));
   return json({ error: "Live advertising submission is disabled. Run a dry test instead. No advertisement was launched and no money was spent.", code: "amplify_live_submission_disabled" }, 403);
 }
 
@@ -1305,7 +1306,7 @@ async function echoSocialMediaUploadRoute(request: Request, env: Env) {
     httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" },
     customMetadata: { brandId, purpose: "echo_social_draft", originalName: file.name.slice(0, 160) },
   });
-  await audit(env, brandId, "social_draft_media_uploaded", { mediaKey: key, bytes: file.size, published: false }, actorId(request));
+  await audit(env, brandId, "social_draft_media_uploaded", { mediaKey: key, bytes: file.size, published: false }, actorId(request, env));
   return json({ imageUrl: `${new URL(request.url).origin}/i/${key}`, brandId, published: false }, 201);
 }
 
@@ -1320,7 +1321,7 @@ async function echoContentCreateRoute(request: Request, env: Env) {
   const body = await request.json() as Record<string, unknown>;
   const brandId = requiredEchoContentBrand(request, body.brandId);
   const draft = await createEchoContentDraft(env, brandId, body);
-  await audit(env, brandId, "content_draft_created", { draftId: draft.id, contentType: draft.contentType }, actorId(request));
+  await audit(env, brandId, "content_draft_created", { draftId: draft.id, contentType: draft.contentType }, actorId(request, env));
   return json({ draft }, 201);
 }
 
@@ -1329,13 +1330,13 @@ async function echoContentDraftRoute(request: Request, env: Env, draftId: string
   const brandId = requiredEchoContentBrand(request);
   if (request.method === "DELETE") {
     const result = await deleteEchoContentDraft(env, brandId, draftId);
-    await audit(env, brandId, "content_draft_deleted", { draftId }, actorId(request));
+    await audit(env, brandId, "content_draft_deleted", { draftId }, actorId(request, env));
     return json(result);
   }
   const body = await request.json() as Record<string, unknown>;
   if (request.method === "PATCH") {
     const draft = await updateEchoContentDraft(env, brandId, draftId, body);
-    await audit(env, brandId, "content_draft_updated", { draftId, contentType: draft.contentType, status: draft.status }, actorId(request));
+    await audit(env, brandId, "content_draft_updated", { draftId, contentType: draft.contentType, status: draft.status }, actorId(request, env));
     return json({ draft });
   }
   return json({ error: "Method not allowed." }, 405);
@@ -1348,27 +1349,27 @@ async function echoContentActionRoute(request: Request, env: Env, draftId: strin
   const brandId = requiredEchoContentBrand(request, body.brandId);
   if (action === "revise") {
     const draft = await reviseEchoContentSection(env, brandId, draftId, body);
-    await audit(env, brandId, "content_section_revised", { draftId, operation: body.operation, section: body.section }, actorId(request));
+    await audit(env, brandId, "content_section_revised", { draftId, operation: body.operation, section: body.section }, actorId(request, env));
     return json({ draft });
   }
   if (action === "undo") {
     const draft = await undoEchoContentRevision(env, brandId, draftId);
-    await audit(env, brandId, "content_revision_undone", { draftId }, actorId(request));
+    await audit(env, brandId, "content_revision_undone", { draftId }, actorId(request, env));
     return json({ draft });
   }
   if (action === "duplicate") {
     const draft = await duplicateEchoContentDraft(env, brandId, draftId);
-    await audit(env, brandId, "content_draft_duplicated", { sourceDraftId: draftId, draftId: draft.id }, actorId(request));
+    await audit(env, brandId, "content_draft_duplicated", { sourceDraftId: draftId, draftId: draft.id }, actorId(request, env));
     return json({ draft }, 201);
   }
   if (action === "repurpose") {
     const draft = await repurposeEchoContentDraft(env, brandId, draftId, body.targetType);
-    await audit(env, brandId, "content_draft_repurposed", { sourceDraftId: draftId, draftId: draft.id, targetType: body.targetType }, actorId(request));
+    await audit(env, brandId, "content_draft_repurposed", { sourceDraftId: draftId, draftId: draft.id, targetType: body.targetType }, actorId(request, env));
     return json({ draft }, 201);
   }
   if (action === "image") {
     const result = await generateEchoFeaturedImage(request, env, brandId, draftId);
-    await audit(env, brandId, "content_featured_image_generated", { draftId }, actorId(request));
+    await audit(env, brandId, "content_featured_image_generated", { draftId }, actorId(request, env));
     return json(result, 201);
   }
   return json({ error: "Unknown ECHO content action." }, 404);
@@ -1388,6 +1389,13 @@ async function serveImage(request: Request, env: Env, key: string) {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Atlasium entry is isolated from public media and legacy ChatGPT authentication.
+    if (url.pathname.startsWith("/auth/atlasium/")) return handleAtlasiumSso(request, env);
+    if (url.pathname === "/api/atlasium/availability") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      return json({ ownerSignInAvailable: atlasiumOwnerBridgeAvailable(request, env) });
+    }
 
     if (url.pathname === "/api/upload") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
