@@ -144,11 +144,12 @@ export async function handleAtlasiumSso(request: Request, env: AtlasiumSsoEnv): 
     }
   }
 
-  if (url.pathname === "/auth/atlasium/logout" && request.method === "GET") {
-    const headers = new Headers({ ...privateHeaders, Location: new URL("/echo", cfg.publicOrigin).toString() });
+  if (url.pathname === "/auth/atlasium/logout" && (request.method === "GET" || request.method === "POST")) {
+    const headers = new Headers(privateHeaders);
+    if (request.method === "GET") headers.set("Location", new URL("/echo", cfg.publicOrigin).toString());
     headers.append("Set-Cookie", clearHostCookie(SESSION_COOKIE));
     headers.append("Set-Cookie", clearHostCookie(NONCE_COOKIE));
-    return new Response(null, { status: 303, headers });
+    return new Response(null, { status: request.method === "POST" ? 204 : 303, headers });
   }
   return new Response("Method not allowed", { status: 405, headers: privateHeaders });
 }
