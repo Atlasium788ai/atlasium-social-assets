@@ -116,6 +116,17 @@ function safeDescription(body: string) {
     .slice(0, 12_000);
 }
 
+function isNonOpportunityUpworkSubject(subject: string) {
+  const normalized = subject.trim();
+  return [
+    /\bboosted proposals?\b/i,
+    /\bwin work with ads\b/i,
+    /\bwon \d+ upwork jobs?\b/i,
+    /^we(?:'|’)ve missed you\b/i,
+    /^your proposal has been viewed\b/i,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 export function parseUpworkEmail(input: {
   subject: string;
   text?: string | null;
@@ -127,6 +138,12 @@ export function parseUpworkEmail(input: {
   const combined = `${input.subject}\n${input.text ?? ""}\n${input.html ?? ""}\n${body}`;
   const jobUrl = upworkJobUrl(combined);
   const roomUrl = upworkRoomUrl(combined);
+  // Upwork marketing and generic proposal-status emails often embed example or
+  // recommendation job links. They are not fresh opportunities and must not
+  // create noisy records even when one of those links is syntactically valid.
+  if (isNonOpportunityUpworkSubject(input.subject)) {
+    return { kind: "ignored", reason: "Upwork promotional or generic status email" };
+  }
   // Job titles such as "Interview Booking Automation" or "Offer Workflow CRM"
   // are opportunities, not client replies. Explicit job alerts take precedence.
   const jobAlertSubject = /^(?:upwork\s*[-:]\s*)?(?:new job\b|job alert\b|new opportunity\b|recommended jobs?\b)/i.test(input.subject.trim());
