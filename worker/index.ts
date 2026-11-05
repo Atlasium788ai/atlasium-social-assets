@@ -1,5 +1,5 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
-import { handleAtlasiumSso, hasAtlasiumOwnerSession, atlasiumOwnerActor, type AtlasiumSsoEnv } from "./atlasium-sso";
+import { handleAtlasiumSso, hasAtlasiumOwnerSession, atlasiumOwnerActor, atlasiumOwnerBridgeAvailable, type AtlasiumSsoEnv } from "./atlasium-sso";
 import handler from "vinext/server/app-router-entry";
 import {
   ATLASIUM_BRAND_ID,
@@ -1392,6 +1392,10 @@ const worker = {
 
     // Atlasium entry is isolated from public media and legacy ChatGPT authentication.
     if (url.pathname.startsWith("/auth/atlasium/")) return handleAtlasiumSso(request, env);
+    if (url.pathname === "/api/atlasium/availability") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      return json({ ownerSignInAvailable: atlasiumOwnerBridgeAvailable(request, env) });
+    }
 
     if (url.pathname === "/api/upload") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
