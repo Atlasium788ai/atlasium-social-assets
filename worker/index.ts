@@ -1,5 +1,6 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
-import { handleAtlasiumSso, hasAtlasiumOwnerSession, atlasiumOwnerActor, atlasiumOwnerBridgeAvailable, type AtlasiumSsoEnv } from "./atlasium-sso";
+import { handleAtlasiumSso, hasAtlasiumOwnerSession, atlasiumOwnerActor, atlasiumOwnerBridgeAvailable, atlasiumTenantSession, type AtlasiumSsoEnv } from "./atlasium-sso";
+import { customerWorkspace, createCustomerBrand, customerEntitlement } from "./tenant-store";
 import handler from "vinext/server/app-router-entry";
 import {
   ATLASIUM_BRAND_ID,
@@ -1392,6 +1393,40 @@ const worker = {
 
     // Atlasium entry is isolated from public media and legacy ChatGPT authentication.
     if (url.pathname.startsWith("/auth/atlasium/")) return handleAtlasiumSso(request, env);
+
+    // Customer tenant endpoints never pass into the legacy one-workspace
+    // publishing handlers. The authenticated workspace comes from a
+    // verified, host-only, signed Atlasium customer cookie.
+    if (url.pathname.startsWith("/api/atlasium/customer/")) {
+      const identity = atlasiumTenantSession(request, env);
+      if (!identity) return json({ error: "Sign in to your Atlasium customer workspace first." }, 401);
+
+      if (url.pathname === "/api/atlasium/customer/workspace" && request.method === "GET") {
+        try {
+          const workspace = await customerWorkspace(env, identity);
+          const access = await customerEntitlement(env, identity);
+          return json({ ...workspace, access });
+        } catch {
+          return json({ error: "Could not securely load your customer workspace." }, 503);
+        }
+      }
+      if (url.pathname === "/api/atlasium/customer/brands" && request.method === "POST") {
+        const origin = request.headers.get("Origin");
+        if (origin !== url.origin || !request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) {
+          return json({ error: "Invalid workspace update request." }, 403);
+        }
+        try {
+          const body = await request.json() as { name?: unknown };
+          if (!body || typeof body.name !== "string") return json({ error: "Brand name is required." }, 400);
+          const saved = await createCustomerBrand(env, identity, body.name);
+          return json(saved, 201);
+        } catch (error) {
+          return json({ error: error instanceof Error ? error.message : "Unable to create draft brand." }, 400);
+        }
+      }
+      return json({ error: "This customer operation is not yet enabled." }, 405);
+    }
+
     if (url.pathname === "/api/atlasium/availability") {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       return json({ ownerSignInAvailable: atlasiumOwnerBridgeAvailable(request, env) });
