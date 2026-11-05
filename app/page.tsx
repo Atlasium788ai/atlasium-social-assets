@@ -279,9 +279,9 @@ export default function Home() {
       <EchoFlowIdentity full />
       <ProductNavigation active="echo" />
       <p>One prompt. Every brand. One controlled publishing flow.</p>
-      <div className="access-warning">Use your Atlasium account to open EchoFlow. Existing ChatGPT-based access is also available.</div>
+      <div className="access-warning">{ownerSignInAvailable ? "Open your existing Atlasium workspace, or use the current ChatGPT access." : "Use your existing ChatGPT access to continue."}</div>
       {ownerSignInAvailable && <a className="access-login-link" href="/auth/atlasium/start" target="_top">Enter with Atlasium account</a>}
-      <a className="access-login-link" href="/signin-with-chatgpt?return_to=%2Fecho" target="_top">Existing ChatGPT access</a>
+      <a className="access-login-link" href="/signin-with-chatgpt?return_to=%2Fecho" target="_top">{ownerSignInAvailable ? "Existing ChatGPT access" : "Sign in"}</a>
     </section>
   </main>;
 
