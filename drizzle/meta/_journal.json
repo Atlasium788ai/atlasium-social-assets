@@ -36,6 +36,13 @@
       "when": 1794250100000,
       "tag": "0004_engagement_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794250200000,
+      "tag": "0005_engagement_manual_actions",
+      "breakpoints": true
     }
   ]
 }
