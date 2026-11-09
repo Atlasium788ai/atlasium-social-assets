@@ -55,3 +55,34 @@ Third-party engagement should remain manual-approved; automated bulk replies or 
 EchoFlow uses Cloudflare D1/R2, Next/vinext and its existing `pnpm test` CI. The SQL migration must be applied to an **isolated test database first**, then checked against production deployment configuration before merging; it is not applied by simply committing the file.
 
 This PR does not modify production credentials, domains, existing social channel assignments, Buffer schedules, or Atlasium data.
+
+## Inbound inbox bridge: implementation details (review-only)
+
+A **separate inbound comments + DMs review queue** now appears in FLOW > Engagement. It is scoped to the selected brand and cannot access other brands. The incoming workflow records only the message category, a brand-neutral suggested reply, a pseudonymous HMAC identity and the timestamp. Raw message bodies and personal actor IDs are not stored. No outbound messaging endpoint exists.
+
+The inbox bridge is disabled by default. It has three **server-side** configuration fields:
+
+- `ENGAGEMENT_INBOX_ENABLED=true` explicitly enables trusted internal event intake. Keep false in production until a platform adapter passes an end-to-end audit.
+- `ENGAGEMENT_INGEST_SECRET`: a dedicated, random 32+ character key for the trusted internal bridge HMAC; do not commit or share it.
+- `ENGAGEMENT_ID_SECRET`: a separate, random 32+ character HMAC key for pseudonymizing platform actor/event identifiers; do not reuse Atlasium contact data or leak this into the browser.
+
+`POST /api/flow/engagement/inbound` takes signed normalized JSON records via `X-EchoFlow-Timestamp` (Unix seconds) and `X-EchoFlow-Signature: sha256=<HMAC-SHA256 hexadecimal digest>` signing the exact string `timestamp + "." + raw_request_body`. Timestamp tolerance is five minutes, body size cap 8 KB, and all events deduplicate across retries. This internal HMAC **does not replace native provider webhook verification**; a provider adapter must first validate Meta/Google/other platform signatures and connect account permissions before relaying.
+
+Required body fields: `brandId, platform, providerAccountId, providerEventId, providerActorId, kind, receivedAt, incomingText, origin="verified_provider_bridge", onOwnBrandAccount=true`. Accepted kinds depend on the platform's intended inbox support. The event is accepted **only** if `engagement_inbox_accounts` includes that platform account ID in `read_enabled` state assigned to the **same brand**. An OAuth/provider adapter is responsible for writing that record after verifying account ownership. There is deliberately no browser control to mark arbitrary accounts as verified.
+
+- Replay, invalid signatures, unknown accounts, different-brand accounts and scraped third-party comments are rejected.
+- Inbound DMs older than 24 hours are recorded as **suppressed**, not made replyable; this is a conservative internal safety window, not a claim about each provider's actual latest policy.
+- "STOP", "Please stop messaging me" and related opt-outs permanently suppress further draft replies to the actor within the brand/platform scope. Suppression cannot be overridden by approving an old draft.
+- The engine limits one brand to 500 intake events per rolling 24 hours. This is a safety cap; provider quota limits and app reviews still apply.
+- All reply suggestions require review. `PATCH /api/flow/engagement/inbox` sets `approved_not_sent` or `rejected` but never transmits.
+- `GET /api/flow/engagement/inbox` shows brand-scoped categories, draft suggestions and states. It intentionally hides raw provider IDs and private message content.
+
+**Outstanding for production:**
+1. Build and verify each provider's actual OAuth, webhook permission scopes and signature authentication.
+2. Link each provider's owned account to its EchoFlow brand, using verified account IDs; no Atlasium account may be silently assigned to Built to Own.
+3. Establish appropriate data retention/deletion and key rotation policies before holding real inbox events.
+4. Add channel-specific consent and messaging windows, an approved sending adapter, suppression checks at actual send time, immutable receipts and error handling.
+5. Run supervised own-account tests. No automatic cold DMs, bulk third-party replies or inferred consent from follows/likes.
+6. Apply D1 migration `0004_engagement_inbox.sql` to test storage and validate migrations before any production change.
+
+No live providers have been connected and no real social messages have been sent or ingested.
