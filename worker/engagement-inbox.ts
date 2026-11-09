@@ -48,7 +48,7 @@ const MESSAGE_KINDS: Record<string, readonly string[]> = Object.freeze({
   youtube: ["comment"],
   x: ["dm"],
 });
-const STOP_PATTERN = /^(?:stop|unsubscribe|opt[\s-]?out|do not (?:contact|message)(?: me)?|don't (?:contact|message)(?: me)?|remove me)[\s.!]*$/i;
+const STOP_PATTERN = /^(?:please\s+)?(?:stop(?:\s+(?:contacting|messaging)\s+me)?|unsubscribe|opt[\s-]?out|do not (?:contact|message)(?: me)?|don\'t (?:contact|message)(?: me)?|remove me)[\s.!]*$/i;
 
 export class InboxError extends Error {
   constructor(public readonly status: number, message: string) { super(message); }
@@ -189,6 +189,13 @@ export async function ingestSignedInboxRequest(request: Request, env: InboxEnv, 
     brandId: brand.id, duplicate: true, accepted: true, state: existing.status,
     outboundMessagesSent: 0, sendEnabled: false,
   };
+  // Bound an individual brand's event volume. This is a failsafe, not a
+  // substitute for provider API rate limiting or request-level quotas.
+  const startOfWindow = new Date(now.getTime() - 86_400_000).toISOString();
+  const recent = await db.prepare(`SELECT COUNT(*) AS count FROM engagement_inbox_events
+    WHERE workspace_id=? AND brand_id=? AND created_at >= ?`)
+    .bind(WORKSPACE_ID, brand.id, startOfWindow).first<{ count: number }>();
+  if (Number(recent?.count || 0) >= 500) throw new InboxError(429, "Brand inbox daily intake cap reached.");
   const classification = labelMessage(item.incomingText, item.kind);
   const suppressed = await db.prepare(`SELECT id FROM engagement_inbox_suppressions
     WHERE workspace_id=? AND brand_id=? AND actor_key=? LIMIT 1`)
