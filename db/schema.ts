@@ -312,3 +312,16 @@ export const engagementInboxSuppressions = sqliteTable("engagement_inbox_suppres
 }, (table) => [
   uniqueIndex("idx_engagement_inbox_suppression_actor").on(table.workspaceId, table.brandId, table.actorKey),
 ]);
+
+export const engagementManualActions = sqliteTable("engagement_manual_actions", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  draftId: text("draft_id").notNull(),
+  platform: text("platform").notNull(),
+  confirmationSource: text("confirmation_source").notNull().default("self_reported"),
+  confirmedAt: text("confirmed_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_engagement_manual_draft").on(table.workspaceId, table.brandId, table.draftId),
+  index("idx_engagement_manual_brand_date").on(table.workspaceId, table.brandId, table.confirmedAt),
+]);
