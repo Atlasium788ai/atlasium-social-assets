@@ -38,6 +38,7 @@ import {
   createManualEngagementDraft,
   listBrandEngagementDrafts,
   reviewBrandEngagementDraft,
+  confirmManuallyPostedEngagement,
 } from "./engagement-store";
 import {
   createAmplifyDraft,
@@ -1531,6 +1532,24 @@ const worker = {
         const status = error instanceof InboxError ? error.status : statusFor(error, 400);
         return json({ error: error instanceof Error ? error.message : "Could not review inbox." }, status);
       }
+    }
+
+    // Public comment completion log: an operator confirms posting externally.
+    // It never triggers provider traffic, and its metrics are self-reported.
+    if (url.pathname === "/api/flow/engagement/manual-confirm") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select a brand first." }, 400);
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 1000) return json({ error: "Confirmation request is too large." }, 413);
+      let data: Record<string, unknown>;
+      try { data = JSON.parse(raw) as Record<string, unknown>; }
+      catch { return json({ error: "Expected JSON confirmation." }, 400); }
+      if (!data || Array.isArray(data) || typeof data !== "object")
+        return json({ error: "Expected a JSON confirmation object." }, 400);
+      try { return json(await confirmManuallyPostedEngagement(env, brandId, data)); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not confirm manual posting." }, statusFor(error, 400)); }
     }
 
     if (url.pathname === "/api/flow/engagement/suggest") {
