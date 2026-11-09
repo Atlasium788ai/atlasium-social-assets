@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { FlowInbox } from "./flow-inbox";
 
 type Platform = "instagram" | "facebook" | "linkedin" | "threads" | "tiktok" | "youtube" | "x";
 type EngagementDraft = {
@@ -98,6 +99,7 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
 
     {previewMode ? <div className="flow-engagement-empty"><p>Local preview mode: no live brand records or social connections.</p></div> : <>
       {error && <p className="message error" role="alert">! {error}</p>}
+      <FlowInbox brandId={brandId} accessKey={accessKey} previewMode={previewMode} />
       <form className="flow-engagement-form" onSubmit={addDraft}>
         <h2>Add a conversation opportunity</h2>
         <p>Manually selected public discussions only. Do not paste private messages or personal contact details.</p>
