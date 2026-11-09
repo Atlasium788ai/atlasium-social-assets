@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { FlowInbox } from "./flow-inbox";
+import { FlowTrafficLinks } from "./flow-traffic-links";
 
 type Platform = "instagram" | "facebook" | "linkedin" | "threads" | "tiktok" | "youtube" | "x";
 type EngagementDraft = {
@@ -36,7 +37,7 @@ type EngagementResponse = {
 
 const platforms: readonly Platform[] = ["instagram", "facebook", "linkedin", "threads", "tiktok", "youtube", "x"];
 
-export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey: string; brandId: string; previewMode: boolean }) {
+export function FlowEngagement({ accessKey, brandId, previewMode, website }: { accessKey: string; brandId: string; previewMode: boolean; website: string }) {
   const [data, setData] = useState<EngagementResponse | null>(null);
   const [platform, setPlatform] = useState<Platform>("linkedin");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -155,6 +156,7 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
       {error && <p className="message error" role="alert">! {error}</p>}
       {actionMessage && <p className="flow-engagement-notice" role="status">{actionMessage}</p>}
       <FlowInbox brandId={brandId} accessKey={accessKey} previewMode={previewMode} />
+      <FlowTrafficLinks website={website} />
       <form className="flow-engagement-form" onSubmit={addDraft}>
         <h2>Add a conversation opportunity</h2>
         <p>Manually selected public discussions only. Do not paste private messages or personal contact details.</p>
