@@ -87,3 +87,13 @@ Required body fields: `brandId, platform, providerAccountId, providerEventId, pr
 6. Apply D1 migration `0004_engagement_inbox.sql` to test storage and validate migrations before any production change.
 
 No live providers have been connected and no real social messages have been sent or ingested.
+
+## Build-vs-buy decision (owner direction, November 2026)
+
+**Build the engagement system as an owned feature of EchoFlow. No Manychat or external automation subscription.** Reuse our existing Cloudflare Worker, D1, R2, Next/vinext and Drizzle stack. Study or adapt permissively licensed open-source implementation patterns only when they reduce actual code and maintenance. Keep legal license notices. Do not clone another company's proprietary source, branding or API workarounds.
+
+Potential reusable component reference: Chatwoot's self-hosted FOSS code has an MIT license, but the full Chatwoot server is heavyweight and should **not** be deployed unless a proven missing inbox capability warrants it. n8n's self-hosted community edition has commercial embedding and white-label restrictions; do **not** make it a customer-facing EchoFlow engine without appropriate license review. Avoid adding a new database, hosting service, dashboard, paid tier or dependency merely to integrate social messages.
+
+**Lean completion order:** (1) authorized own-brand comments and DMs via official provider adapters, (2) prompt-safe reply generation and human approval, (3) opt-in keyword resource responses on networks where supported, (4) curated, manually approved public engagement on other pages, (5) source-attributed analytics showing reach, replies, profile visits where available, traffic and qualified conversations. Each provider is optional; leave unsupported actions disabled and visible rather than pretending full platform coverage.
+
+The commercial goal is traffic, useful discussion, qualified interest and sales conversations. The system should minimize operator time and maintain editorial integrity, consent, brand segregation and platform compliance.
