@@ -95,8 +95,8 @@ test("drafts are deduplicated and isolated across brands", async () => {
   const worker = await loadWorker(); const env = await envFixture(); await setup(worker, env);
   for (const brand of [A, A, B]) {
     const response = await worker.fetch(request("/api/flow/engagement", "POST", brand, opportunity()), env, ctx);
-    assert.equal(response.status, 201, await response.text());
     const result = await response.json();
+    assert.equal(response.status, 201, JSON.stringify(result));
     assert.equal(result.outboundMessagesSent, 0);
     assert.equal(result.draft.sendEnabled, false);
   }
