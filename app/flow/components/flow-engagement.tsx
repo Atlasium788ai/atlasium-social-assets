@@ -13,6 +13,8 @@ type EngagementDraft = {
   suggestedReply: string;
   status: "pending_review" | "approved_not_sent" | "rejected";
   createdAt: string;
+  manualConfirmedAt: string | null;
+  manualConfirmationOnly: boolean;
   sendEnabled: false;
 };
 type EngagementResponse = {
@@ -23,6 +25,12 @@ type EngagementResponse = {
   autoDmEnabled: false;
   outboundMessagesSent: number;
   drafts: EngagementDraft[];
+  metrics?: {
+    pendingReview: number;
+    approvedWaitingManual: number;
+    manuallyConfirmedSelfReported: number;
+    providerVerifiedPublications: number;
+  };
   error?: string;
 };
 
@@ -37,6 +45,7 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
   const [busy, setBusy] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
 
   const headers = useCallback(() => ({ "X-Brand-ID": brandId, "X-Upload-Key": accessKey }), [brandId, accessKey]);
 
@@ -89,6 +98,33 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
     finally { setBusy(false); }
   }
 
+  async function copyReply(reply: string) {
+    setError(""); setActionMessage("");
+    try {
+      await navigator.clipboard.writeText(reply);
+      setActionMessage("Reply copied. Open the original conversation and post it using the selected brand account.");
+    } catch {
+      setError("Clipboard access is unavailable. Select and copy the reply text manually.");
+    }
+  }
+
+  async function confirmManualPosting(id: string) {
+    if (!window.confirm("Confirm you personally posted this reply from the correct brand account. EchoFlow cannot verify the post.")) return;
+    setBusy(true); setError(""); setActionMessage("");
+    try {
+      const response = await fetch("/api/flow/engagement/manual-confirm", {
+        method: "POST", headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ id, confirmation: "I_POSTED_THIS_MANUALLY" }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not confirm manual posting.");
+      setActionMessage("Recorded as manually posted. This is self-reported, not verified by the social platform.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not confirm manual posting.");
+    } finally { setBusy(false); }
+  }
+
   async function decide(id: string, decision: "approved_not_sent" | "rejected") {
     setBusy(true); setError("");
     try {
@@ -117,6 +153,7 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
 
     {previewMode ? <div className="flow-engagement-empty"><p>Local preview mode: no live brand records or social connections.</p></div> : <>
       {error && <p className="message error" role="alert">! {error}</p>}
+      {actionMessage && <p className="flow-engagement-notice" role="status">{actionMessage}</p>}
       <FlowInbox brandId={brandId} accessKey={accessKey} previewMode={previewMode} />
       <form className="flow-engagement-form" onSubmit={addDraft}>
         <h2>Add a conversation opportunity</h2>
@@ -137,6 +174,12 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
         <button className="action-button" type="submit" disabled={busy || generating}>{busy ? "Saving…" : "Save for review"}</button>
       </form>
 
+      {data?.metrics && <section className="flow-engagement-summary" aria-label="Manual engagement activity">
+        <div><strong>{data.metrics.pendingReview}</strong><span>Awaiting review</span></div>
+        <div><strong>{data.metrics.approvedWaitingManual}</strong><span>Ready for manual posting</span></div>
+        <div><strong>{data.metrics.manuallyConfirmedSelfReported}</strong><span>Manually confirmed</span></div>
+        <small>Operator-reported actions. No automatic or provider-verified posts.</small>
+      </section>}
       <div className="flow-engagement-list-head"><h2>Review queue</h2><button type="button" className="text-button" onClick={() => void refresh().catch((e: Error) => setError(e.message))}>Refresh</button></div>
       {!data ? <p className="flow-engagement-empty">Loading brand engagement queue…</p> : data.drafts.length === 0 ?
         <p className="flow-engagement-empty">No engagement opportunities have been saved for this brand.</p> :
@@ -149,6 +192,13 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
             <button type="button" disabled={busy} onClick={() => void decide(item.id, "approved_not_sent")}>Approve draft (do not send)</button>
             <button type="button" disabled={busy} onClick={() => void decide(item.id, "rejected")}>Reject</button>
           </div>}
+          {item.status === "approved_not_sent" && !item.manualConfirmedAt && <div className="flow-engagement-actions">
+            <button type="button" disabled={busy} onClick={() => void copyReply(item.suggestedReply)}>Copy approved reply</button>
+            <button type="button" disabled={busy} onClick={() => void confirmManualPosting(item.id)}>I posted it manually</button>
+          </div>}
+          {item.manualConfirmedAt && <p className="flow-engagement-context">
+            Manually confirmed on {new Date(item.manualConfirmedAt).toLocaleDateString()}. Not verified by provider.
+          </p>}
         </article>)}</div>
       }
     </>}
