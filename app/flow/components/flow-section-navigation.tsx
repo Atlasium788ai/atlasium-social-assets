@@ -1,10 +1,11 @@
-export type FlowSection = "channels" | "calendar" | "queue" | "activity";
+export type FlowSection = "channels" | "calendar" | "queue" | "activity" | "engagement";
 
 const sections: readonly { id: FlowSection; label: string; href: string }[] = [
   { id: "channels", label: "Channels", href: "/flow/channels" },
   { id: "calendar", label: "Calendar", href: "/flow/calendar" },
   { id: "queue", label: "Queue", href: "/flow/queue" },
   { id: "activity", label: "Activity", href: "/flow/activity" },
+  { id: "engagement", label: "Engagement", href: "/flow/engagement" },
 ];
 
 export function FlowSectionNavigation({ active }: { active: FlowSection }) {
