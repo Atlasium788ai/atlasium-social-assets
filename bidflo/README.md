@@ -31,6 +31,12 @@ If no Slack bot token or webhook is configured, events are queued, not sent. Cha
 
 Do not invite team members or send teamwide alerts without explicit instruction. Preserve the owner's weekend-messaging preferences. For future client accounts, configure separate destinations and organization-scoped credentials after the internal pilot.
 
+## Atlasium Core internal summary
+
+`GET /api/internal/atlasium-core/summary` is an internal, read-only integration endpoint. It requires a dedicated `ATLASIUM_CORE_READ_TOKEN` bearer token of at least 32 random characters. It performs one grouped status-count query and returns the complete canonical Visez status vocabulary with aggregate counts only. It never returns opportunity, client, job, proposal, message, budget or submission data.
+
+The endpoint cannot approve a proposal, prepare or confirm a submission, spend Connects, contact Upwork or send outreach. Do not configure or activate its credential in a live environment until the scoped synthetic staging consumer has been manually approved.
+
 ## Reliability and security (October 24 pilot)
 
 - Production migrations include `0005_inbound_recovery.sql`: inbound jobs are atomically claimed, retryable up to five times, and recovered after interruption. Client reply messages have a unique source-event key, so replaying the same signed webhook cannot create another message.
@@ -59,6 +65,7 @@ The Neon project must have Managed Auth enabled. Add the production Render URL a
 - `DATABASE_URL`: pooled Neon Postgres connection string.
 - `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`: Managed Auth endpoint and 32+ character cookie secret.
 - `VISEZ_ALLOWED_EMAILS`: comma-separated Atlasium admin addresses.
+- `ATLASIUM_CORE_READ_TOKEN`: dedicated aggregate-read token, configured only after the internal staging integration is approved.
 - `AI_API_KEY`, `AI_MODEL`: model-provider credentials and drafting model. `AI_REVIEW_MODEL` may use a separate reviewer.
 - `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`: inbound retrieval and signed-webhook verification.
 - `UPWORK_ALLOWED_SENDERS`: exact authenticated sender addresses accepted for processing. If mailbox forwarding rewrites the envelope sender, allowlist only that forwarding address.
