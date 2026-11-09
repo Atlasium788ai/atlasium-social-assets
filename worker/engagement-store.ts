@@ -2,7 +2,7 @@
  * This module does not scan, message, post, or call social network APIs.
  * No automated outbound action can be triggered by an approved draft.
  */
-import { requireBrand, WORKSPACE_ID } from "./brand-store";
+import { audit, requireBrand, WORKSPACE_ID } from "./brand-store";
 
 type EngagementEnv = { DB?: D1Database; UPLOADS: R2Bucket };
 type Platform = "instagram" | "facebook" | "linkedin" | "threads" | "tiktok" | "youtube" | "x";
@@ -37,6 +37,7 @@ type EngagementRow = {
   status: Status;
   createdAt: string;
   updatedAt: string;
+  manualConfirmedAt: string | null;
 };
 
 function clean(value: unknown, max: number, name: string): string {
@@ -83,6 +84,8 @@ function toView(row: EngagementRow) {
     autoCommentEnabled: false,
     autoDmEnabled: false,
     reviewOnly: true,
+    providerVerified: false,
+    manualConfirmationOnly: Boolean(row.manualConfirmedAt),
   };
 }
 
@@ -119,12 +122,24 @@ export async function createManualEngagementDraft(env: EngagementEnv, brandId: s
 export async function listBrandEngagementDrafts(env: EngagementEnv, brandId: string, limit = 30) {
   const brand = await requireBrand(env, brandId);
   const db = storage(env);
-  const result = await db.prepare(`SELECT id, platform, source_kind AS sourceKind, source_url AS sourceUrl,
-    context, suggested_reply AS suggestedReply, source_provenance AS sourceProvenance,
-    status, created_at AS createdAt, updated_at AS updatedAt
-    FROM engagement_drafts WHERE workspace_id=? AND brand_id=?
-    ORDER BY created_at DESC, id DESC LIMIT ?`)
+  const result = await db.prepare(`SELECT e.id, e.platform, e.source_kind AS sourceKind, e.source_url AS sourceUrl,
+    e.context, e.suggested_reply AS suggestedReply, e.source_provenance AS sourceProvenance,
+    e.status, e.created_at AS createdAt, e.updated_at AS updatedAt, a.confirmed_at AS manualConfirmedAt
+    FROM engagement_drafts e
+    LEFT JOIN engagement_manual_actions a
+      ON a.draft_id=e.id AND a.workspace_id=e.workspace_id AND a.brand_id=e.brand_id
+    WHERE e.workspace_id=? AND e.brand_id=?
+    ORDER BY e.created_at DESC, e.id DESC LIMIT ?`)
     .bind(WORKSPACE_ID, brand.id, Math.max(1, Math.min(100, limit))).all<EngagementRow>();
+  const metrics = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM engagement_drafts WHERE workspace_id=? AND brand_id=? AND status='pending_review') AS pendingReview,
+      (SELECT COUNT(*) FROM engagement_drafts e LEFT JOIN engagement_manual_actions a
+        ON a.workspace_id=e.workspace_id AND a.brand_id=e.brand_id AND a.draft_id=e.id
+        WHERE e.workspace_id=? AND e.brand_id=? AND e.status='approved_not_sent' AND a.id IS NULL) AS approvedWaitingManual,
+      (SELECT COUNT(*) FROM engagement_manual_actions WHERE workspace_id=? AND brand_id=?) AS manuallyConfirmed
+    `).bind(WORKSPACE_ID, brand.id, WORKSPACE_ID, brand.id, WORKSPACE_ID, brand.id).first<{
+      pendingReview: number; approvedWaitingManual: number; manuallyConfirmed: number
+    }>();
   return {
     brandId: brand.id,
     providerInboxConnected: false,
@@ -132,6 +147,12 @@ export async function listBrandEngagementDrafts(env: EngagementEnv, brandId: str
     autoCommentEnabled: false,
     autoDmEnabled: false,
     outboundMessagesSent: 0,
+    metrics: {
+      pendingReview: Number(metrics?.pendingReview || 0),
+      approvedWaitingManual: Number(metrics?.approvedWaitingManual || 0),
+      manuallyConfirmedSelfReported: Number(metrics?.manuallyConfirmed || 0),
+      providerVerifiedPublications: 0,
+    },
     drafts: (result.results || []).map(toView),
   };
 }
@@ -149,4 +170,39 @@ export async function reviewBrandEngagementDraft(env: EngagementEnv, brandId: st
     .bind(decision, now, id, brand.id, WORKSPACE_ID).run();
   if (!changed.meta || Number(changed.meta.changes) !== 1) throw new Error("Draft does not exist in this brand or has already been reviewed.");
   return { id, brandId: brand.id, status: decision, sendEnabled: false, outboundMessagesSent: 0 };
+}
+
+/** A user confirms they themselves posted a previously approved public comment.
+ * This does NOT contact a provider or claim a provider-verified publication.
+ */
+export async function confirmManuallyPostedEngagement(
+  env: EngagementEnv, brandId: string, input: Record<string, unknown>
+) {
+  const brand = await requireBrand(env, brandId);
+  const db = storage(env);
+  const id = clean(input.id, 80, "draft ID");
+  if (input.confirmation !== "I_POSTED_THIS_MANUALLY")
+    throw new Error("Explicit manual-post confirmation required.");
+  const draft = await db.prepare(`SELECT id, platform, status FROM engagement_drafts
+    WHERE id=? AND workspace_id=? AND brand_id=? AND source_kind='external_opportunity' LIMIT 1`)
+    .bind(id, WORKSPACE_ID, brand.id).first<{ id: string; platform: string; status: string }>();
+  if (!draft || draft.status !== "approved_not_sent")
+    throw new Error("Only previously approved public comments can be marked manually posted.");
+  const now = new Date().toISOString();
+  const saved = await db.prepare(`INSERT OR IGNORE INTO engagement_manual_actions
+    (id, workspace_id, brand_id, draft_id, platform, confirmation_source, confirmed_at)
+    VALUES (?, ?, ?, ?, ?, 'self_reported', ?)`)
+    .bind(`manual_${crypto.randomUUID()}`, WORKSPACE_ID, brand.id, draft.id, draft.platform, now).run();
+  if (Number(saved.meta?.changes || 0) === 1)
+    await audit(env, brand.id, "engagement_comment_manually_confirmed",
+      { draftId: draft.id, platform: draft.platform, providerVerified: false, externalMessagesSentByEchoFlow: 0 });
+  const record = await db.prepare(`SELECT confirmed_at AS confirmedAt FROM engagement_manual_actions
+    WHERE workspace_id=? AND brand_id=? AND draft_id=? LIMIT 1`)
+    .bind(WORKSPACE_ID, brand.id, id).first<{ confirmedAt: string }>();
+  return {
+    brandId: brand.id, id: draft.id, manuallyConfirmedAt: record?.confirmedAt || now,
+    confirmationSource: "self_reported", providerVerified: false,
+    automatedSend: false, outboundMessagesSent: 0,
+    duplicate: Number(saved.meta?.changes || 0) === 0,
+  };
 }
