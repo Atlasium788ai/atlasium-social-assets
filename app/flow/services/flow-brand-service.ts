@@ -1,6 +1,6 @@
 import type { FlowPlatformId } from "./flow-connection-service";
 
-export type FlowBrand = { id: string; name: string; logoUrl?: string; timezone: string };
+export type FlowBrand = { id: string; name: string; logoUrl?: string; website?: string; timezone: string };
 
 export type FlowChannel = {
   id: string;
@@ -58,7 +58,7 @@ export async function loadFlowBrands(accessKey: string, signal?: AbortSignal): P
   const response = await fetch("/api/workspace", { headers: { "X-Upload-Key": accessKey }, signal });
   const data = await response.json() as WorkspaceResponse;
   if (!response.ok) throw new Error(data.error || "Could not load this FLOW workspace.");
-  return (data.brands || []).map((brand) => ({ id: brand.id, name: brand.name, logoUrl: brand.logoUrl, timezone: brand.timezone }));
+  return (data.brands || []).map((brand) => ({ id: brand.id, name: brand.name, logoUrl: brand.logoUrl, website: brand.website, timezone: brand.timezone }));
 }
 
 export async function loadFlowWorkspace(accessKey: string, brandId: string, signal?: AbortSignal): Promise<FlowWorkspaceData> {

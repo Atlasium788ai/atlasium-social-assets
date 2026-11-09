@@ -247,3 +247,81 @@ export const advertisingStatusEvents = sqliteTable("advertising_status_events", 
   detail: text("detail").notNull(),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("idx_advertising_events_draft_created").on(table.draftId, table.createdAt)]);
+
+export const engagementDrafts = sqliteTable("engagement_drafts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  platform: text("platform").notNull(),
+  sourceKind: text("source_kind").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  context: text("context").notNull(),
+  suggestedReply: text("suggested_reply").notNull(),
+  sourceProvenance: text("source_provenance").notNull(),
+  identityKey: text("identity_key").notNull(),
+  status: text("status").notNull().default("pending_review"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_engagement_draft_brand_identity").on(table.workspaceId, table.brandId, table.identityKey),
+  index("idx_engagement_drafts_brand_status").on(table.workspaceId, table.brandId, table.status, table.createdAt),
+]);
+
+// Inbound inbox access is disabled until provider-specific account authorization is confirmed.
+export const engagementInboxAccounts = sqliteTable("engagement_inbox_accounts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  platform: text("platform").notNull(),
+  providerAccountId: text("provider_account_id").notNull(),
+  status: text("status").notNull().default("disabled"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_engagement_inbox_account_ownership").on(table.workspaceId, table.platform, table.providerAccountId),
+  index("idx_engagement_inbox_account_brand").on(table.workspaceId, table.brandId, table.status),
+]);
+
+export const engagementInboxEvents = sqliteTable("engagement_inbox_events", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  accountId: text("account_id").notNull(),
+  platform: text("platform").notNull(),
+  kind: text("kind").notNull(),
+  actorKey: text("actor_key").notNull(),
+  eventKey: text("event_key").notNull(),
+  category: text("category").notNull(),
+  replyText: text("reply_text").notNull(),
+  status: text("status").notNull().default("pending_review"),
+  receivedAt: text("received_at").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_engagement_inbox_event_idempotency").on(table.workspaceId, table.brandId, table.accountId, table.eventKey),
+  index("idx_engagement_inbox_review").on(table.workspaceId, table.brandId, table.status, table.createdAt),
+]);
+
+export const engagementInboxSuppressions = sqliteTable("engagement_inbox_suppressions", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  actorKey: text("actor_key").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_engagement_inbox_suppression_actor").on(table.workspaceId, table.brandId, table.actorKey),
+]);
+
+export const engagementManualActions = sqliteTable("engagement_manual_actions", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  draftId: text("draft_id").notNull(),
+  platform: text("platform").notNull(),
+  confirmationSource: text("confirmation_source").notNull().default("self_reported"),
+  confirmedAt: text("confirmed_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_engagement_manual_draft").on(table.workspaceId, table.brandId, table.draftId),
+  index("idx_engagement_manual_brand_date").on(table.workspaceId, table.brandId, table.confirmedAt),
+]);

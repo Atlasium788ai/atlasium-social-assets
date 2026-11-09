@@ -26,6 +26,22 @@ import {
   type BufferDestination,
 } from "./brand-store";
 import {
+  InboxError,
+  ingestSignedInboxRequest,
+  listInboundReviewQueue,
+  reviewInboundDraft,
+  reviseInboundDraft,
+} from "./engagement-inbox";
+import { SuggestionError, suggestManualPublicReply } from "./engagement-suggestion";
+import { EditorialImportError, importBtoEditorialReviewDrafts } from "./bto-editorial-import";
+import { metaWebhook, MetaWebhookError } from "./engagement-meta-webhook";
+import {
+  createManualEngagementDraft,
+  listBrandEngagementDrafts,
+  reviewBrandEngagementDraft,
+  confirmManuallyPostedEngagement,
+} from "./engagement-store";
+import {
   createAmplifyDraft,
   loadAmplifyWorkspace,
   runAmplifyDryTest,
@@ -51,6 +67,14 @@ interface Env {
   UPLOAD_KEY: string;
   AUTHORIZED_USER_EMAILS?: string;
   BUFFER_API_KEY?: string;
+  // Disabled until a provider-verified internal bridge is connected.
+  ENGAGEMENT_INBOX_ENABLED?: string;
+  ENGAGEMENT_INGEST_SECRET?: string;
+  ENGAGEMENT_ID_SECRET?: string;
+  ECHOFLOW_META_WEBHOOK_ENABLED?: string;
+  META_VERIFY_TOKEN?: string;
+  META_APP_SECRET?: string;
+  INSTAGRAM_APP_SECRET?: string;
   OPENAI_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
   OPENAI_IMAGE_MODEL?: string;
@@ -1406,6 +1430,34 @@ const worker = {
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load ECHO content." }, statusFor(error, 400)); }
     }
 
+    // Authenticated, isolated BUILT TO OWN newsroom -> ECHO draft library only.
+    if (url.pathname === "/api/echo/content/import-editorial") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!authorized(request, env)) return json({ error: "This ECHO workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select BUILT TO OWN as the brand before importing." }, 400);
+      const length = Number(request.headers.get("content-length") || 0);
+      if (length > 65000) return json({ error: "Editorial handoff exceeds the import size limit." }, 413);
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 65000)
+        return json({ error: "Editorial handoff exceeds the import size limit." }, 413);
+      let body: unknown;
+      try { body = JSON.parse(raw); }
+      catch { return json({ error: "Expected a JSON editorial handoff." }, 400); }
+      try {
+        const result = await importBtoEditorialReviewDrafts(env, brandId, body);
+        if (result.imported > 0)
+          await audit(env, brandId, "built_to_own_social_drafts_imported", {
+            imported: result.imported, duplicateCount: result.alreadyPresent,
+            draftIds: result.draftIds, publishingTriggered: false, externalMessagesSent: 0,
+          }, actorId(request));
+        return json(result, 200);
+      } catch (error) {
+        const status = error instanceof EditorialImportError ? error.status : statusFor(error, 400);
+        return json({ error: error instanceof Error ? error.message : "Could not import editorial drafts." }, status);
+      }
+    }
+
     if (url.pathname === "/api/echo/content/drafts") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       try { return await echoContentCreateRoute(request, env); }
@@ -1461,6 +1513,121 @@ const worker = {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       try { return await workspace(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load the EchoFlow workspace." }, statusFor(error, 502)); }
+    }
+
+    if (url.pathname === "/api/flow/engagement/meta-webhook") {
+      try { return await metaWebhook(request, env); }
+      catch (error) {
+        const status = error instanceof MetaWebhookError ? error.status :
+          error instanceof InboxError ? error.status : 500;
+        return json({ error: error instanceof Error ? error.message : "Meta webhook unavailable." }, status);
+      }
+    }
+
+    // Provider-specific adapters must first verify their OWN network's signature and
+    // resolve the connected account, then call this signed internal bridge.
+    // No social send API exists. When unconfigured this endpoint fails closed.
+    if (url.pathname === "/api/flow/engagement/inbound") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return json(await ingestSignedInboxRequest(request, env), 202); }
+      catch (error) {
+        const status = error instanceof InboxError ? error.status : 500;
+        const message = error instanceof InboxError ? error.message : "Could not accept inbox event.";
+        return json({ error: message }, status);
+      }
+    }
+
+    if (url.pathname === "/api/flow/engagement/inbox") {
+      if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select an explicit brand to review inbound messages." }, 400);
+      try {
+        if (request.method === "GET") return json(await listInboundReviewQueue(env, brandId));
+        if (request.method === "PATCH" || request.method === "PUT") {
+          const length = Number(request.headers.get("content-length") || 0);
+          if (length > 4096) return json({ error: "Review request is too large." }, 413);
+          const raw = await request.text();
+          if (raw.length > 4096) return json({ error: "Review request is too large." }, 413);
+          let payload: Record<string, unknown>;
+          try { payload = JSON.parse(raw) as Record<string, unknown>; }
+          catch { return json({ error: "Expected a JSON review request." }, 400); }
+          if (!payload || typeof payload !== "object" || Array.isArray(payload))
+            return json({ error: "Expected a JSON review object." }, 400);
+          if (request.method === "PUT") return json(await reviseInboundDraft(env, brandId, payload.id, payload.replyText));
+          return json(await reviewInboundDraft(env, brandId, payload.id, payload.decision));
+        }
+        return json({ error: "Method not allowed." }, 405);
+      } catch (error) {
+        const status = error instanceof InboxError ? error.status : statusFor(error, 400);
+        return json({ error: error instanceof Error ? error.message : "Could not review inbox." }, status);
+      }
+    }
+
+    // Public comment completion log: an operator confirms posting externally.
+    // It never triggers provider traffic, and its metrics are self-reported.
+    if (url.pathname === "/api/flow/engagement/manual-confirm") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select a brand first." }, 400);
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 1000) return json({ error: "Confirmation request is too large." }, 413);
+      let data: Record<string, unknown>;
+      try { data = JSON.parse(raw) as Record<string, unknown>; }
+      catch { return json({ error: "Expected JSON confirmation." }, 400); }
+      if (!data || Array.isArray(data) || typeof data !== "object")
+        return json({ error: "Expected a JSON confirmation object." }, 400);
+      try { return json(await confirmManuallyPostedEngagement(env, brandId, data)); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : "Could not confirm manual posting." }, statusFor(error, 400)); }
+    }
+
+    if (url.pathname === "/api/flow/engagement/suggest") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select a brand to suggest a reply." }, 400);
+      const length = Number(request.headers.get("content-length") || 0);
+      if (length > 3600) return json({ error: "Request is too large." }, 413);
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 3600) return json({ error: "Request is too large." }, 413);
+      let body: Record<string, unknown>;
+      try { body = JSON.parse(raw) as Record<string, unknown>; }
+      catch { return json({ error: "Expected a JSON object." }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body))
+        return json({ error: "Expected a JSON object." }, 400);
+      try { return json(await suggestManualPublicReply(env, brandId, body)); }
+      catch (error) {
+        const status = error instanceof SuggestionError ? error.status : statusFor(error, 400);
+        return json({ error: error instanceof Error ? error.message : "Could not suggest a reply." }, status);
+      }
+    }
+
+    // FLOW > Engagement: review-only social opportunities for an explicitly selected brand.
+    // No social provider reading, commenting, or DM sending is exposed from this endpoint.
+    if (url.pathname === "/api/flow/engagement") {
+      if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select an explicit brand for engagement." }, 400);
+      try {
+        if (request.method === "GET") return json(await listBrandEngagementDrafts(env, brandId));
+        if (request.method === "POST" || request.method === "PATCH") {
+          const length = Number(request.headers.get("content-length") || 0);
+          if (length > 6000) return json({ error: "Engagement draft is too large." }, 413);
+          const raw = await request.text();
+          if (raw.length > 6000) return json({ error: "Engagement draft is too large." }, 413);
+          let body: Record<string, unknown>;
+          try { body = JSON.parse(raw) as Record<string, unknown>; }
+          catch { return json({ error: "Expected a JSON request body." }, 400); }
+          if (!body || Array.isArray(body) || typeof body !== "object") return json({ error: "Expected a JSON object." }, 400);
+          if (request.method === "POST") {
+            return json(await createManualEngagementDraft(env, brandId, body), 201);
+          }
+          return json(await reviewBrandEngagementDraft(env, brandId, body));
+        }
+        return json({ error: "Method not allowed." }, 405);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Could not access engagement drafts." }, statusFor(error, 400));
+      }
     }
 
     if (url.pathname === "/api/flow/workspace") {

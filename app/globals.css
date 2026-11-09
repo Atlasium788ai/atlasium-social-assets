@@ -106,3 +106,52 @@
 .echo-post-preview{order:2}
 .echo-post-library-list{grid-template-columns:1fr}
 }
+
+
+/* FLOW > Engagement: shared, brand-scoped review queue, never auto-messages */
+.flow-engagement{display:grid;gap:24px;margin:25px auto 80px;max-width:1150px;padding:0 16px}
+.flow-engagement-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:18px}
+.flow-engagement-head h1{font-size:clamp(28px,4vw,42px);margin:8px 0;letter-spacing:-.04em}
+.flow-engagement-head p:not(.eyebrow){color:#a6b2c3;font-size:13px;max-width:600px;margin:0}
+.flow-engagement-state{border:1px solid #41536c;padding:10px 13px;border-radius:20px;color:#b8d3fb;font-size:10px;font-weight:700;letter-spacing:.08em}
+.flow-engagement-notice{display:flex;flex-direction:column;gap:5px;border:1px solid #33455d;background:#0d1725;padding:16px 20px;border-radius:12px;color:#bbccde;font-size:12px}
+.flow-engagement-notice strong{color:#eef5ff;font-size:13px}
+.flow-engagement-form,.flow-engagement-card{border:1px solid #283344;background:#101720;border-radius:16px;padding:24px}
+.flow-engagement-form{display:grid;gap:15px}
+.flow-engagement-form h2,.flow-engagement-list-head h2{margin:0;font-size:20px}
+.flow-engagement-form p{margin:0;color:#9eafc2;font-size:12px}
+.flow-engagement-form label{display:grid;gap:7px;color:#cad6e5;font-size:12px}
+.flow-engagement-form input,.flow-engagement-form select,.flow-engagement-form textarea{min-width:0;width:100%;border:1px solid #3e5067;background:#0a111a;border-radius:8px;color:#f6f9fd;font:inherit;padding:12px;resize:vertical}
+.flow-engagement-form input:focus,.flow-engagement-form select:focus,.flow-engagement-form textarea:focus{outline:2px solid #79a7e9;outline-offset:1px}
+.flow-engagement-fields{display:grid;grid-template-columns:minmax(130px,.35fr) minmax(190px,1fr);gap:12px}
+.flow-engagement-form button,.flow-engagement-actions button{justify-self:start;border:1px solid #729dd9;border-radius:9px;padding:11px 16px;background:#183153;color:#fff;font-size:12px;cursor:pointer}
+.flow-engagement-form button:disabled,.flow-engagement-actions button:disabled{opacity:.6;cursor:not-allowed}
+.flow-engagement-list-head{display:flex;align-items:center;justify-content:space-between}
+.flow-engagement-list-head button{background:transparent;border:0;color:#bdd8fa;cursor:pointer}
+.flow-engagement-queue{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(310px,100%),1fr));gap:13px}
+.flow-engagement-card{display:grid;gap:13px}
+.flow-engagement-meta{display:flex;justify-content:space-between;gap:10px;color:#a6c4e6;font-size:10px;letter-spacing:.08em}
+.flow-engagement-context{font-size:13px;color:#b5c2d0;line-height:1.6;margin:0}
+.flow-engagement-reply{font-size:14px;color:#f1f5fb;line-height:1.65;margin:0}
+.flow-engagement-actions{display:flex;flex-wrap:wrap;gap:8px}
+.flow-engagement-actions button+button{border-color:#4b5563;background:#252b33}
+.flow-engagement-empty{padding:35px;background:#111821;border:1px dashed #33465d;border-radius:12px;color:#97a9be;font-size:13px}
+@media(max-width:620px){.flow-engagement-fields{grid-template-columns:1fr}.flow-engagement-form,.flow-engagement-card{padding:18px}}
+
+.flow-engagement-hint{color:#9eafc2;font-size:12px;line-height:1.65;margin:10px 0 18px;max-width:850px}
+
+.flow-engagement-revision{display:grid;gap:8px;color:#adbfda;font-size:12px}
+.flow-engagement-revision textarea{width:100%;box-sizing:border-box;border:1px solid #40546b;border-radius:8px;background:#0a111a;color:#f5f8fd;font:inherit;font-size:13px;line-height:1.6;padding:12px;resize:vertical}
+.flow-engagement-revision textarea:focus-visible{outline:2px solid #80b4f7;outline-offset:2px}
+
+.flow-engagement-generate{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;border:1px solid #34465d;border-radius:10px;background:#0b1522;padding:12px 15px}
+.flow-engagement-generate span{color:#a5b8d2;font-size:12px;max-width:520px;line-height:1.6}
+.flow-engagement-generate button{border:1px solid #8eafe5;background:#172c46;border-radius:8px;color:#eef6ff;font-size:12px;font-weight:650;padding:11px 14px;cursor:pointer}
+.flow-engagement-generate button:disabled{opacity:.45;cursor:not-allowed}
+
+.flow-engagement-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.flow-engagement-summary div{display:flex;flex-direction:column;gap:5px;border:1px solid #33445b;border-radius:12px;padding:18px;background:#0e1723}
+.flow-engagement-summary strong{font-size:29px;color:#f0f5fc}
+.flow-engagement-summary span{color:#b2c0d4;font-size:12px}
+.flow-engagement-summary small{grid-column:1/-1;color:#8092a8;font-size:11px}
+@media(max-width:620px){.flow-engagement-summary{grid-template-columns:1fr 1fr}.flow-engagement-summary div:last-of-type{grid-column:1/-1}}

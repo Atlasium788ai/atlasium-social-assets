@@ -49,6 +49,7 @@ export function EchoSocialComposer({ brandId, brandName, authKey }: { brandId: s
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [unsaved, setUnsaved] = useState(false);
+  const [newsroomFile, setNewsroomFile] = useState<File | null>(null);
   const headers = useCallback((json = false) => ({
     "X-Upload-Key": authKey, "X-Brand-ID": brandId, ...(json ? { "Content-Type": "application/json" } : {}),
   }), [authKey, brandId]);
@@ -67,7 +68,7 @@ export function EchoSocialComposer({ brandId, brandName, authKey }: { brandId: s
       if (!mounted) return;
       setSavedPosts([]); setActiveId(null); setTitle(""); setCaption(""); setIdea("");
       setImageConcept(""); setImageUrl(""); setPlatforms(["facebook", "instagram", "linkedin", "tiktok"]);
-      setMessage(""); setError(""); setUnsaved(false); setLoading(true);
+      setMessage(""); setError(""); setUnsaved(false); setLoading(true); setNewsroomFile(null);
       return refresh();
     }).catch((cause: Error) => { if (mounted) setError(cause.message); })
       .finally(() => { if (mounted) setLoading(false); });
@@ -165,6 +166,29 @@ export function EchoSocialComposer({ brandId, brandName, authKey }: { brandId: s
     finally { setBusy(false); }
   }
 
+  async function importNewsroomDrafts() {
+    if (!newsroomFile || busy) return;
+    if (newsroomFile.size > 65000 || newsroomFile.size < 1) {
+      setError("Choose a Built to Own newsroom JSON file under 65 KB."); return;
+    }
+    if (unsaved && !window.confirm("Import newsroom drafts without saving your current unsaved edits?")) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const raw = await newsroomFile.text();
+      const parsed: unknown = JSON.parse(raw);
+      const response = await fetch("/api/echo/content/import-editorial", {
+        method: "POST", headers: headers(true), body: JSON.stringify(parsed),
+      });
+      const result = await response.json() as { imported?: number; alreadyPresent?: number; error?: string };
+      if (!response.ok) throw new Error(result.error || "Newsroom import failed.");
+      await refresh();
+      setNewsroomFile(null);
+      setMessage(`Added ${result.imported ?? 0} Built to Own draft(s); ${result.alreadyPresent ?? 0} already present. Nothing published or scheduled.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not read the newsroom JSON file.");
+    } finally { setBusy(false); }
+  }
+
   async function removePost() {
     if (!activeId || busy || !window.confirm("Delete this saved social post draft?")) return;
     setBusy(true); setError(""); setMessage("");
@@ -230,6 +254,18 @@ export function EchoSocialComposer({ brandId, brandName, authKey }: { brandId: s
           <button type="button" className="secondary" disabled={busy || !idea.trim()} onClick={generate}>Generate one draft</button>
           <p className="wizard-help">AI requires your existing API configuration. Manual writing and saving work without it.</p>
         </details>
+        {brandName.trim().toUpperCase() === "BUILT TO OWN" && <details className="echo-post-idea">
+          <summary>Import Built to Own newsroom drafts</summary>
+          <p className="wizard-help">Upload the newsroom's echoflow-review-STAGED.json file. Imports saved drafts only, without posting, messaging or scheduling.</p>
+          <label htmlFor="echo-post-newsroom-file">Review-only newsroom JSON</label>
+          <input key={brandId} id="echo-post-newsroom-file" type="file" accept=".json,application/json"
+            disabled={busy} onChange={(event) => setNewsroomFile(event.target.files?.[0] || null)} />
+          <button type="button" className="secondary" disabled={busy || !newsroomFile}
+            onClick={() => void importNewsroomDrafts()}>
+            {busy ? "Importing…" : "Import as draft only"}
+          </button>
+          <p className="wizard-help">The selected brand must be BUILT TO OWN. Original articles and every social caption still require editorial review before distribution.</p>
+        </details>}
         {activeId && <button type="button" className="text-button echo-post-delete" onClick={removePost} disabled={busy}>Delete this draft</button>}
       </div>
 
