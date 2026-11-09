@@ -143,3 +143,8 @@
 .flow-engagement-revision{display:grid;gap:8px;color:#adbfda;font-size:12px}
 .flow-engagement-revision textarea{width:100%;box-sizing:border-box;border:1px solid #40546b;border-radius:8px;background:#0a111a;color:#f5f8fd;font:inherit;font-size:13px;line-height:1.6;padding:12px;resize:vertical}
 .flow-engagement-revision textarea:focus-visible{outline:2px solid #80b4f7;outline-offset:2px}
+
+.flow-engagement-generate{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;border:1px solid #34465d;border-radius:10px;background:#0b1522;padding:12px 15px}
+.flow-engagement-generate span{color:#a5b8d2;font-size:12px;max-width:520px;line-height:1.6}
+.flow-engagement-generate button{border:1px solid #8eafe5;background:#172c46;border-radius:8px;color:#eef6ff;font-size:12px;font-weight:650;padding:11px 14px;cursor:pointer}
+.flow-engagement-generate button:disabled{opacity:.45;cursor:not-allowed}
