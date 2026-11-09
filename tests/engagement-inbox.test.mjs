@@ -128,8 +128,8 @@ test("inbound bridge fails closed without configuration and without a valid sign
 test("signed own-account comments dedupe, redact raw identity, and remain review-only", async () => {
   const worker = await loadWorker(); const env = await fixture(); await initialize(worker, env);
   const first = await worker.fetch(await signedRequest(message()), env, ctx);
-  assert.equal(first.status, 202, await first.text().catch(() => ""));
   const data = await first.json();
+  assert.equal(first.status, 202, JSON.stringify(data));
   assert.equal(data.duplicate, false);
   assert.equal(data.outboundMessagesSent, 0);
   assert.equal(data.state, "pending_review");
@@ -142,7 +142,7 @@ test("signed own-account comments dedupe, redact raw identity, and remain review
   assert.equal(list.externalProviderConnectionVerified, false);
   assert.equal(list.autoReplyEnabled, false);
   assert.equal(list.events[0].sendEnabled, false);
-  assert.equal(list.events[0].category, "general");
+  assert.equal(list.events[0].category, "founder_introduction");
   const draft = list.events[0];
   assert.ok(!JSON.stringify(draft).includes("person-identifier-PRIVATE"));
   assert.ok(!JSON.stringify(draft).includes("Can I introduce"));
