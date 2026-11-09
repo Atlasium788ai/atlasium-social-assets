@@ -30,6 +30,7 @@ import {
   ingestSignedInboxRequest,
   listInboundReviewQueue,
   reviewInboundDraft,
+  reviseInboundDraft,
 } from "./engagement-inbox";
 import {
   createManualEngagementDraft,
@@ -1497,7 +1498,7 @@ const worker = {
       if (!brandId) return json({ error: "Select an explicit brand to review inbound messages." }, 400);
       try {
         if (request.method === "GET") return json(await listInboundReviewQueue(env, brandId));
-        if (request.method === "PATCH") {
+        if (request.method === "PATCH" || request.method === "PUT") {
           const length = Number(request.headers.get("content-length") || 0);
           if (length > 4096) return json({ error: "Review request is too large." }, 413);
           const raw = await request.text();
@@ -1507,6 +1508,7 @@ const worker = {
           catch { return json({ error: "Expected a JSON review request." }, 400); }
           if (!payload || typeof payload !== "object" || Array.isArray(payload))
             return json({ error: "Expected a JSON review object." }, 400);
+          if (request.method === "PUT") return json(await reviseInboundDraft(env, brandId, payload.id, payload.replyText));
           return json(await reviewInboundDraft(env, brandId, payload.id, payload.decision));
         }
         return json({ error: "Method not allowed." }, 405);
