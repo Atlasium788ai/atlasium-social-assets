@@ -276,3 +276,28 @@ export async function reviewInboundDraft(env: InboxEnv, brandId: string, draftId
     throw new InboxError(404, "Draft unavailable or already reviewed for this brand.");
   return { id, brandId: brand.id, status: decision, sendEnabled: false, outboundMessagesSent: 0 };
 }
+
+/** Editorial changes are brand-scoped and remain unsent even after approval. */
+export async function reviseInboundDraft(env: InboxEnv, brandId: string, draftId: unknown, proposedText: unknown) {
+  const brand = await requireBrand(env, brandId);
+  const db = dbFor(env);
+  const id = required(draftId, "inbox draft ID", 90);
+  if (typeof proposedText !== "string") throw new InboxError(400, "Enter a reply draft.");
+  const reply = proposedText.replace(/\s+/g, " ").trim();
+  if (!reply || reply.length > 600) throw new InboxError(400, "Reply must be 1–600 characters.");
+  if (/\b(follow us|check out our page|DM me|message me|guaranteed sales|guaranteed income)\b/i.test(reply)
+      || /https?:\/\//i.test(reply)) {
+    throw new InboxError(400, "Keep the draft useful and free of solicitation or unreviewed links.");
+  }
+  const changed = await db.prepare(`UPDATE engagement_inbox_events
+    SET reply_text=?, updated_at=?
+    WHERE id=? AND workspace_id=? AND brand_id=? AND status='pending_review'
+      AND actor_key NOT IN (
+        SELECT actor_key FROM engagement_inbox_suppressions
+        WHERE workspace_id=? AND brand_id=?
+      )`)
+    .bind(reply, new Date().toISOString(), id, WORKSPACE_ID, brand.id, WORKSPACE_ID, brand.id).run();
+  if (Number(changed.meta?.changes || 0) !== 1)
+    throw new InboxError(404, "Draft cannot be edited for this brand.");
+  return { id, brandId: brand.id, status: "pending_review", sendEnabled: false, outboundMessagesSent: 0 };
+}
