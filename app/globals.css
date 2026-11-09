@@ -148,3 +148,10 @@
 .flow-engagement-generate span{color:#a5b8d2;font-size:12px;max-width:520px;line-height:1.6}
 .flow-engagement-generate button{border:1px solid #8eafe5;background:#172c46;border-radius:8px;color:#eef6ff;font-size:12px;font-weight:650;padding:11px 14px;cursor:pointer}
 .flow-engagement-generate button:disabled{opacity:.45;cursor:not-allowed}
+
+.flow-engagement-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.flow-engagement-summary div{display:flex;flex-direction:column;gap:5px;border:1px solid #33445b;border-radius:12px;padding:18px;background:#0e1723}
+.flow-engagement-summary strong{font-size:29px;color:#f0f5fc}
+.flow-engagement-summary span{color:#b2c0d4;font-size:12px}
+.flow-engagement-summary small{grid-column:1/-1;color:#8092a8;font-size:11px}
+@media(max-width:620px){.flow-engagement-summary{grid-template-columns:1fr 1fr}.flow-engagement-summary div:last-of-type{grid-column:1/-1}}
