@@ -88,6 +88,9 @@ function toView(row: EngagementRow) {
 
 /** Adds ONE manually selected public discussion. Never accepts an arbitrary DM target. */
 export async function createManualEngagementDraft(env: EngagementEnv, brandId: string, input: ManualOpportunityInput) {
+  if ("kind" in input || "recipientId" in input || "send" in input || "targetUserId" in input) {
+    throw new Error("This endpoint only stores manually curated public opportunities, not direct message targets.");
+  }
   const brand = await requireBrand(env, brandId);
   const db = storage(env);
   const platform = input.platform as Platform;
