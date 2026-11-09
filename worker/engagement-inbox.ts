@@ -99,7 +99,7 @@ function labelMessage(message: string, kind: "dm" | "comment"): { category: stri
   if (/newsletter|subscribe|weekly brief/.test(text))
     return {
       category: "newsletter_interest",
-      draft: "Our business briefing is being prepared. We'll share the official sign-up link once it opens. We won't add you to a mailing list without your opt-in.",
+      draft: "Please use the brand's official newsletter sign-up page when available. We won't add anyone to a mailing list without their opt-in.",
       optOut: false,
     };
   if (/\bai\b|automat|artificial intelligence|agentic/.test(text))
@@ -117,7 +117,7 @@ function labelMessage(message: string, kind: "dm" | "comment"): { category: stri
   return {
     category: "general",
     draft: kind === "dm"
-      ? "Thanks for contacting Built to Own. Is your question about an article, your business, or our entrepreneur community?"
+      ? "Thanks for contacting us. Is your question about a post, your business, or a resource we shared?"
       : "Thanks for contributing to the discussion. What's been your experience with this?",
     optOut: false,
   };
