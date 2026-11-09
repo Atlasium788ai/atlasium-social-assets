@@ -97,3 +97,23 @@ Potential reusable component reference: Chatwoot's self-hosted FOSS code has an 
 **Lean completion order:** (1) authorized own-brand comments and DMs via official provider adapters, (2) prompt-safe reply generation and human approval, (3) opt-in keyword resource responses on networks where supported, (4) curated, manually approved public engagement on other pages, (5) source-attributed analytics showing reach, replies, profile visits where available, traffic and qualified conversations. Each provider is optional; leave unsupported actions disabled and visible rather than pretending full platform coverage.
 
 The commercial goal is traffic, useful discussion, qualified interest and sales conversations. The system should minimize operator time and maintain editorial integrity, consent, brand segregation and platform compliance.
+
+## Next-phase implementation: on-demand AI and Meta adapter
+
+**AI suggested comments, review-only**
+- FLOW > Engagement now has **Suggest reply with AI**. Provide a URL and a short description of a real public conversation; AI suggests one specific, non-promotional comment, grounded solely in the supplied context.
+- This is a **user-triggered** feature. AI does not scan the linked URL or read comments behind the scenes. It cannot invent personal experiences, quote unseen material or claim to have examined the full thread.
+- An ephemeral suggestion fills the editable draft field; press **Save for review** to retain it. Nothing is posted automatically.
+- It reuses the existing server-side `OPENAI_API_KEY` / `OPENAI_TEXT_MODEL`. This does not create a new subscription but **API generation may have usage costs**. A 20-successful-suggestions-per-rolling-day limit is enforced per brand using existing audit logs. The limit is a basic usage guard, not a concurrency-safe budget guarantee.
+- `POST /api/flow/engagement/suggest` requires workspace auth and an explicit brand; it validates the selected social domain and public-only context. It does not retain the public conversation or generate a new send target.
+
+**Meta native webhook adapter, disabled by default**
+- The initial read-only adapter accepts Meta Facebook Page comments/Messenger text messages and Instagram comments/DM text messages **only after Meta app verification, required app permissions, and trusted account-to-brand assignment**.
+- Endpoint: `GET|POST /api/flow/engagement/meta-webhook`. GET serves Meta's token-based challenge. POST verifies `X-Hub-Signature-256` over the **exact raw body** using configured app secret(s); it supports known event shapes only.
+- Enable only after provider authorization: `ECHOFLOW_META_WEBHOOK_ENABLED=true`, `META_VERIFY_TOKEN` (private), `META_APP_SECRET` and/or `INSTAGRAM_APP_SECRET`, plus the internal signed bridge secrets `ENGAGEMENT_INGEST_SECRET`, `ENGAGEMENT_ID_SECRET` and `ENGAGEMENT_INBOX_ENABLED=true`.
+- A verified signed payload is **not enough** to enter the inbox. Each event's provider account ID must be mapped to an active `engagement_inbox_accounts` record, owned by the same EchoFlow brand, with `status='read_enabled'`. That verified account-linking workflow **does not yet exist**; it requires authorized provider OAuth/account verification. Never enable accounts from untrusted webhook content.
+- The adapter ignores unsupported changes and own-page echo messages; known events are deduplicated and opt-out checked by the internal inbox. Raw message text is not persisted in the review DB.
+- No provider reply sending, unsolicited DM, bulk automation, app setup, account connection or production deployment exists. The test harness uses fake credentials and fake events only.
+- The code currently accepts at most 100 normalized events per request and no attachments or template messages. Expand and queue event processing as necessary before production. Confirm actual payload shapes, Meta permissions, delivery semantics and platform pricing at account connection time.
+
+**No supplier software was copied.** EchoFlow uses its own existing runtime, database and AI service. The Meta adapter follows a documented webhook signature protocol; the Chatwoot reference is architecture background rather than an imported dependency.
