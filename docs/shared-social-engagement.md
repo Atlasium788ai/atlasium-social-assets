@@ -75,6 +75,7 @@ Required body fields: `brandId, platform, providerAccountId, providerEventId, pr
 - "STOP", "Please stop messaging me" and related opt-outs permanently suppress further draft replies to the actor within the brand/platform scope. Suppression cannot be overridden by approving an old draft.
 - The engine limits one brand to 500 intake events per rolling 24 hours. This is a safety cap; provider quota limits and app reviews still apply.
 - All reply suggestions require review. `PATCH /api/flow/engagement/inbox` sets `approved_not_sent` or `rejected` but never transmits.
+- Editors can revise the suggested reply through `PUT /api/flow/engagement/inbox` before approving it. Edits must be brand-scoped, non-promotional and free of unreviewed links; revisions and approvals still never send.
 - `GET /api/flow/engagement/inbox` shows brand-scoped categories, draft suggestions and states. It intentionally hides raw provider IDs and private message content.
 
 **Outstanding for production:**
