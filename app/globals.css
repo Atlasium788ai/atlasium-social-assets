@@ -137,3 +137,5 @@
 .flow-engagement-actions button+button{border-color:#4b5563;background:#252b33}
 .flow-engagement-empty{padding:35px;background:#111821;border:1px dashed #33465d;border-radius:12px;color:#97a9be;font-size:13px}
 @media(max-width:620px){.flow-engagement-fields{grid-template-columns:1fr}.flow-engagement-form,.flow-engagement-card{padding:18px}}
+
+.flow-engagement-hint{color:#9eafc2;font-size:12px;line-height:1.65;margin:10px 0 18px;max-width:850px}
