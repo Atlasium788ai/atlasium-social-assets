@@ -133,3 +133,17 @@ Implementation: migration `0005_engagement_manual_actions.sql` and authenticated
 The **Traffic link builder** generates a URL for a *brand's own configured HTTPS website*, with `utm_source`, `utm_medium=organic_social`, `utm_campaign`, and optional `utm_content`. It rejects other domains, credentials, protocol downgrades, absolute alternate targets, fragments or query strings in path input. These tags help existing analytics attribute organic social visits after analytics is configured. They **do not collect or prove traffic data themselves**. If a brand has no website (for example, a pre-launch publication), the builder clearly says the link cannot be prepared yet.
 
 This transitional workflow minimizes extra apps/subscriptions and lets the team manage useful public engagement manually while Meta/LinkedIn permissions are unavailable. After official provider connections are tested, the manual confirmation and provider-verified delivery metrics must remain separate.
+
+## BUILT TO OWN newsroom draft import (development, no publishing)
+
+The standalone Built to Own research tools can now export review-only ECHO Social drafts. The main ECHO Social composer has a conditional **Import Built to Own newsroom drafts** control, visible only when the selected brand's name is exactly `BUILT TO OWN`. This does **not** require another SaaS tool or a second dashboard.
+
+- Source: `Atlasium788ai/atlasium-backend`, draft PR #31, `projects/built-to-own/echoflow_handoff.py`.
+- Input file: `state/echoflow-review-STAGED.json` exported from the original `social-review-DRAFT.json` content pack.
+- Endpoint: authenticated `POST /api/echo/content/import-editorial` with an explicitly selected `X-Brand-ID`. Authorization uses EchoFlow's existing workspace credentials. A direct request's spoofed body brand ID never overrides the selected brand.
+- Brand guard: the authorized brand in EchoFlow's database **must** be active with slug `built-to-own` and name `BUILT TO OWN`. The importer explicitly rejects Atlasium, client brands and unknown brands.
+- Contract: `schema=built-to-own.echoflow-drafts.v1`, `reviewOnly=true`, `publishEnabled=false`, `approvedForDistribution=false`, `socialDestinations=[]`, 1–8 checked source URLs and 1–5 single-platform drafts. Each caption must contain at least one submitted citation URL, and its deterministic source hash must match story ID, platform and caption.
+- Data: ECHO stores ordinary `echo_content_drafts` under the correct brand, with `status=draft`, `publicationApproved=false`, `distributionEnabled=false`, source citations and a deterministic import ID. Identical re-imports do not create duplicates. Updates to editorial copy create distinct versioned draft IDs.
+- Security: all input is validated before any draft is created, payload size capped at 65 KB, no external API calls, no scheduled posts, no auto-followups, no DM/contact operations, and no AI credits consumed for import. The route requires no social OAuth to save drafts.
+
+**Still blocked:** the actual BUILT TO OWN brand and its social accounts have not been verified/created/connected in the production EchoFlow workspace. Nothing will automatically publish, and this path is in a **draft PR, not deployed**. Individual claims, citations, media licenses and account destinations require independent editorial and user signoff before distribution.
