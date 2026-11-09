@@ -247,3 +247,22 @@ export const advertisingStatusEvents = sqliteTable("advertising_status_events", 
   detail: text("detail").notNull(),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("idx_advertising_events_draft_created").on(table.draftId, table.createdAt)]);
+
+export const engagementDrafts = sqliteTable("engagement_drafts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  brandId: text("brand_id").notNull(),
+  platform: text("platform").notNull(),
+  sourceKind: text("source_kind").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  context: text("context").notNull(),
+  suggestedReply: text("suggested_reply").notNull(),
+  sourceProvenance: text("source_provenance").notNull(),
+  identityKey: text("identity_key").notNull(),
+  status: text("status").notNull().default("pending_review"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_engagement_draft_brand_identity").on(table.workspaceId, table.brandId, table.identityKey),
+  index("idx_engagement_drafts_brand_status").on(table.workspaceId, table.brandId, table.status, table.createdAt),
+]);
