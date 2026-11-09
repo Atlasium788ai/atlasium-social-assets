@@ -26,6 +26,11 @@ import {
   type BufferDestination,
 } from "./brand-store";
 import {
+  createManualEngagementDraft,
+  listBrandEngagementDrafts,
+  reviewBrandEngagementDraft,
+} from "./engagement-store";
+import {
   createAmplifyDraft,
   loadAmplifyWorkspace,
   runAmplifyDryTest,
@@ -1461,6 +1466,34 @@ const worker = {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       try { return await workspace(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load the EchoFlow workspace." }, statusFor(error, 502)); }
+    }
+
+    // FLOW > Engagement: review-only social opportunities for an explicitly selected brand.
+    // No social provider reading, commenting, or DM sending is exposed from this endpoint.
+    if (url.pathname === "/api/flow/engagement") {
+      if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select an explicit brand for engagement." }, 400);
+      try {
+        if (request.method === "GET") return json(await listBrandEngagementDrafts(env, brandId));
+        if (request.method === "POST" || request.method === "PATCH") {
+          const length = Number(request.headers.get("content-length") || 0);
+          if (length > 6000) return json({ error: "Engagement draft is too large." }, 413);
+          const raw = await request.text();
+          if (raw.length > 6000) return json({ error: "Engagement draft is too large." }, 413);
+          let body: Record<string, unknown>;
+          try { body = JSON.parse(raw) as Record<string, unknown>; }
+          catch { return json({ error: "Expected a JSON request body." }, 400); }
+          if (!body || Array.isArray(body) || typeof body !== "object") return json({ error: "Expected a JSON object." }, 400);
+          if (request.method === "POST") {
+            return json(await createManualEngagementDraft(env, brandId, body), 201);
+          }
+          return json(await reviewBrandEngagementDraft(env, brandId, body));
+        }
+        return json({ error: "Method not allowed." }, 405);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Could not access engagement drafts." }, statusFor(error, 400));
+      }
     }
 
     if (url.pathname === "/api/flow/workspace") {
