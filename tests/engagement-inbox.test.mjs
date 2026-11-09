@@ -240,3 +240,27 @@ test("brand daily intake cap fails closed without restricting another brand", as
   assert.equal(other.status, 202);
   assert.equal((await other.json()).state, "pending_review");
 });
+
+test("editor can revise a reply without sending, but cannot cross brands or solicit", async () => {
+  const worker = await loadWorker(); const env = await fixture(); await initialize(worker, env);
+  await worker.fetch(await signedRequest(message()), env, ctx);
+  const list = await (await worker.fetch(authorizedRequest("/api/flow/engagement/inbox"), env, ctx)).json();
+  const id = list.events[0].id;
+  const text = "What industry do you serve and what specific customer problem do you solve?";
+  const crossBrand = await worker.fetch(authorizedRequest("/api/flow/engagement/inbox", "PUT", BRAND_B, { id, replyText: text }), env, ctx);
+  assert.equal(crossBrand.status, 404);
+  const solicitation = await worker.fetch(authorizedRequest("/api/flow/engagement/inbox", "PUT", BRAND_A, { id, replyText: "Follow us at https://example.org" }), env, ctx);
+  assert.equal(solicitation.status, 400);
+  const approvedEdit = await worker.fetch(authorizedRequest("/api/flow/engagement/inbox", "PUT", BRAND_A, { id, replyText: text }), env, ctx);
+  assert.equal(approvedEdit.status, 200, JSON.stringify(await approvedEdit.clone().json()));
+  const data = await approvedEdit.json();
+  assert.equal(data.sendEnabled, false);
+  const after = await (await worker.fetch(authorizedRequest("/api/flow/engagement/inbox"), env, ctx)).json();
+  assert.equal(after.events[0].replyText, text);
+  assert.equal(after.events[0].status, "pending_review");
+  const approval = await worker.fetch(authorizedRequest("/api/flow/engagement/inbox", "PATCH", BRAND_A, { id, decision: "approved_not_sent" }), env, ctx);
+  assert.equal(approval.status, 200);
+  const attemptAfterApproval = await worker.fetch(authorizedRequest("/api/flow/engagement/inbox", "PUT", BRAND_A, { id, replyText: "Another reply" }), env, ctx);
+  assert.equal(attemptAfterApproval.status, 404);
+  assert.equal(env.DB.database.prepare("SELECT reply_text FROM engagement_inbox_events").get().reply_text, text);
+});
