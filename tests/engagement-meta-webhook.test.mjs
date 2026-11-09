@@ -155,3 +155,29 @@ test("signed inbound Page messages can be reviewed but cannot transmit a reply",
   const noSend=await worker.fetch(new Request("https://example.invalid/api/flow/engagement/meta-webhook",{method:"PUT"}),env,ctx);
   assert.equal(noSend.status,405);
 });
+
+test("Instagram comments are authenticated using the Instagram app secret and never auto-replied",async()=>{
+  const worker=await workerRef();const env=await fixture();await initialize(worker,env);
+  env.INSTAGRAM_APP_SECRET="instagram-app-signature-key-over-24-bytes";
+  const now=new Date().toISOString();
+  env.DB.database.prepare(`INSERT INTO engagement_inbox_accounts
+    (id,workspace_id,brand_id,platform,provider_account_id,status,created_at,updated_at)
+    VALUES ('account-instagram-123','workspace_atlasium','brand_atlasium_788_ai','instagram','ig-business-123','read_enabled',?,?)`)
+    .run(now,now);
+  const payload={ object:"instagram",entry:[{
+    id:"ig-business-123",time:Math.floor(Date.now()/1000),
+    changes:[{field:"comments",value:{
+      id:"ig-comment-1",from:{id:"follower-456"},text:"Would automation help with scheduling?"
+    }}]
+  }]};
+  const response=await worker.fetch(await signedPost(payload,env.INSTAGRAM_APP_SECRET),env,ctx);
+  const body=await response.json();
+  assert.equal(response.status,200,JSON.stringify(body));
+  assert.equal(body.accepted,1);
+  const row=env.DB.database.prepare("SELECT platform,kind,status,category FROM engagement_inbox_events").get();
+  assert.equal(row.platform,"instagram");
+  assert.equal(row.kind,"comment");
+  assert.equal(row.status,"pending_review");
+  assert.equal(row.category,"technology");
+  assert.equal(body.externalMessagesSent,0);
+});
