@@ -139,3 +139,7 @@
 @media(max-width:620px){.flow-engagement-fields{grid-template-columns:1fr}.flow-engagement-form,.flow-engagement-card{padding:18px}}
 
 .flow-engagement-hint{color:#9eafc2;font-size:12px;line-height:1.65;margin:10px 0 18px;max-width:850px}
+
+.flow-engagement-revision{display:grid;gap:8px;color:#adbfda;font-size:12px}
+.flow-engagement-revision textarea{width:100%;box-sizing:border-box;border:1px solid #40546b;border-radius:8px;background:#0a111a;color:#f5f8fd;font:inherit;font-size:13px;line-height:1.6;padding:12px;resize:vertical}
+.flow-engagement-revision textarea:focus-visible{outline:2px solid #80b4f7;outline-offset:2px}
