@@ -7,6 +7,7 @@ import { AccessSessionAction } from "@/app/components/access-session-action";
 import { useFlowWorkspace } from "../state/use-flow-workspace";
 import { FlowChannels } from "./flow-channels";
 import { FlowOperations } from "./flow-operations";
+import { FlowEngagement } from "./flow-engagement";
 import { FlowSectionNavigation, type FlowSection } from "./flow-section-navigation";
 
 function FlowIdentity() {
@@ -41,7 +42,8 @@ export function FlowWorkspace({ activeSection }: { activeSection: FlowSection })
       {flow.data && flow.data.reconciliation.checked > 0 && <p className="flow-reconciliation" role="status">Checked {flow.data.reconciliation.checked} Buffer delivery record{flow.data.reconciliation.checked === 1 ? "" : "s"}: {flow.data.reconciliation.sent} sent, {flow.data.reconciliation.pending} pending, {flow.data.reconciliation.failed} failed.</p>}
       {flow.activeBrand && !flow.data && <section className="flow-access-card" aria-live="polite"><p>Loading Buffer operations…</p></section>}
       {flow.activeBrand && flow.data && activeSection === "channels" && <FlowChannels key={flow.activeBrandId} brand={flow.activeBrand} previewMode={flow.previewMode} channels={flow.data.channels} availableAccounts={flow.data.availableAccounts} publishingConnectionStatus={flow.data.publishingConnectionStatus} accessKey={flow.accessKey} onSaved={flow.refresh} />}
-      {flow.activeBrand && flow.data && activeSection !== "channels" && <FlowOperations section={activeSection} brand={flow.activeBrand} jobs={flow.data.jobs} refreshing={flow.refreshing} onRefresh={flow.refresh} />}
+      {flow.activeBrand && flow.data && activeSection === "engagement" && <FlowEngagement key={flow.activeBrandId} brandId={flow.activeBrandId} accessKey={flow.accessKey} previewMode={flow.previewMode} />}
+      {flow.activeBrand && flow.data && activeSection !== "channels" && activeSection !== "engagement" && <FlowOperations section={activeSection} brand={flow.activeBrand} jobs={flow.data.jobs} refreshing={flow.refreshing} onRefresh={flow.refresh} />}
     </>}
 
     <footer>EchoFlow Social · Create and schedule in ECHO · Monitor Buffer delivery in FLOW.</footer>
