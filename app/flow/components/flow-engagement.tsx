@@ -35,6 +35,7 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
   const [context, setContext] = useState("");
   const [suggestedReply, setSuggestedReply] = useState("");
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
 
   const headers = useCallback(() => ({ "X-Brand-ID": brandId, "X-Upload-Key": accessKey }), [brandId, accessKey]);
@@ -54,6 +55,23 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
     });
     return () => controller.abort();
   }, [refresh]);
+
+  async function generateReply() {
+    if (!context.trim() || !sourceUrl.trim()) return;
+    setGenerating(true); setError("");
+    try {
+      const response = await fetch("/api/flow/engagement/suggest", {
+        method: "POST", headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, sourceUrl, context }),
+      });
+      const result = await response.json() as { suggestedReply?: string; error?: string };
+      if (!response.ok || !result.suggestedReply)
+        throw new Error(result.error || "Could not generate a reply suggestion.");
+      setSuggestedReply(result.suggestedReply);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not generate a reply suggestion.");
+    } finally { setGenerating(false); }
+  }
 
   async function addDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -110,8 +128,13 @@ export function FlowEngagement({ accessKey, brandId, previewMode }: { accessKey:
           <label>Public post URL<input type="url" required placeholder="https://..." maxLength={2048} value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} /></label>
         </div>
         <label>Conversation context<textarea rows={2} required maxLength={500} placeholder="What question is being discussed?" value={context} onChange={(event) => setContext(event.target.value)} /></label>
+        <div className="flow-engagement-generate">
+          <span>Use EchoFlow AI to prepare a reply from the context you provided. Nothing is sent or saved automatically.</span>
+          <button type="button" disabled={busy || generating || !context.trim() || !sourceUrl.trim()}
+            onClick={() => void generateReply()}>{generating ? "Drafting…" : "Suggest reply with AI"}</button>
+        </div>
         <label>Helpful draft comment<textarea rows={3} required maxLength={600} placeholder="A specific, useful contribution. No solicitation." value={suggestedReply} onChange={(event) => setSuggestedReply(event.target.value)} /></label>
-        <button className="action-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save for review"}</button>
+        <button className="action-button" type="submit" disabled={busy || generating}>{busy ? "Saving…" : "Save for review"}</button>
       </form>
 
       <div className="flow-engagement-list-head"><h2>Review queue</h2><button type="button" className="text-button" onClick={() => void refresh().catch((e: Error) => setError(e.message))}>Refresh</button></div>
