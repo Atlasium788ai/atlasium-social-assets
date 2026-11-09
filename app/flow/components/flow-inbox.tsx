@@ -33,6 +33,7 @@ export function FlowInbox({ brandId, accessKey, previewMode }: {
   const [data, setData] = useState<InboxResponse | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [edits, setEdits] = useState<Record<string, string>>({});
   const headers = useCallback(() => ({
     "X-Brand-ID": brandId,
     "X-Upload-Key": accessKey,
@@ -72,6 +73,29 @@ export function FlowInbox({ brandId, accessKey, previewMode }: {
     }
   }
 
+  async function saveRevision(id: string, replyText: string) {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/flow/engagement/inbox", {
+        method: "PUT",
+        headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ id, replyText }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error || "Could not save the edited reply.");
+      await refresh();
+      setEdits((prior) => {
+        const next = { ...prior };
+        delete next[id];
+        return next;
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not edit reply.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return <section aria-label="Inbound comments and message review">
     <div className="flow-engagement-list-head">
       <h2>Incoming comments &amp; DMs</h2>
@@ -96,10 +120,15 @@ export function FlowInbox({ brandId, accessKey, previewMode }: {
             <p className="flow-engagement-context">
               Topic: {item.category.replaceAll("_", " ")} · Received {new Date(item.receivedAt).toLocaleDateString()}
             </p>
-            {item.replyText ? <p className="flow-engagement-reply">{item.replyText}</p> :
+            {item.requiresReview ? <label className="flow-engagement-revision">Proposed reply
+              <textarea rows={3} maxLength={600} value={edits[item.id] ?? item.replyText}
+                onChange={(e) => setEdits((current) => ({ ...current, [item.id]: e.target.value }))} />
+              </label> : item.replyText ? <p className="flow-engagement-reply">{item.replyText}</p> :
               <p className="flow-engagement-context">No reply allowed or needed.</p>}
             {item.requiresReview && <div className="flow-engagement-actions">
-              <button type="button" disabled={busy}
+              <button type="button" disabled={busy || (edits[item.id] ?? item.replyText) === item.replyText}
+                onClick={() => void saveRevision(item.id, edits[item.id] ?? item.replyText)}>Save edited reply</button>
+              <button type="button" disabled={busy || (edits[item.id] ?? item.replyText) !== item.replyText}
                 onClick={() => void review(item.id, "approved_not_sent")}>Approve draft (do not send)</button>
               <button type="button" disabled={busy}
                 onClick={() => void review(item.id, "rejected")}>Reject</button>
