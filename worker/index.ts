@@ -33,6 +33,7 @@ import {
   reviseInboundDraft,
 } from "./engagement-inbox";
 import { SuggestionError, suggestManualPublicReply } from "./engagement-suggestion";
+import { metaWebhook, MetaWebhookError } from "./engagement-meta-webhook";
 import {
   createManualEngagementDraft,
   listBrandEngagementDrafts,
@@ -68,6 +69,10 @@ interface Env {
   ENGAGEMENT_INBOX_ENABLED?: string;
   ENGAGEMENT_INGEST_SECRET?: string;
   ENGAGEMENT_ID_SECRET?: string;
+  ECHOFLOW_META_WEBHOOK_ENABLED?: string;
+  META_VERIFY_TOKEN?: string;
+  META_APP_SECRET?: string;
+  INSTAGRAM_APP_SECRET?: string;
   OPENAI_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
   OPENAI_IMAGE_MODEL?: string;
@@ -1478,6 +1483,15 @@ const worker = {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       try { return await workspace(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load the EchoFlow workspace." }, statusFor(error, 502)); }
+    }
+
+    if (url.pathname === "/api/flow/engagement/meta-webhook") {
+      try { return await metaWebhook(request, env); }
+      catch (error) {
+        const status = error instanceof MetaWebhookError ? error.status :
+          error instanceof InboxError ? error.status : 500;
+        return json({ error: error instanceof Error ? error.message : "Meta webhook unavailable." }, status);
+      }
     }
 
     // Provider-specific adapters must first verify their OWN network's signature and
