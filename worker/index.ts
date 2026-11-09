@@ -33,6 +33,7 @@ import {
   reviseInboundDraft,
 } from "./engagement-inbox";
 import { SuggestionError, suggestManualPublicReply } from "./engagement-suggestion";
+import { EditorialImportError, importBtoEditorialReviewDrafts } from "./bto-editorial-import";
 import { metaWebhook, MetaWebhookError } from "./engagement-meta-webhook";
 import {
   createManualEngagementDraft,
@@ -1427,6 +1428,34 @@ const worker = {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       try { return await echoContentWorkspaceRoute(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load ECHO content." }, statusFor(error, 400)); }
+    }
+
+    // Authenticated, isolated BUILT TO OWN newsroom -> ECHO draft library only.
+    if (url.pathname === "/api/echo/content/import-editorial") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!authorized(request, env)) return json({ error: "This ECHO workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select BUILT TO OWN as the brand before importing." }, 400);
+      const length = Number(request.headers.get("content-length") || 0);
+      if (length > 65000) return json({ error: "Editorial handoff exceeds the import size limit." }, 413);
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 65000)
+        return json({ error: "Editorial handoff exceeds the import size limit." }, 413);
+      let body: unknown;
+      try { body = JSON.parse(raw); }
+      catch { return json({ error: "Expected a JSON editorial handoff." }, 400); }
+      try {
+        const result = await importBtoEditorialReviewDrafts(env, brandId, body);
+        if (result.imported > 0)
+          await audit(env, brandId, "built_to_own_social_drafts_imported", {
+            imported: result.imported, duplicateCount: result.alreadyPresent,
+            draftIds: result.draftIds, publishingTriggered: false, externalMessagesSent: 0,
+          }, actorId(request));
+        return json(result, 200);
+      } catch (error) {
+        const status = error instanceof EditorialImportError ? error.status : statusFor(error, 400);
+        return json({ error: error instanceof Error ? error.message : "Could not import editorial drafts." }, status);
+      }
     }
 
     if (url.pathname === "/api/echo/content/drafts") {
