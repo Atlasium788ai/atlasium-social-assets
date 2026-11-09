@@ -32,6 +32,7 @@ import {
   reviewInboundDraft,
   reviseInboundDraft,
 } from "./engagement-inbox";
+import { SuggestionError, suggestManualPublicReply } from "./engagement-suggestion";
 import {
   createManualEngagementDraft,
   listBrandEngagementDrafts,
@@ -1515,6 +1516,27 @@ const worker = {
       } catch (error) {
         const status = error instanceof InboxError ? error.status : statusFor(error, 400);
         return json({ error: error instanceof Error ? error.message : "Could not review inbox." }, status);
+      }
+    }
+
+    if (url.pathname === "/api/flow/engagement/suggest") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select a brand to suggest a reply." }, 400);
+      const length = Number(request.headers.get("content-length") || 0);
+      if (length > 3600) return json({ error: "Request is too large." }, 413);
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 3600) return json({ error: "Request is too large." }, 413);
+      let body: Record<string, unknown>;
+      try { body = JSON.parse(raw) as Record<string, unknown>; }
+      catch { return json({ error: "Expected a JSON object." }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body))
+        return json({ error: "Expected a JSON object." }, 400);
+      try { return json(await suggestManualPublicReply(env, brandId, body)); }
+      catch (error) {
+        const status = error instanceof SuggestionError ? error.status : statusFor(error, 400);
+        return json({ error: error instanceof Error ? error.message : "Could not suggest a reply." }, status);
       }
     }
 
