@@ -26,6 +26,12 @@ import {
   type BufferDestination,
 } from "./brand-store";
 import {
+  InboxError,
+  ingestSignedInboxRequest,
+  listInboundReviewQueue,
+  reviewInboundDraft,
+} from "./engagement-inbox";
+import {
   createManualEngagementDraft,
   listBrandEngagementDrafts,
   reviewBrandEngagementDraft,
@@ -56,6 +62,10 @@ interface Env {
   UPLOAD_KEY: string;
   AUTHORIZED_USER_EMAILS?: string;
   BUFFER_API_KEY?: string;
+  // Disabled until a provider-verified internal bridge is connected.
+  ENGAGEMENT_INBOX_ENABLED?: string;
+  ENGAGEMENT_INGEST_SECRET?: string;
+  ENGAGEMENT_ID_SECRET?: string;
   OPENAI_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
   OPENAI_IMAGE_MODEL?: string;
@@ -1466,6 +1476,44 @@ const worker = {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       try { return await workspace(request, env); }
       catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load the EchoFlow workspace." }, statusFor(error, 502)); }
+    }
+
+    // Provider-specific adapters must first verify their OWN network's signature and
+    // resolve the connected account, then call this signed internal bridge.
+    // No social send API exists. When unconfigured this endpoint fails closed.
+    if (url.pathname === "/api/flow/engagement/inbound") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try { return json(await ingestSignedInboxRequest(request, env), 202); }
+      catch (error) {
+        const status = error instanceof InboxError ? error.status : 500;
+        const message = error instanceof InboxError ? error.message : "Could not accept inbox event.";
+        return json({ error: message }, status);
+      }
+    }
+
+    if (url.pathname === "/api/flow/engagement/inbox") {
+      if (!authorized(request, env)) return json({ error: "This EchoFlow workspace is not authorized." }, 401);
+      const brandId = request.headers.get("X-Brand-ID")?.trim();
+      if (!brandId) return json({ error: "Select an explicit brand to review inbound messages." }, 400);
+      try {
+        if (request.method === "GET") return json(await listInboundReviewQueue(env, brandId));
+        if (request.method === "PATCH") {
+          const length = Number(request.headers.get("content-length") || 0);
+          if (length > 4096) return json({ error: "Review request is too large." }, 413);
+          const raw = await request.text();
+          if (raw.length > 4096) return json({ error: "Review request is too large." }, 413);
+          let payload: Record<string, unknown>;
+          try { payload = JSON.parse(raw) as Record<string, unknown>; }
+          catch { return json({ error: "Expected a JSON review request." }, 400); }
+          if (!payload || typeof payload !== "object" || Array.isArray(payload))
+            return json({ error: "Expected a JSON review object." }, 400);
+          return json(await reviewInboundDraft(env, brandId, payload.id, payload.decision));
+        }
+        return json({ error: "Method not allowed." }, 405);
+      } catch (error) {
+        const status = error instanceof InboxError ? error.status : statusFor(error, 400);
+        return json({ error: error instanceof Error ? error.message : "Could not review inbox." }, status);
+      }
     }
 
     // FLOW > Engagement: review-only social opportunities for an explicitly selected brand.
