@@ -117,3 +117,19 @@ The commercial goal is traffic, useful discussion, qualified interest and sales 
 - The code currently accepts at most 100 normalized events per request and no attachments or template messages. Expand and queue event processing as necessary before production. Confirm actual payload shapes, Meta permissions, delivery semantics and platform pricing at account connection time.
 
 **No supplier software was copied.** EchoFlow uses its own existing runtime, database and AI service. The Meta adapter follows a documented webhook signature protocol; the Chatwoot reference is architecture background rather than an imported dependency.
+
+## Operator workflow and traffic attribution (development branch)
+
+FLOW now supports a complete **manual public-comment path** while provider-approved posting is unavailable:
+
+1. Select the brand and a public discussion; request one AI suggestion or enter a useful reply.
+2. Review and approve the proposed public comment. Approval saves a draft but does not post or DM anyone.
+3. For an approved comment, use **Copy approved reply** and **View original conversation**, then post it using the corresponding social account.
+4. Use **I posted it manually** only after personally posting it. EchoFlow records a single idempotent action with `confirmation_source='self_reported'` and brand-scoped audit entry. It does **not** claim the social provider confirmed the publication.
+5. FLOW shows **Awaiting review**, **Ready for manual posting** and **Manually confirmed** counts with transparent self-reported labeling. The counters are not follower, click, reply or sales data.
+
+Implementation: migration `0005_engagement_manual_actions.sql` and authenticated `POST /api/flow/engagement/manual-confirm`. Requires an explicitly approved public draft, selected brand and the exact acknowledgement `I_POSTED_THIS_MANUALLY`. Duplicate confirmations are idempotent. Cross-brand actions are denied. **There is still no automatic comment/DM send endpoint.**
+
+The **Traffic link builder** generates a URL for a *brand's own configured HTTPS website*, with `utm_source`, `utm_medium=organic_social`, `utm_campaign`, and optional `utm_content`. It rejects other domains, credentials, protocol downgrades, absolute alternate targets, fragments or query strings in path input. These tags help existing analytics attribute organic social visits after analytics is configured. They **do not collect or prove traffic data themselves**. If a brand has no website (for example, a pre-launch publication), the builder clearly says the link cannot be prepared yet.
+
+This transitional workflow minimizes extra apps/subscriptions and lets the team manage useful public engagement manually while Meta/LinkedIn permissions are unavailable. After official provider connections are tested, the manual confirmation and provider-verified delivery metrics must remain separate.
