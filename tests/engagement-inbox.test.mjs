@@ -175,7 +175,7 @@ test("brand ownership is checked against actual authorized inbox account mapping
 test("opt-outs suppress prior drafts and subsequent messages from that actor", async () => {
   const worker = await loadWorker(); const env = await fixture(); await initialize(worker, env);
   await worker.fetch(await signedRequest(message({ kind: "dm", providerEventId: "dm-1", incomingText: "Can we discuss business finance?" })), env, ctx);
-  const stop = await worker.fetch(await signedRequest(message({ kind: "dm", providerEventId: "dm-stop", incomingText: "STOP" })), env, ctx);
+  const stop = await worker.fetch(await signedRequest(message({ kind: "dm", providerEventId: "dm-stop", incomingText: "Please stop messaging me" })), env, ctx);
   assert.equal((await stop.json()).state, "suppressed");
   const later = await worker.fetch(await signedRequest(message({ providerEventId: "dm-after-stop", incomingText: "AI workflow" })), env, ctx);
   assert.equal((await later.json()).state, "suppressed");
@@ -220,4 +220,23 @@ test("inbox reviews are scoped to their own brand and cannot transmit", async ()
   assert.equal(send.status, 405);
   const unauthed = new Request("https://example.invalid/api/flow/engagement/inbox");
   assert.equal((await worker.fetch(unauthed, env, ctx)).status, 401);
+});
+
+test("brand daily intake cap fails closed without restricting another brand", async () => {
+  const worker = await loadWorker(); const env = await fixture(); await initialize(worker, env);
+  const at = new Date().toISOString();
+  const insert = env.DB.database.prepare(`INSERT INTO engagement_inbox_events
+    (id, workspace_id, brand_id, account_id, platform, kind, actor_key,
+     event_key, category, reply_text, status, received_at, created_at, updated_at)
+    VALUES (?, 'workspace_atlasium', ?, 'account-aaa', 'instagram', 'comment', ?, ?, 'general', 'draft', 'pending_review', ?, ?, ?)`);
+  for (let i = 0; i < 500; i++) insert.run(`cap-${i}`, BRAND_A, `actor-${i}`, `key-${i}`, at, at, at);
+  const excess = await worker.fetch(await signedRequest(message({ providerEventId: "over-500" })), env, ctx);
+  assert.equal(excess.status, 429);
+  const other = await worker.fetch(await signedRequest(message({
+    brandId: BRAND_B,
+    providerAccountId: "other-instagram-owned-account",
+    providerEventId: "brand-b-first",
+  })), env, ctx);
+  assert.equal(other.status, 202);
+  assert.equal((await other.json()).state, "pending_review");
 });
