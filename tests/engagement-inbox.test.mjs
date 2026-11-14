@@ -264,3 +264,29 @@ test("editor can revise a reply without sending, but cannot cross brands or soli
   assert.equal(attemptAfterApproval.status, 404);
   assert.equal(env.DB.database.prepare("SELECT reply_text FROM engagement_inbox_events").get().reply_text, text);
 });
+
+test("opt-out bypasses full intake cap and suppresses previously approved drafts without sending", async () => {
+  const worker = await loadWorker(); const env = await fixture(); await initialize(worker, env);
+  await worker.fetch(await signedRequest(message()), env, ctx);
+  const draft = env.DB.database.prepare("SELECT id FROM engagement_inbox_events").get();
+  env.DB.database.prepare("UPDATE engagement_inbox_events SET status='approved_not_sent' WHERE id=?").run(draft.id);
+  const at = new Date().toISOString();
+  const insert = env.DB.database.prepare(`INSERT INTO engagement_inbox_events
+    (id, workspace_id, brand_id, account_id, platform, kind, actor_key,
+     event_key, category, reply_text, status, received_at, created_at, updated_at)
+    VALUES (?, 'workspace_atlasium', ?, 'account-aaa', 'instagram', 'comment', ?, ?, 'general', 'draft', 'pending_review', ?, ?, ?)`);
+  for (let i = 0; i < 499; i++) insert.run(`stop-cap-${i}`, BRAND_A, `actor-${i}`, `key-${i}`, at, at, at);
+  assert.equal((await worker.fetch(await signedRequest(message({providerEventId:'over-cap-normal'})),env,ctx)).status,429);
+  const response = await worker.fetch(await signedRequest(message({kind:'dm',providerEventId:'stop-at-cap',incomingText:'STOP'})),env,ctx);
+  assert.equal(response.status,202);
+  const result=await response.json();
+  assert.equal(result.state,'suppressed');
+  assert.equal(result.outboundMessagesSent,0);
+  assert.equal(result.sendEnabled,false);
+  assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS n FROM engagement_inbox_suppressions WHERE brand_id=?").get(BRAND_A).n,1);
+  const stopped=env.DB.database.prepare("SELECT status,reply_text FROM engagement_inbox_events WHERE id=?").get(draft.id);
+  assert.equal(stopped.status,'suppressed');assert.equal(stopped.reply_text,'');
+  const replay=await worker.fetch(await signedRequest(message({kind:'dm',providerEventId:'stop-at-cap',incomingText:'STOP'})),env,ctx);
+  assert.equal((await replay.json()).duplicate,true);
+  assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS n FROM engagement_inbox_suppressions WHERE brand_id=?").get(BRAND_B).n,0);
+});

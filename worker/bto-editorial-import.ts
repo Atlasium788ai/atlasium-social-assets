@@ -5,6 +5,9 @@
 import { requireBrand, WORKSPACE_ID } from "./brand-store";
 import { ensureContentSystem } from "./content-store";
 
+// Stable identity verified from the existing EchoFlow workspace. Slugs and names are editable.
+const BTO_BRAND_ID = "brand_52eae935-c32d-4f35-8cb4-4774f4a74deb";
+
 type ImportEnv = { DB?: D1Database; UPLOADS: R2Bucket };
 type Draft = {
   sourceKey: string; platform: string;
@@ -99,8 +102,8 @@ export async function importBtoEditorialReviewDrafts(
 ) {
   if (!env.DB) throw new EditorialImportError(503, "ECHO content storage is not configured.");
   const brand = await requireBrand(env, brandId);
-  // Fail closed until a genuinely separate Built to Own brand exists.
-  if (brand.slug !== "built-to-own" || brand.name.trim().toUpperCase() !== "BUILT TO OWN")
+  // Fail closed to the existing BTO record, even when another brand copies its name or slug.
+  if (brand.id !== BTO_BRAND_ID || brand.workspaceId !== WORKSPACE_ID)
     throw new EditorialImportError(403, "Select the separate BUILT TO OWN brand; Atlasium and client brands cannot receive these drafts.");
   const prepared = await parseHandoff(input); // Validate the entire batch before writing.
   await ensureContentSystem(env);

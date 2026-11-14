@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile, readdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 
-const BTO = "brand_bto_test";
+const BTO = "brand_52eae935-c32d-4f35-8cb4-4774f4a74deb";
 const ATLASIUM = "brand_atlasium_788_ai";
 const SOURCE = "https://www.canada.ca/en/services/business.html";
 const CTX = { waitUntil() {}, passThroughOnException() {} };
@@ -52,7 +52,7 @@ async function testEnv(worker) {
   const now=new Date().toISOString();
   DB.database.prepare(`INSERT INTO brands
     (id,workspace_id,slug,name,logo_url,website,industry,location,timezone,status,created_at,updated_at)
-    VALUES (?,?, 'built-to-own', 'BUILT TO OWN', NULL,'','','','America/Toronto','active',?,?)`)
+    VALUES (?,?, 'built-to-own-a74deb', 'BUILT TO OWN', NULL,'','','','America/Toronto','active',?,?)`)
     .run(BTO,"workspace_atlasium",now,now);
   DB.database.prepare(`INSERT INTO brand_profiles
     (brand_id,what_it_does,target_audience,main_offers,primary_cta,tone,words_use,words_avoid,visual_style,instructions,routing_rules,updated_at)
@@ -171,6 +171,22 @@ test("brand names cannot be spoofed by changing the POST body",async()=>{
   const data=await handoff();
   data.brandId=BTO;
   const response=await worker.fetch(request(data,otherId),env,CTX);
+  assert.equal(response.status,403);
+  assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS n FROM echo_content_drafts").get().n,0);
+});
+
+test("BTO import uses stable identity rather than editable display metadata", async () => {
+  const worker=await loadWorker();const env=await testEnv(worker);const data=await handoff();
+  env.DB.database.prepare("UPDATE brands SET slug='renamed-editorial',name='Editorial label changed' WHERE id=?").run(BTO);
+  const response=await worker.fetch(request(data),env,CTX);
+  assert.equal(response.status,200);
+  assert.equal(env.DB.database.prepare("SELECT brand_id FROM echo_content_drafts").get().brand_id,BTO);
+});
+
+test("a different brand cannot impersonate BTO by copying its original display name and slug",async()=>{
+  const worker=await loadWorker();const env=await testEnv(worker);
+  env.DB.database.prepare("UPDATE brands SET slug='built-to-own',name='BUILT TO OWN' WHERE id=?").run(ATLASIUM);
+  const response=await worker.fetch(request(await handoff(),ATLASIUM),env,CTX);
   assert.equal(response.status,403);
   assert.equal(env.DB.database.prepare("SELECT COUNT(*) AS n FROM echo_content_drafts").get().n,0);
 });
